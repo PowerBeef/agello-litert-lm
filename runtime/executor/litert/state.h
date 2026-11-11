@@ -82,6 +82,9 @@ class LitertState : public StateInterface {
   // Returns true if all state buffers are backed by host memory.
   bool IsHostMemory() const;
 
+  // Agello telemetry: the bytes a copy of this state moves (every buffer of both banks).
+  int64_t ByteSize() const;
+
   // Copies the contents of all state buffers (both banks for kPingPong) and
   // the ping-pong bank index from `other` into this state's existing buffers,
   // without reallocating them. `other` must have the same allocation policy,

@@ -369,6 +369,18 @@ bool LitertState::IsHostMemory() const {
   return true;
 }
 
+int64_t LitertState::ByteSize() const {
+  int64_t bytes = 0;
+  auto add_bank = [&bytes](const absl::flat_hash_map<std::string, StateBuffer>& bank) {
+    for (const auto& [_, state_buffer] : bank) {
+      if (auto size = state_buffer.buffer.Size()) bytes += static_cast<int64_t>(*size);
+    }
+  };
+  add_bank(bank_1_state_buffers_);
+  if (bank_2_state_buffers_.has_value()) add_bank(*bank_2_state_buffers_);
+  return bytes;
+}
+
 absl::Status LitertState::CopyContentsFrom(const LitertState& other) {
   if (this == &other) {
     return absl::OkStatus();

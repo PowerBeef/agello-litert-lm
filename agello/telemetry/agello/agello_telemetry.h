@@ -24,6 +24,11 @@
 //   4 + diagnostic modes that change timing (per-kernel GPU timing, numerical probes)
 // The AGELLO_TELEMETRY environment variable sets the level when the library loads.
 // AGELLO_TELEMETRY_OUT=<path> writes the snapshot there at exit (and the trace at level 3+).
+// AGELLO_TELEMETRY_TRACE_ALL=1 also keeps LiteRT's own trace sites in the event trace (they are
+// a few hundred events per decode step and push everything else out of the ring; without it the
+// trace holds this file's spans, about 6,500 decode steps per thread).
+// AGELLO_TELEMETRY_LOGITS_OUT=<path> appends the eight best logits of every row the sampler
+// reads, one JSON line each (it probes every row, so it costs about a quarter millisecond a row).
 #ifndef AGELLO_TELEMETRY_AGELLO_TELEMETRY_H_
 #define AGELLO_TELEMETRY_AGELLO_TELEMETRY_H_
 
@@ -126,6 +131,7 @@ enum Counter : int {
   X(kConstraint, "constraint")                        \
   X(kDetokenize, "detokenize")                        \
   X(kStreamCallback, "stream_callback")               \
+  X(kToken, "token")                                  \
   X(kMtpDraft, "mtp.draft")                           \
   X(kMtpVerify, "mtp.verify")                         \
   X(kKvClone, "kv_clone")                             \
@@ -274,6 +280,10 @@ void CheckSlowWait(uint64_t start_ticks, int64_t id, const char* what, double wa
 
 // The GPU wait span for the model run in flight (prefill, decode, or other).
 int GpuWaitSpanForCurrentRun();
+
+// The GPU's allocated memory (MTLDevice.currentAllocatedSize) and the device's state, as the
+// Metal side reads them now and then: snapshots report the last value and the peak.
+void RecordDeviceState(int64_t gpu_allocated_bytes, int thermal_state, bool low_power);
 
 // Adds a value to a gauge's distribution (level 1+).
 void RecordValue(Gauge gauge, double value);

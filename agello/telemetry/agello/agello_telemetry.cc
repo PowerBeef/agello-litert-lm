@@ -140,7 +140,19 @@ struct TraceEvent {
   int64_t arg;
   int32_t span;
 };
-constexpr size_t kRingSize = 1 << 16;
+// 262,144 events of 32 bytes: 8 MB per traced thread, allocated only at level 3.
+constexpr size_t kRingSize = 1 << 18;
+// LiteRT's run-time-named trace sites flood the ring (a few hundred per decode step): they stay
+// out of the event trace unless asked for, and always keep their aggregates.
+const bool trace_all = [] {
+  const char* value = std::getenv("AGELLO_TELEMETRY_TRACE_ALL");
+  return value != nullptr && *value != '\0' && *value != '0';
+}();
+// The device's state, as the Metal side last read it.
+std::atomic<int64_t> gpu_allocated_bytes{-1};
+std::atomic<int64_t> gpu_allocated_peak_bytes{0};
+std::atomic<int> thermal_state{-1};
+std::atomic<int> low_power{-1};
 struct Ring {
   std::unique_ptr<TraceEvent[]> events{new TraceEvent[kRingSize]};
   std::atomic<uint64_t> written{0};
@@ -289,7 +301,7 @@ void RecordSpan(int span, uint64_t begin, uint64_t end, int64_t arg) {
   int64_t max = stats.max_ns.load(std::memory_order_relaxed);
   while (ns > max && !stats.max_ns.compare_exchange_weak(max, ns, std::memory_order_relaxed)) {
   }
-  if (level.load(std::memory_order_relaxed) >= kTrace) {
+  if (level.load(std::memory_order_relaxed) >= kTrace && (span < kStaticSpanCount || trace_all)) {
     Ring* ring = ThreadRing();
     const uint64_t index = ring->written.fetch_add(1, std::memory_order_relaxed);
     ring->events[index % kRingSize] = {begin, end, arg, span};
@@ -425,12 +437,52 @@ namespace {
 
 std::atomic<uint64_t> logits_probe_calls{0};
 
+// AGELLO_TELEMETRY_LOGITS_OUT: where the best logits of every row go, or null.
+std::mutex logits_out_mutex;
+FILE* const logits_out = [] {
+  const char* path = std::getenv("AGELLO_TELEMETRY_LOGITS_OUT");
+  return path != nullptr && *path != '\0' ? std::fopen(path, "a") : nullptr;
+}();
+
 // How many rows of this call to check: none, the first one (every 32nd call below level 4), or
-// all of them.
+// all of them (level 4, or when the rows are being written out).
 int64_t LogitRowsToProbe(int level, int64_t rows) {
   const uint64_t call = logits_probe_calls.fetch_add(1, std::memory_order_relaxed);
-  if (level >= kDeep) return rows;
+  if (level >= kDeep || logits_out != nullptr) return rows;
   return call % 32 == 0 ? 1 : 0;
+}
+
+// One JSON line for a row: when, which run read it (decode, verify, drafter), the sampler call
+// and the row within it, and the eight best tokens with their logits, best first.
+void WriteTopLogits(const float* row, int64_t vocab, int64_t row_index) {
+  constexpr int kBest = 8;
+  int ids[kBest];
+  float values[kBest];
+  int found = 0;
+  for (int64_t v = 0; v < vocab; ++v) {
+    const float x = row[v];
+    if (found == kBest && !(x > values[kBest - 1])) continue;
+    int at = found < kBest ? found++ : kBest - 1;
+    while (at > 0 && x > values[at - 1]) {
+      values[at] = values[at - 1];
+      ids[at] = ids[at - 1];
+      --at;
+    }
+    values[at] = x;
+    ids[at] = static_cast<int>(v);
+  }
+  const int run = CurrentRun();
+  const char* kind = run == kGpuDrafter ? "drafter" : run == kGpuVerify ? "verify" : "decode";
+  std::string out;
+  Append(out, "{\"us\":%.1f,\"run\":\"%s\",\"call\":%llu,\"row\":%lld,\"ids\":[", Now() * TickNs() / 1e3,
+         kind, (unsigned long long)logits_probe_calls.load(std::memory_order_relaxed),
+         (long long)row_index);
+  for (int i = 0; i < found; ++i) Append(out, i == 0 ? "%d" : ",%d", ids[i]);
+  out += "],\"logits\":[";
+  for (int i = 0; i < found; ++i) Append(out, i == 0 ? "%.5g" : ",%.5g", values[i]);
+  out += "]}\n";
+  std::lock_guard<std::mutex> lock(logits_out_mutex);
+  std::fwrite(out.data(), 1, out.size(), logits_out);
 }
 
 float HalfToFloat(uint16_t h) {
@@ -490,6 +542,7 @@ void ProbeLogitRows(const float* logits, int64_t rows, int64_t vocab, int level)
   };
   for (int64_t r = 0; r < rows; ++r) {
     const float* row = logits + r * vocab;
+    if (logits_out != nullptr) WriteTopLogits(row, vocab, r);
     // Pass 1, branchless: non-finite count, max and min of the finite values.
     int64_t nonfinite = 0;
     float top1 = -FLT_MAX, lowest = FLT_MAX;
@@ -686,7 +739,17 @@ std::string SnapshotJson() {
 #if TARGET_OS_IPHONE
     Append(out, ",\"available_mb\":%.1f", os_proc_available_memory() / 1e6);
 #endif
+    const int64_t gpu_bytes = gpu_allocated_bytes.load(std::memory_order_relaxed);
+    if (gpu_bytes >= 0) {
+      Append(out, ",\"gpu_allocated_mb\":%.1f,\"gpu_allocated_peak_mb\":%.1f", gpu_bytes / 1e6,
+             gpu_allocated_peak_bytes.load(std::memory_order_relaxed) / 1e6);
+    }
     out += "}";
+  }
+  if (thermal_state.load(std::memory_order_relaxed) >= 0) {
+    Append(out, ",\"device\":{\"thermal_state\":%d,\"low_power\":%s}",
+           thermal_state.load(std::memory_order_relaxed),
+           low_power.load(std::memory_order_relaxed) > 0 ? "true" : "false");
   }
 #endif
   // Process CPU time since the last reset: busy-waiting and host work show up here.
@@ -696,7 +759,20 @@ std::string SnapshotJson() {
   return out;
 }
 
+void RecordDeviceState(int64_t gpu_bytes, int thermal, bool low_power_mode) {
+  gpu_allocated_bytes.store(gpu_bytes, std::memory_order_relaxed);
+  int64_t peak = gpu_allocated_peak_bytes.load(std::memory_order_relaxed);
+  while (gpu_bytes > peak &&
+         !gpu_allocated_peak_bytes.compare_exchange_weak(peak, gpu_bytes, std::memory_order_relaxed)) {
+  }
+  thermal_state.store(thermal, std::memory_order_relaxed);
+  low_power.store(low_power_mode ? 1 : 0, std::memory_order_relaxed);
+}
+
 void Reset() {
+  // The GPU's peak restarts from what is allocated now.
+  gpu_allocated_peak_bytes.store(std::max<int64_t>(0, gpu_allocated_bytes.load(std::memory_order_relaxed)),
+                                 std::memory_order_relaxed);
   cpu_base_user = CpuMs(true);
   cpu_base_system = CpuMs(false);
   for (auto& counter : counters) counter.store(0, std::memory_order_relaxed);

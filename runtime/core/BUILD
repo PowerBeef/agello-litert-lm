@@ -48,6 +48,7 @@ package_group(
 )
 
 ENGINE_IMPL_COMMON_DEPS = [
+    "@agello_telemetry//:telemetry",
     ":audio_session_advanced",
     ":session_advanced",
     ":cached_session",

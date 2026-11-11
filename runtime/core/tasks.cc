@@ -307,6 +307,14 @@ class DecodeOneStep {
     AGELLO_SPAN(kDecodeStep);
     ABSL_ASSIGN_OR_RETURN(auto token_ids,
                           DecodeAndSample(std::move(decoded_ids)));
+    // Agello telemetry: one event per token this step yielded, its id as the argument. The
+    // span's count is the tokens written so far, and the event trace says which, in order.
+    if (::agello::telemetry::Enabled(::agello::telemetry::kSpans) && !token_ids.empty()) {
+      const uint64_t now = ::agello::telemetry::NowTicks();
+      for (int id : token_ids[0]) {
+        ::agello::telemetry::RecordDuration(::agello::telemetry::kToken, now, now, id);
+      }
+    }
 
     size_t sequence_length = token_ids[0].size();
     for (size_t i = 1; i < token_ids.size(); ++i) {

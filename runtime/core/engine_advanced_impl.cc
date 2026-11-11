@@ -36,6 +36,7 @@
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
+#include "agello/agello_telemetry.h"  // from @agello_telemetry
 #include "runtime/components/model_resources.h"
 #include "runtime/components/model_resources_streaming.h"
 #include "runtime/core/audio_session_advanced.h"
@@ -275,6 +276,7 @@ class EngineAdvancedImpl : public Engine {
   // Method to create the Session.
   absl::StatusOr<std::unique_ptr<Session>> CreateSession(
       const SessionConfig& session_config) override {
+    AGELLO_SPAN(kSessionCreate);
     std::optional<BenchmarkInfo> session_benchmark_info;
     if (benchmark_info_.has_value()) {
       // Each session will have its own benchmark info, which will be populated
@@ -397,6 +399,7 @@ class EngineAdvancedImpl : public Engine {
 // Method to create Engine.
 absl::StatusOr<std::unique_ptr<Engine>> EngineAdvancedImpl::Create(
     EngineSettings engine_settings, absl::string_view input_prompt_as_hint) {
+  AGELLO_SPAN(kEngineInit);
 
 #ifdef __EMSCRIPTEN__
   MaybeUpgradeToStreamingModelAssets(engine_settings);

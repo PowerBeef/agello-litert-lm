@@ -502,6 +502,7 @@ LlmLiteRtMtpDrafter::RunDraftingLoop(
     int token_id, std::optional<TensorBuffer>& activations,
     const Constraint* constraint,
     const Constraint::State* verified_constraint_state) {
+  AGELLO_SPAN(kMtpDraft);
   DraftingResult result;
   result.drafted_tokens.reserve(num_draft_steps_);
   result.draft_constraint_states.reserve(num_draft_steps_);
@@ -663,6 +664,7 @@ absl::Status LlmLiteRtMtpDrafter::PrepareVerifierOutputBuffers(
 absl::StatusOr<std::vector<int>> LlmLiteRtMtpDrafter::RunVerification(
     const std::vector<std::unique_ptr<Constraint::State>>&
         draft_constraint_states) {
+  AGELLO_SPAN(kMtpVerify);
   bool async = true;
   {
     AGELLO_SPAN(kRunVerify);

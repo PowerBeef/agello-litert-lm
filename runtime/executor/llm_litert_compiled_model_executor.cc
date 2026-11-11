@@ -1648,6 +1648,9 @@ LlmLiteRtCompiledModelExecutorBase::CloneState() const {
   }
   AGELLO_SPAN(kKvClone);
   AGELLO_COUNT(kKvCopies);
+  if (const auto* litert_state = dynamic_cast<const LitertState*>(active_state)) {
+    AGELLO_COUNT(kKvCopyBytes, litert_state->ByteSize());
+  }
   return active_state->DeepCopy();
 }
 
@@ -1677,6 +1680,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreState(
       restored->IsHostMemory()) {
     AGELLO_SPAN(kKvClone, 1);
     AGELLO_COUNT(kKvCopies);
+    AGELLO_COUNT(kKvCopyBytes, current->ByteSize());
     return current->CopyContentsFrom(*restored);
   }
 

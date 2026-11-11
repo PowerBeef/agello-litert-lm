@@ -14,6 +14,10 @@
 
 #import "agello/agello_telemetry_metal.h"
 
+#import <Foundation/Foundation.h>
+
+#include <atomic>
+
 #include "agello/agello_telemetry.h"
 
 namespace agello::telemetry {
@@ -22,6 +26,13 @@ void AttachGpuTiming(id<MTLCommandBuffer> command_buffer) {
   const int level = GetLevel();
   if (level < kCounters || command_buffer == nil) return;
   Count(kCommandBuffers);
+  // Now and then: what the GPU has allocated, and how the device is doing.
+  static std::atomic<uint64_t> calls{0};
+  if (calls.fetch_add(1, std::memory_order_relaxed) % 64 == 0) {
+    NSProcessInfo* process = NSProcessInfo.processInfo;
+    RecordDeviceState(static_cast<int64_t>(command_buffer.device.currentAllocatedSize),
+                      static_cast<int>(process.thermalState), process.lowPowerModeEnabled);
+  }
   const int run = CurrentRun();
   [command_buffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
     if (buffer.status == MTLCommandBufferStatusError) {
