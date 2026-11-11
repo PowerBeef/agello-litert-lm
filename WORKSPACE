@@ -657,36 +657,8 @@ load("@android_ndk_env//:current_android_ndk_env.bzl", "ANDROID_NDK_HOME_IS_SET"
 # an empty string.
 register_toolchains("@androidndk//:all" if ANDROID_NDK_HOME_IS_SET else "@android_ndk_env//:all")
 
-# VENDOR SDKS ######################################################################################
-
-# QUALCOMM ---------------------------------------------------------------------------------------
-
-# The actual macro call will be set during configure for now.
-load("@litert//third_party/qairt:workspace.bzl", "qairt")
-
-qairt()
-
-# MEDIATEK ---------------------------------------------------------------------------------------
-
-# Currently only works with local sdk
-load("@litert//third_party/neuro_pilot:workspace.bzl", "neuro_pilot")
-
-neuro_pilot()
-
-# GOOGLE TENSOR ----------------------------------------------------------------------------------
-load("@litert//third_party/google_tensor:workspace.bzl", "google_tensor")
-
-google_tensor()
-
-# INTEL OPENVINO ---------------------------------------------------------------------------------
-load("@litert//third_party/intel_openvino:openvino.bzl", "openvino_configure")
-
-openvino_configure()
-
-# SAMSUNG EXYNOS_AI_LITECORE----------------------------------------------------------------------
-load("@litert//third_party/exynos_ai_litecore:workspace.bzl", "exynos_ai_litecore")
-
-exynos_ai_litecore()
+# Agello: the vendor NPU SDKs LiteRT declares here (Qualcomm, MediaTek, Google Tensor, Intel
+# OpenVINO, Samsung Exynos) are gone with their code: this tree builds for Apple GPUs only.
 
 load("@rules_python//python:pip.bzl", "pip_parse")
 
