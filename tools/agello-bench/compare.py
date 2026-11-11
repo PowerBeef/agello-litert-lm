@@ -100,8 +100,9 @@ def main():
                     cells.append(f"{'-':>24}")
                     continue
                 cell = f"{statistics.median(values):.1f} ({iqr(values):.1f})"
-                old = [r[metric] for r in by[(base, c)]]
-                if label != base and old:
+                old = [r[metric] for r in by[(base, c)] if r.get(metric) is not None]
+                # No speed to compare with (the scripted engine reports no prefill speed).
+                if label != base and old and statistics.median(old) > 0:
                     point, low, high = change(values, old)
                     changes[label].append(point)
                     cell += f" {point:+.1f}% [{low:+.1f},{high:+.1f}]"
