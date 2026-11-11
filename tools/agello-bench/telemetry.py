@@ -65,7 +65,7 @@ PREFILL_SPANS = [
 WATCH_COUNTERS = [
     "runs_prefill", "runs_decode", "runs_verify", "runs_drafter", "command_buffers", "gpu_waits",
     "sampler_gpu", "sampler_cpu", "logit_masks", "embedding_lookups", "mask_fills",
-    "token_history_copies", "decode_allocations", "kv_copies", "context_switches",
+    "token_history_copies", "decode_allocations", "kv_copies", "kv_copy_bytes", "context_switches",
     "host_locks", "host_lock_copies", "host_lock_copy_bytes", "host_unlock_copies",
     "host_unlock_copy_bytes", "host_shadow_allocs", "run_option_parses", "tasks_scheduled",
     "stop_eos", "stop_max_tokens", "stop_kv_full", "stop_cancelled", "errors",
@@ -263,6 +263,25 @@ def main():
         if drafted:
             print(f"  MTP: {counters.get('mtp_rounds', 0) // n} rounds per run, acceptance "
                   f"{100 * accepted / drafted:.0f}% ({accepted}/{drafted})")
+            draft, verify = spans.get("mtp.draft"), spans.get("mtp.verify")
+            steps = spans.get("decode.step", {}).get("total_ms", 0)
+            if draft and verify and draft["count"] and verify["count"] and steps:
+                print(f"    per round: draft {draft['total_ms'] / draft['count']:.2f} ms "
+                      f"({100 * draft['total_ms'] / steps:.0f}% of the decode steps), verify "
+                      f"{verify['total_ms'] / verify['count']:.2f} ms ({100 * verify['total_ms'] / steps:.0f}%)")
+        copies = counters.get("kv_copies", 0)
+        if copies and counters.get("kv_copy_bytes"):
+            clone = spans.get("kv_clone", {})
+            took = f", {clone['total_ms'] / clone['count']:.0f} ms each" if clone.get("count") else ""
+            print(f"  KV copies: {copies}, {counters['kv_copy_bytes'] / copies / 1e6:.0f} MB each{took}")
+        memory = records[-1]["telemetry"].get("memory") or {}
+        if memory.get("gpu_allocated_mb") is not None:
+            device = records[-1]["telemetry"].get("device") or {}
+            state = (f"; thermal state {device['thermal_state']}"
+                     f"{', low power' if device.get('low_power') else ''}") if device else ""
+            print(f"  GPU memory allocated (MTLDevice.currentAllocatedSize, last run): "
+                  f"{memory['gpu_allocated_mb']:.0f} MB, peak {memory.get('gpu_allocated_peak_mb', 0):.0f} MB; "
+                  f"footprint {memory.get('footprint_mb', 0):.0f} MB{state}")
         facts = records[0]["telemetry"].get("facts") or {}
         if facts:
             print("  facts: " + ", ".join(f"{k} = {v}" for k, v in facts.items()))

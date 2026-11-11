@@ -43,6 +43,11 @@ Every probe is an inline check of one atomic level before any work.
   template render, tokenize, prefill, prefill chunk, embedding lookup, mask fill, parameter fill,
   bind, run, GPU wait, decode step, sample, constraint, detokenize, stream callback, MTP draft and
   verify, KV clone and restore, task queue wait, engine and session init phases, delegate invoke.
+  Since the probes of 2026-11-10: `token`, one event per token a decode step yields with the
+  token's id as its argument (the span's count is the tokens written, and a level 3 trace gives
+  them in order); `mtp.draft` and `mtp.verify` around the two halves of an MTP round;
+  `engine.init` and `session.create`. The counter `kv_copy_bytes` adds the bytes each KV copy
+  moves (every buffer of both banks: 917.5 MB a copy at a 32,000-token window).
   Signposts go to an `os_log` handle with the DynamicTracing category (about 11 ns per pair until
   Instruments records; PointsOfInterest costs about 410 ns per signpost even when nothing
   records, so only turn-level spans use it).
@@ -59,7 +64,10 @@ Every probe is an inline check of one atomic level before any work.
   failures and weights prepared on every load, stale program-cache entries, GPU models split
   across partitions or left on the CPU, KV context switches, constraint creation skipped.
 - **Memory** on every snapshot: `phys_footprint`, its peak, `ledger_tag_graphics_footprint`,
-  `MTLDevice.currentAllocatedSize`, `os_proc_available_memory` (iOS), thermal state, low power.
+  `os_proc_available_memory` (iOS). The Metal side reads `MTLDevice.currentAllocatedSize`, the
+  thermal state and low power mode every 64th command buffer: the snapshot's `memory` carries
+  the last reading and its peak (`gpu_allocated_mb`, `gpu_allocated_peak_mb`), and `device` the
+  thermal state and low power. They're the last reading, not the state at the snapshot.
 - **Numerical probes** (logits on the CPU sampler path, done): NaN and Inf count (an error
   anomaly), flat rows, max logit, top-1 margin, near ties (top two within 1/16: four FP16 steps
   for logits in [16, 32), where FP16 rounding can flip the argmax), and from level 2 the entropy
@@ -91,7 +99,8 @@ Every probe is an inline check of one atomic level before any work.
 | --- | --- |
 | Level | `AGELLO_TELEMETRY=<0-4>` (environment, at load), `litert_lm_telemetry_set_level`, `LiteRTLM.Telemetry.level`, agello-bench `--telemetry N` |
 | Snapshot | `litert_lm_telemetry_snapshot_json`, `Telemetry.snapshot()`, or `AGELLO_TELEMETRY_OUT=<path>` for any binary at exit |
-| Trace | level 3, then `litert_lm_telemetry_write_trace` / agello-bench `--trace FILE`; open in Perfetto or `chrome://tracing` |
+| Trace | level 3, then `litert_lm_telemetry_write_trace` / agello-bench `--trace FILE`; open in Perfetto or `chrome://tracing`. Each thread keeps its last 262,144 events (8 MB, allocated at level 3). LiteRT's own trace sites, a few hundred events per decode step, stay out of the trace unless `AGELLO_TELEMETRY_TRACE_ALL=1`, so a 1,500-token reply fits whole (50,699 events on the M6); their aggregates are kept either way |
+| Logits | `AGELLO_TELEMETRY_LOGITS_OUT=<path>` (at load): one JSON line per row the sampler reads, with the run that read it (`decode`, `verify`, `drafter`), the sampler call, the row, and the eight best token ids with their logits. It probes every row, about a quarter millisecond each: for comparing two builds' logits, not for speed runs |
 | Instruments | level 2+: subsystem `com.patricedery.agello.litertlm`, category DynamicTracing (os_signpost intervals) |
 | Per case | agello-bench resets before each case and stores the snapshot in the record's `telemetry`; the engine load's goes to `<out>.load-telemetry.json` |
 | Report | `python3 tools/agello-bench/telemetry.py results/run.jsonl` (also a load snapshot, `results/run.jsonl.load-telemetry.json`, or an Agello `harness-report.json`) |
