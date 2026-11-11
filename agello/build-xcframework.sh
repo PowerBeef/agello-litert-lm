@@ -44,7 +44,9 @@ source_of() {
   if [ -n "$dir" ]; then
     echo "$(git -C "$dir" rev-parse HEAD)$(git -C "$dir" diff --quiet HEAD || echo ' (modified)') (local: $dir)"
   else
-    sed -n "s/^$2 = \"\(.*\)\"/\1/p" WORKSPACE
+    # In this tree (agello/litert, agello/ml_drift) since the one repository: this repository's
+    # commit covers it, and the WORKSPACE keeps the commit it was imported at.
+    echo "in tree, imported at $(sed -n "s/^$2 = \"\(.*\)\"/\1/p" WORKSPACE)"
   fi
 }
 {

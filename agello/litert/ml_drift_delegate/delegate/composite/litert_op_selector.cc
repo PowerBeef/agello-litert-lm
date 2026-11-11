@@ -1,0 +1,255 @@
+// Copyright 2026 Google LLC.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "ml_drift_delegate/delegate/composite/litert_op_selector.h"
+
+#include <any>
+#include <memory>
+#include <set>
+#include <utility>
+#include <vector>
+
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
+#include "absl/status/status_macros.h"  // from @com_google_absl
+#include "ml_drift/common/data_type.h"  // from @ml_drift
+#include "ml_drift/common/gpu_info.h"  // from @ml_drift
+#include "ml_drift/common/gpu_model.h"  // from @ml_drift
+#include "ml_drift/common/gpu_model_builder.h"  // from @ml_drift
+#include "ml_drift/common/model.h"  // from @ml_drift
+#include "ml_drift/common/operations.h"  // from @ml_drift
+#include "ml_drift/common/selectors/operation_selector.h"  // from @ml_drift
+#include "ml_drift/common/selectors/special_selector.h"  // from @ml_drift
+#include "ml_drift/common/task/gpu_operation.h"  // from @ml_drift
+#include "ml_drift/common/task/tensor_desc.h"  // from @ml_drift
+#include "ml_drift_delegate/delegate/composite/add_values_to_cache_kernel.h"
+#include "ml_drift_delegate/delegate/composite/add_values_to_cache_parser.h"
+#include "ml_drift_delegate/delegate/composite/gated_delta_update_kernel.h"
+#include "ml_drift_delegate/delegate/composite/gated_delta_update_parser.h"
+#include "ml_drift_delegate/delegate/composite/glu_kernel.h"
+#include "ml_drift_delegate/delegate/composite/glu_parser.h"
+#include "ml_drift_delegate/delegate/composite/moe_experts_kernel.h"
+#include "ml_drift_delegate/delegate/composite/moe_experts_parser.h"
+#include "ml_drift_delegate/delegate/composite/qkv_norm_rope_kernel.h"
+#include "ml_drift_delegate/delegate/composite/qkv_norm_rope_parser.h"
+#include "ml_drift_delegate/delegate/composite/bounded_attention.h"
+#include "ml_drift_delegate/delegate/composite/bounded_attention_kernel.h"
+#include "ml_drift_delegate/delegate/composite/runtime_batched_matmul_kernel.h"
+#include "ml_drift_delegate/delegate/composite/runtime_batched_matmul_parser.h"
+#include "ml_drift_delegate/delegate/composite/sdpa_transposed_kernel.h"
+#include "ml_drift_delegate/delegate/composite/sdpa_transposed_parser.h"
+#include "ml_drift_delegate/delegate/composite/short_conv_step_kernel.h"
+#include "ml_drift_delegate/delegate/composite/short_conv_step_parser.h"
+
+namespace litert::ml_drift {
+
+namespace {
+
+absl::Status CreateRoPEFromNode(
+    const std::vector<::ml_drift::Value*>& inputs,
+    const std::vector<::ml_drift::Value*>& outputs,
+    const ::ml_drift::Node& node, ::ml_drift::GpuModelBuilder* model_builder) {
+  ::ml_drift::RoPEAttributes attr;
+  if (node.operation.attributes.has_value()) {
+    if (auto* rope_attr = std::any_cast<::ml_drift::RoPEAttributes>(
+            &node.operation.attributes)) {
+      attr = *rope_attr;
+    }
+  }
+  if (inputs.size() == 2) {
+    if (outputs.size() != 1) {
+      return absl::InvalidArgumentError("RoPE expects 1 output for 2 inputs.");
+    }
+    ABSL_ASSIGN_OR_RETURN(auto src_handle,
+                          model_builder->GetTensor(inputs[0]->id));
+    ABSL_ASSIGN_OR_RETURN(auto position_handle,
+                          model_builder->GetTensor(inputs[1]->id));
+    auto dst_handle =
+        model_builder->SplitRoPEConcat(src_handle, position_handle, attr);
+    ABSL_RETURN_IF_ERROR(
+        model_builder->UpdateOutputTensor(dst_handle, outputs[0]->id));
+    return absl::OkStatus();
+  } else if (inputs.size() == 3) {
+    if (outputs.size() != 2) {
+      return absl::InvalidArgumentError("RoPE expects 2 outputs for 3 inputs.");
+    }
+    ABSL_ASSIGN_OR_RETURN(auto src_l_handle,
+                          model_builder->GetTensor(inputs[0]->id));
+    ABSL_ASSIGN_OR_RETURN(auto src_r_handle,
+                          model_builder->GetTensor(inputs[1]->id));
+    ABSL_ASSIGN_OR_RETURN(auto position_handle,
+                          model_builder->GetTensor(inputs[2]->id));
+    auto dst_handles =
+        model_builder->RoPE(src_l_handle, src_r_handle, position_handle, attr);
+    ABSL_RETURN_IF_ERROR(model_builder->UpdateOutputTensors(
+        dst_handles, {outputs[0]->id, outputs[1]->id}));
+    return absl::OkStatus();
+  } else {
+    return absl::InvalidArgumentError("RoPE expects 2 or 3 inputs.");
+  }
+}
+
+}  // namespace
+
+LiteRtOpSelector::LiteRtOpSelector(
+    const ::ml_drift::CreateGpuModelInfo* create_info,
+    const ::ml_drift::GpuInfo* gpu_info)
+    : create_info_(*create_info), gpu_info_(*gpu_info) {}
+
+void LiteRtOpSelector::ParamTensorToBuffer(
+    int param_index, const std::vector<::ml_drift::Value*>& inputs,
+    ::ml_drift::GpuModelBuilder* model_builder) {
+  auto param_id = inputs[param_index]->id;
+  if (replaced_tensors_.contains(param_id)) {
+    return;
+  }
+  auto param_tensor_handle_or = model_builder->GetTensor(param_id);
+  if (!param_tensor_handle_or.ok()) {
+    return;
+  }
+  auto param_tensor = param_tensor_handle_or.value();
+  if (param_tensor.tensor_desc.GetStorageType() ==
+      ::ml_drift::TensorStorageType::kBuffer) {
+    return;
+  }
+  ::ml_drift::TensorDescriptor new_desc = param_tensor.tensor_desc;
+  new_desc.SetStorageType(::ml_drift::TensorStorageType::kBuffer);
+  auto new_param_tensor = model_builder->AddTensor(new_desc);
+  // Emit an explicit copy instead of re-pointing the producer of `param_id` at
+  // `new_param_tensor`. The param tensor can be read by other consumers that
+  // expect the original (non-BUFFER) storage type, e.g. the channel slices that
+  // the ring-buffer SDPA path applies to it. Re-pointing the producer would
+  // leave `param_id` without any producer, so those consumers would read
+  // uninitialized memory.
+  //
+  // When the param tensor has no other consumer, `LinkNodes()` merges this copy
+  // back into the producer, which yields exactly the same graph as re-pointing
+  // the producer would have.
+  model_builder->Copy(param_tensor, new_param_tensor);
+  replaced_tensors_[param_id] = std::make_unique<::ml_drift::Value>(
+      ::ml_drift::Value{new_param_tensor.id, inputs[param_index]->tensor,
+                        inputs[param_index]->quant_params});
+}
+
+absl::Status LiteRtOpSelector::GPUOperationFromNode(
+    const ::ml_drift::OperationDef& op_def,
+    const std::vector<::ml_drift::Value*>& inputs,
+    const std::vector<::ml_drift::Value*>& outputs,
+    const ::ml_drift::Node& node, ::ml_drift::GpuModelBuilder* model_builder) {
+  if (node.operation.type == kAddValuesToCacheType) {
+    ABSL_ASSIGN_OR_RETURN(auto op,
+                          CreateAddValuesToCacheFromNode(op_def, node));
+    std::vector<::ml_drift::ValueId> src_ids(inputs.size());
+    for (int i = 0; i < inputs.size(); ++i) {
+      src_ids[i] = inputs[i]->id;
+    }
+    int param_index = 2;
+    // Ensure param tensor is a buffer tensor as kernel programs expect so.
+    ParamTensorToBuffer(param_index, inputs, model_builder);
+    if (replaced_tensors_.contains(inputs[param_index]->id)) {
+      src_ids[param_index] = replaced_tensors_[inputs[param_index]->id]->id;
+    }
+    std::vector<::ml_drift::ValueId> dst_ids(outputs.size());
+    for (int i = 0; i < outputs.size(); ++i) {
+      dst_ids[i] = outputs[i]->id;
+    }
+    model_builder->AddGpuOperation(src_ids, dst_ids, std::move(op),
+                                   node.operation.type);
+    return absl::OkStatus();
+  }
+  if (node.operation.type == kGatedDeltaUpdateType) {
+    return CreateGatedDeltaUpdateFromNode(op_def, inputs, outputs, node,
+                                          &gpu_info_, model_builder);
+  }
+  // Agello (T4): the bounded attention tail (bounded_attention.h).
+  if (node.operation.type == kBoundedMaskType) {
+    return CreateBoundedMaskFromNode(inputs, outputs, node, model_builder);
+  }
+  if (node.operation.type == kBoundedSoftmaxReduceType) {
+    std::vector<::ml_drift::Value*> reduce_inputs = inputs;
+    if (inputs.size() == 2) {
+      // Ensure param tensor is a buffer tensor as kernel programs expect so.
+      ParamTensorToBuffer(1, inputs, model_builder);
+      if (replaced_tensors_.contains(inputs[1]->id)) {
+        reduce_inputs[1] = replaced_tensors_[inputs[1]->id].get();
+      }
+    }
+    return CreateBoundedSoftmaxReduceFromNode(reduce_inputs, outputs, node,
+                                              model_builder);
+  }
+  if (node.operation.type == kRuntimeBatchedMatMulType) {
+    std::vector<::ml_drift::Value*> bmm_inputs = inputs;
+    if (inputs.size() > 2) {
+      int param_index = inputs.size() - 1;
+      // Ensure param tensor is a buffer tensor as kernel programs expect so.
+      ParamTensorToBuffer(param_index, inputs, model_builder);
+      if (replaced_tensors_.contains(inputs[param_index]->id)) {
+        bmm_inputs[param_index] =
+            replaced_tensors_[inputs[param_index]->id].get();
+      }
+    }
+    return CreateRuntimeBatchedMatMulFromNode(bmm_inputs, outputs, node,
+                                              model_builder);
+  }
+  if (node.operation.type == kSdpaTransposedType) {
+    std::vector<::ml_drift::Value*> sdpa_inputs = inputs;
+    int param_index = -1;
+    if (inputs.size() == 4 &&
+        inputs[3]->tensor.type == ::ml_drift::DataType::kInt32) {
+      param_index = 3;
+    } else if (inputs.size() > 4) {
+      param_index = 4;
+    }
+    if (param_index >= 0) {
+      // Ensure param tensor is a buffer tensor as kernel programs expect so.
+      ParamTensorToBuffer(param_index, inputs, model_builder);
+      if (replaced_tensors_.contains(inputs[param_index]->id)) {
+        sdpa_inputs[param_index] =
+            replaced_tensors_[inputs[param_index]->id].get();
+      }
+    }
+    return CreateSdpaTransposedFromNode(sdpa_inputs, outputs, node,
+                                        model_builder);
+  }
+  if (node.operation.type == kMoeExpertsType) {
+    return CreateMoeExpertsFromNode(create_info_, inputs, outputs, node,
+                                    model_builder);
+  }
+  if (node.operation.type == kSwigluType) {
+    return CreateGluFromNode(inputs, outputs, node, model_builder);
+  }
+  if (node.operation.type == kQkvNormRopeType) {
+    return CreateQkvNormRopeFromNode(inputs, outputs, node, model_builder);
+  }
+  if (node.operation.type == kShortConvStepType) {
+    return CreateShortConvStepFromNode(inputs, outputs, node, model_builder);
+  }
+  if (node.operation.type == ToString(::ml_drift::OperationType::kRope)) {
+    return CreateRoPEFromNode(inputs, outputs, node, model_builder);
+  }
+  return ::ml_drift::GPUOperationFromNode(gpu_info_, op_def, create_info_,
+                                          inputs, outputs, node, model_builder);
+}
+
+absl::Status LiteRtOpSelector::GPUSubgraphFromGraph(
+    const ::ml_drift::GraphFloat32& graph, ::ml_drift::NodeId first_node_id,
+    const std::set<::ml_drift::NodeId>& consumed_nodes,
+    std::set<::ml_drift::NodeId>* new_consumed_nodes,
+    ::ml_drift::GpuModelBuilder* model_builder) {
+  return ::ml_drift::GPUSubgraphFromGraph(create_info_.hints, gpu_info_, graph,
+                                          first_node_id, consumed_nodes,
+                                          new_consumed_nodes, model_builder);
+}
+
+}  // namespace litert::ml_drift

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Agello: the build stamp behind litert_lm_get_build_info (bazel --workspace_status_command, set by
-# --config=agello). Prints the commits of LiteRT-LM, LiteRT and ML Drift (the local checkouts when
-# .bazelrc.user overrides them, else the WORKSPACE pins), each with a hash of its uncommitted
-# changes, the build flags (AGELLO_BUILD_FLAGS, set by build-xcframework.sh), and a build id that
+# --config=agello). Prints this repository's commit with a hash of its uncommitted changes (LiteRT
+# and ML Drift are folders of it; a local checkout that .bazelrc.user overrides them with is
+# reported instead), the build flags (AGELLO_BUILD_FLAGS, set by build-xcframework.sh), and a build id that
 # changes whenever any of them does.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
@@ -23,7 +23,9 @@ source_of() {
   if [ -n "$dir" ]; then
     describe "$dir"
   else
-    sed -n "s/^$2 = \"\(.*\)\"/\1/p" WORKSPACE
+    # In this tree (agello/litert, agello/ml_drift) since the one repository: this repository's
+    # commit covers it, and the WORKSPACE keeps the commit it was imported at.
+    echo "in tree, imported at $(sed -n "s/^$2 = \"\(.*\)\"/\1/p" WORKSPACE)"
   fi
 }
 

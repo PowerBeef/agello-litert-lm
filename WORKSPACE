@@ -496,15 +496,15 @@ http_archive(
 # to and from host memory directly, bound attention select and softmax to the filled length,
 # give local attention layers their window, keep one weight cache entry for every KV size, and key
 # the caches of a simulated GPU (AGELLO_SIMULATE_APPLE_GPU) apart.
+#
+# Since the one repository (docs/BACKEND.md in Agello, B2) its source lives in this tree, in
+# agello/litert: imported unchanged from that fork at the commit below (the archive had sha256
+# dd8d2dc491cbd7c294113747e2a068ff416c4a2bd181bfaa5c4f5c92d971c312), and edited here from then on.
 AGELLO_LITERT_COMMIT = "362759838e34e1525f1cc27daddaf663a193c059"
 
-AGELLO_LITERT_SHA256 = "dd8d2dc491cbd7c294113747e2a068ff416c4a2bd181bfaa5c4f5c92d971c312"
-
-http_archive(
+local_repository(
     name = "litert",
-    sha256 = AGELLO_LITERT_SHA256,
-    strip_prefix = "LiteRT-" + AGELLO_LITERT_COMMIT,
-    url = "https://github.com/PowerBeef/LiteRT/archive/" + AGELLO_LITERT_COMMIT + ".tar.gz",
+    path = "agello/litert",
 )
 
 # Agello: telemetry probes (agello/telemetry), a repository of its own so LiteRT and ML Drift can
@@ -524,19 +524,15 @@ local_repository(
 # (AGELLO_SIMULATE_APPLE_GPU).
 ML_DRIFT_COMMIT = "15fa9e2ba632145992299e3f04786dc1f575373c"
 
-ML_DRIFT_SHA256 = "880e9cd60a0a6bd38048dfd68078c71597b1dd4852ed1a57e6f018fa3bb3eeeb"
-
-http_archive(
+# In this tree too, in agello/ml_drift: imported unchanged from that fork at the commit above (the
+# archive had sha256 880e9cd60a0a6bd38048dfd68078c71597b1dd4852ed1a57e6f018fa3bb3eeeb).
+local_repository(
     name = "ml_drift",
+    path = "agello/ml_drift",
     repo_mapping = {
         "@fp16": "@FP16",
         "@com_github_google_re2": "@com_googlesource_code_re2",
     },
-    sha256 = ML_DRIFT_SHA256,
-    strip_prefix = "ml-drift-" + ML_DRIFT_COMMIT,
-    urls = [
-        "https://github.com/PowerBeef/ml-drift/archive/" + ML_DRIFT_COMMIT + ".tar.gz",
-    ],
 )
 
 http_archive(
