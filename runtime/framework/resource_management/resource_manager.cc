@@ -859,8 +859,7 @@ ResourceManager::AcquireExecutorWithContextHandler(
                                              current_handler_);
 }
 
-absl::Status ResourceManager::TryLoadingVisionExecutor() {
-  absl::MutexLock lock(vision_executor_mutex_);
+absl::Status ResourceManager::CreateVisionExecutorLocked() {
   if (vision_executor_ != nullptr) {
     return absl::OkStatus();
   }
@@ -876,14 +875,29 @@ absl::Status ResourceManager::TryLoadingVisionExecutor() {
   return absl::OkStatus();
 }
 
+absl::Status ResourceManager::TryLoadingVisionExecutor() {
+  absl::MutexLock lock(vision_executor_mutex_);
+  return CreateVisionExecutorLocked();
+}
+
+absl::Status ResourceManager::CanLoadVisionExecutor() {
+  absl::MutexLock lock(vision_executor_mutex_);
+  if (vision_executor_ == nullptr && !vision_executor_settings_) {
+    return absl::InvalidArgumentError("Vision options should not be null.");
+  }
+  return absl::OkStatus();
+}
+
+void ResourceManager::ReleaseVisionExecutor() {
+  absl::MutexLock lock(vision_executor_mutex_);
+  vision_executor_.reset();
+}
+
 absl::StatusOr<std::unique_ptr<VisionExecutor>>
 ResourceManager::AcquireVisionExecutor() {
   MovableMutexLock lock(&vision_executor_mutex_);
-  if (vision_executor_ == nullptr) {
-    return absl::InvalidArgumentError(
-        "Vision executor should not be null, please TryLoadingVisionExecutor() "
-        "first.");
-  }
+  // Agello (E1): created on first use, not when a session opens.
+  ABSL_RETURN_IF_ERROR(CreateVisionExecutorLocked());
   return std::make_unique<LockedVisionExecutor>(vision_executor_,
                                                 std::move(lock));
 }

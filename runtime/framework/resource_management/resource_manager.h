@@ -130,9 +130,21 @@ class ResourceManager {
   absl::Status TryLoadingVisionExecutor()
       ABSL_LOCKS_EXCLUDED(vision_executor_mutex_);
 
-  // Acquires the vision executor.
+  // Acquires the vision executor. Agello (PERFORMANCE.md, E1): creates it on
+  // first use; a session only checks that it can be loaded
+  // (CanLoadVisionExecutor).
   absl::StatusOr<std::unique_ptr<VisionExecutor>> AcquireVisionExecutor()
       ABSL_LOCKS_EXCLUDED(vision_executor_mutex_);
+
+  // Agello (E1): an error when the vision executor couldn't be created (no
+  // vision settings), without creating it.
+  absl::Status CanLoadVisionExecutor()
+      ABSL_LOCKS_EXCLUDED(vision_executor_mutex_);
+
+  // Agello (E1): releases the vision executor and its working memory (the
+  // CPU encoder's activations, 1.2-1.5 GB for E4B on the iPhone). The next
+  // image creates it again from its weight cache.
+  void ReleaseVisionExecutor() ABSL_LOCKS_EXCLUDED(vision_executor_mutex_);
 
   // Try to load the audio executor if the audio executor is not loaded.
   absl::Status TryLoadingAudioExecutor()
@@ -194,6 +206,9 @@ class ResourceManager {
 
   std::shared_ptr<VisionExecutor> vision_executor_
       ABSL_GUARDED_BY(vision_executor_mutex_);
+  // Agello (E1): creates the vision executor; the caller holds its mutex.
+  absl::Status CreateVisionExecutorLocked()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(vision_executor_mutex_);
 
   // The vision executor options, needed for loading the vision executor.
   std::unique_ptr<VisionExecutorSettings> vision_executor_settings_;

@@ -180,7 +180,10 @@ absl::StatusOr<SessionId> ThreadedExecutionManager::RegisterNewSession(
       ABSL_RETURN_IF_ERROR(resource_manager_->TryLoadingAudioExecutor());
     }
     if (session_info->session_config.VisionModalityEnabled()) {
-      ABSL_RETURN_IF_ERROR(resource_manager_->TryLoadingVisionExecutor());
+      // Agello (PERFORMANCE.md, E1): the vision executor is created by the
+      // first image, not here: most chats never send one, and its CPU
+      // encoder's working memory is 1.2-1.5 GB on the iPhone.
+      ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadVisionExecutor());
     }
     session_lookup_.insert({session_id, std::move(session_info)});
 #if defined(LITERT_LM_DEBUGGER_ENABLED)
@@ -758,6 +761,13 @@ ThreadedExecutionManager::ProcessAndCombineContents(
       return absl::InvalidArgumentError(
           "Unsupported input type in preprocessed_contents.");
     }
+  }
+
+  // Agello (E1): this message's images are encoded, and their embeddings are
+  // buffers of their own (CreateOutputBuffers per encode): release the vision
+  // executor and its working memory until the next image.
+  if (!all_image_data.empty()) {
+    resource_manager_->ReleaseVisionExecutor();
   }
 
   if (combined_token_ids.empty()) {
