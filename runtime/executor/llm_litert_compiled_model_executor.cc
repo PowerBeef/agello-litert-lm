@@ -568,6 +568,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RollBackProcessedTokens() {
 absl::Status LlmLiteRtCompiledModelExecutorBase::PrepareFirstPrefillAfterDecode(
     int token_index_to_reduce) {
   mtp_primed_ = false;
+  ClearMtpDeferral();
   if (!llm_context_->runtime_state().ran_decode && !force_prepare_needed_) {
     return absl::OkStatus();
   }
@@ -1347,6 +1348,14 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
   // a fully committed speculative round.
   const bool was_mtp_primed = mtp_primed_;
   mtp_primed_ = false;
+  // Agello (A2): a round the previous call deferred, taken out of the members
+  // so that every exit below leaves none behind.
+  const bool was_deferred = mtp_deferred_;
+  const int deferred_step = mtp_deferred_step_;
+  const int deferred_token = mtp_deferred_token_;
+  std::optional<TensorBuffer> deferred_activations =
+      std::move(mtp_deferred_activations_);
+  ClearMtpDeferral();
 
   bool enable_mtp_drafter = false;
   if (decode_params.GetEnableSpeculativeDecoding().has_value()) {
@@ -1365,13 +1374,15 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
   // past it; decode a plain step there instead.
   if (enable_mtp_drafter && state_ != nullptr &&
       !MtpRoundFitsCache(llm_context_->runtime_state().current_step,
-                         drafter_is_primed, mtp_drafter_->num_draft_steps(),
+                         drafter_is_primed || was_deferred,
+                         mtp_drafter_->num_draft_steps(),
                          state_->GetNumEntries())) {
     enable_mtp_drafter = false;
     AGELLO_COUNT(kMtpSkippedAtCacheEnd);
   }
 
   std::vector<std::vector<int>> output_tokens_vector;
+  bool deferred_round = false;
   if (!enable_mtp_drafter) {
     const absl::Time plain_start = absl::Now();
     ABSL_ASSIGN_OR_RETURN(auto decoded_logits,
@@ -1424,6 +1435,34 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
+    } else if (was_deferred && deferred_activations.has_value() &&
+               llm_context_->runtime_state().current_step ==
+                   deferred_step + 1 &&
+               [&] {
+                 const auto next = llm_context_->processed_context()
+                                       .processed_tokens()
+                                       .GetNextUnprocessedToken();
+                 return next.token.size() == 1 && next.token[0] != nullptr &&
+                        next.token[0]->id() == deferred_token;
+               }()) {
+      // Agello (A2): the round the previous call deferred. Its token is the
+      // pending one; the drafter gets the same step, token and activations the
+      // priming path below gives it. A constraint is no obstacle: given
+      // activations, the drafter starts its own constraint state from the
+      // token (LlmLiteRtMtpDrafter::Draft), and the decode loop doesn't touch
+      // the constraint between the two calls.
+      ABSL_ASSIGN_OR_RETURN(auto step_and_token,
+                            GetTokenToDecode(ExecutorInputs()));
+      ABSL_RETURN_IF_ERROR(
+          ConsumePendingOrAddProcessedToken(step_and_token.token));
+      LITERT_ASSIGN_OR_RETURN(
+          output_tokens_vector,
+          mtp_drafter_->Draft(deferred_step, deferred_token,
+                              std::move(*deferred_activations), *active_state,
+                              constraint));
+      RET_CHECK_EQ(output_tokens_vector.size(), 1);
+      llm_context_->runtime_state().current_step +=
+          output_tokens_vector[0].size();
     } else {
       int token_id = -1;
       // The priming decode is a plain step: it is recorded as one so that the
@@ -1454,6 +1493,18 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       RET_CHECK(decode_output_buffers_.contains("activations"));
       LITERT_ASSIGN_OR_RETURN(
           auto activations, decode_output_buffers_["activations"].Duplicate());
+      if (!was_deferred) {
+        // Agello (A2): hand the priming token back now and run its round in
+        // the next call (above). Nothing touches the activations in between:
+        // the next call is this executor's next GPU work on this context, and
+        // a prefill, restore or rollback clears the deferral. A deferral the
+        // next call couldn't use (was_deferred here) runs its round at once.
+        mtp_deferred_ = true;
+        mtp_deferred_step_ = llm_context_->runtime_state().current_step - 1;
+        mtp_deferred_token_ = token_id;
+        mtp_deferred_activations_ = std::move(activations);
+        deferred_round = true;
+      } else {
       // Note: Position remains the same as the prefill step. However,
       // current_step is incremented in DecodeLogits and as such needs to be
       // decremented.
@@ -1465,7 +1516,9 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
       output_tokens_vector[0].insert(output_tokens_vector[0].begin(), token_id);
+      }
     }
+    if (!deferred_round) {
     const absl::Duration round_elapsed = absl::Now() - round_start;
     const auto& round_stats = mtp_drafter_->last_round_stats();
     AGELLO_COUNT(kMtpRounds);
@@ -1475,6 +1528,7 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
         round_stats.drafted_tokens, round_stats.accepted_tokens,
         round_stats.emitted_tokens, round_stats.drafting_time,
         round_stats.verify_time, round_elapsed - priming_time);
+    }
   }
 
   // Check for any invalid token ids and set them to zero, if any.
@@ -1528,7 +1582,8 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       llm_context_->processed_context().processed_tokens().AddPendingInputToken(
           pending_tokens));
 
-  mtp_primed_ = enable_mtp_drafter;
+  // A deferred round hasn't primed the drafter: the next call runs it.
+  mtp_primed_ = enable_mtp_drafter && !deferred_round;
   return output_tokens_vector;
 }
 
@@ -1536,6 +1591,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::Decode(
     const ExecutorInputs& inputs, TensorBuffer& output_logits) {
   const absl::Time start = absl::Now();
   mtp_primed_ = false;
+  ClearMtpDeferral();
   ABSL_RETURN_IF_ERROR(PrepareFirstDecode());
   ABSL_ASSIGN_OR_RETURN(auto step_and_token, GetTokenToDecode(inputs));
   ABSL_RETURN_IF_ERROR(DecodeInternal(step_and_token.token, output_logits));
@@ -1568,6 +1624,7 @@ LlmLiteRtCompiledModelExecutorBase::DecodeLogitsImpl(
 
   bool last_run_is_decode = llm_context_->runtime_state().ran_decode;
   mtp_primed_ = false;
+  ClearMtpDeferral();
   ABSL_RETURN_IF_ERROR(PrepareFirstDecode());
   ABSL_ASSIGN_OR_RETURN(auto step_and_token, GetTokenToDecode(inputs));
   ABSL_RETURN_IF_ERROR(DecodeInternal(step_and_token.token, output_logits));
@@ -1657,6 +1714,7 @@ LlmLiteRtCompiledModelExecutorBase::CloneState() const {
 absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreState(
     std::unique_ptr<StateInterface> state) {
   mtp_primed_ = false;
+  ClearMtpDeferral();
   if (state == nullptr) {
     return absl::OkStatus();
   }
@@ -1729,6 +1787,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreContext(
     std::unique_ptr<LlmContext> context_data) {
   llm_context_ = std::move(context_data);
   mtp_primed_ = false;
+  ClearMtpDeferral();
 
   // We can keep our kv cache buffers if this is the first step. This lets us
   // restore from LlmContexts at step 0 with an empty kv cache.
@@ -1953,6 +2012,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
   }
   // Moving the step (e.g. rewinding) invalidates the MTP drafter state.
   mtp_primed_ = false;
+  ClearMtpDeferral();
 
   int max_step = old_step;
   ABSL_ASSIGN_OR_RETURN(auto processed_tokens, GetProcessedTokens());
@@ -1981,6 +2041,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
 absl::Status LlmLiteRtCompiledModelExecutorBase::Reset() {
   llm_context_->runtime_state().current_step = 0;
   mtp_primed_ = false;
+  ClearMtpDeferral();
   return absl::OkStatus();
 }
 

@@ -215,7 +215,10 @@ class DecodeOneStep {
                 std::optional<bool> enable_speculative_decoding = std::nullopt)
       : executor_(*executor),
         tokenizer_(*tokenizer),
-        detokenizer_(&tokenizer_, num_output_candidates),
+        // Agello (PERFORMANCE.md, A2): Gemma's SentencePiece decoding only
+        // appends, so the first token's text streams without waiting a token.
+        detokenizer_(&tokenizer_, num_output_candidates, /*lookback_tokens=*/8,
+                     /*release_first_decode=*/true),
         num_output_candidates_(num_output_candidates),
         sampler_(sampler),
         composite_constraint_(std::move(composite_constraint)),

@@ -45,8 +45,13 @@ class BufferedStreamingDetokenizer {
   // `output_heads` is the number of heads (sequences) to process in parallel.
   // `lookback_tokens` is the number of released tokens to preserve in the
   // active buffer for context.
+  // Agello (PERFORMANCE.md, A2): `release_first_decode` releases the first
+  // valid decode at once instead of a token later. Only for tokenizers whose
+  // decoding never changes text already decoded (trimmed of an incomplete
+  // UTF-8 tail), such as Gemma's SentencePiece, which concatenates pieces.
   BufferedStreamingDetokenizer(Tokenizer* absl_nonnull tokenizer,
-                               int output_heads, size_t lookback_tokens = 8);
+                               int output_heads, size_t lookback_tokens = 8,
+                               bool release_first_decode = false);
 
   // Processes a single decode step for all heads.
   // `token_ids[i]` contains the newly accepted tokens for head `i`.
@@ -66,6 +71,7 @@ class BufferedStreamingDetokenizer {
   Tokenizer* absl_nonnull tokenizer_;
   int output_heads_;
   size_t lookback_tokens_;
+  bool release_first_decode_;
 
   // Accumulated token IDs for each head.
   std::vector<std::vector<int>> accumulated_token_ids_;

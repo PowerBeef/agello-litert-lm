@@ -93,10 +93,12 @@ std::string_view TrimTrailingReplacement(std::string_view text) {
 }  // namespace
 
 BufferedStreamingDetokenizer::BufferedStreamingDetokenizer(
-    Tokenizer* absl_nonnull tokenizer, int output_heads, size_t lookback_tokens)
+    Tokenizer* absl_nonnull tokenizer, int output_heads, size_t lookback_tokens,
+    bool release_first_decode)
     : tokenizer_(tokenizer),
       output_heads_(output_heads),
-      lookback_tokens_(lookback_tokens) {
+      lookback_tokens_(lookback_tokens),
+      release_first_decode_(release_first_decode) {
   Reset();
 }
 
@@ -128,7 +130,16 @@ BufferedStreamingDetokenizer::ProcessStep(
     std::string_view decoded_trimmed = TrimTrailingReplacement(decoded);
 
     std::string released_text;
-    if (prev_decoded_trimmed.empty()) {
+    // Agello (PERFORMANCE.md, A2): with release_first_decode_ the first valid
+    // decode is released at once (see the constructor). With speculative
+    // decoding the first token comes back alone, and the lag held its text
+    // until the first round's tokens.
+    bool released_whole_decode = false;
+    if (prev_decoded_trimmed.empty() && release_first_decode_) {
+      released_text = std::string(decoded_trimmed);
+      released_lengths_[i] = decoded_trimmed.length();
+      released_whole_decode = !released_text.empty();
+    } else if (prev_decoded_trimmed.empty()) {
       // First valid decode. We don't release anything yet to lag by 1 step.
       released_text = "";
     } else {
@@ -148,7 +159,9 @@ BufferedStreamingDetokenizer::ProcessStep(
 
     released_steps[i].text = released_text;
     if (!released_text.empty()) {
-      size_t next_released_token_index = prev_token_count;
+      size_t next_released_token_index =
+          released_whole_decode ? accumulated_token_ids_[i].size()
+                                : prev_token_count;
       if (next_released_token_index > released_token_indices_[i]) {
         released_steps[i].token_ids.assign(
             accumulated_token_ids_[i].begin() + released_token_indices_[i],

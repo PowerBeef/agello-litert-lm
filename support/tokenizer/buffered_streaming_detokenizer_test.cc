@@ -139,6 +139,22 @@ TEST(BufferedStreamingDetokenizerTest, BasicStreaming) {
               IsOkAndHolds(std::vector<DetokenizedStep>{{"!", {3}}}));
 }
 
+// Agello (A2): release_first_decode releases the first valid decode at once,
+// with its token ids, and the stream continues as before after it.
+TEST(BufferedStreamingDetokenizerTest, ReleaseFirstDecode) {
+  MockTokenizer tokenizer;
+  BufferedStreamingDetokenizer detokenizer(&tokenizer, 1, /*lookback_tokens=*/8,
+                                           /*release_first_decode=*/true);
+  EXPECT_THAT(detokenizer.ProcessStep({{1}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"Hello", {1}}}));
+  EXPECT_THAT(detokenizer.ProcessStep({{2}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"", {}}}));
+  EXPECT_THAT(detokenizer.ProcessStep({{3}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{" World", {2}}}));
+  EXPECT_THAT(detokenizer.Flush(),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"!", {3}}}));
+}
+
 TEST(BufferedStreamingDetokenizerTest, IncompleteBpe) {
   MockTokenizer tokenizer;
   BufferedStreamingDetokenizer detokenizer(&tokenizer, /*output_heads=*/1);

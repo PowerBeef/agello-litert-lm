@@ -494,6 +494,20 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   // next MTP round then goes through the priming path.
   bool mtp_primed_ = false;
 
+  // Agello (PERFORMANCE.md, A2): the first decode call after a prefill hands
+  // back the priming step's token alone, so it streams one round sooner, and
+  // keeps what its round needs (the step, the token, the verifier's
+  // activations) for the next call, which drafts from them exactly as the
+  // priming path would have in the same call. Cleared wherever mtp_primed_ is.
+  bool mtp_deferred_ = false;
+  int mtp_deferred_step_ = -1;
+  int mtp_deferred_token_ = -1;
+  std::optional<TensorBuffer> mtp_deferred_activations_;
+  void ClearMtpDeferral() {
+    mtp_deferred_ = false;
+    mtp_deferred_activations_.reset();
+  }
+
   // Agello (T2): the sampled ids of a plain decode step, kept for the next
   // step of the same shape instead of allocated every step.
   std::optional<TensorBuffer> decode_output_tokens_;
