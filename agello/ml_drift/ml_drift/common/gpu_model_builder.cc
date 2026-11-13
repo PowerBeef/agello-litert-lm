@@ -1328,9 +1328,27 @@ GpuModelBuilder::FullyConnectedInt8QuantizedWithSrcQuantization(
     const TensorDescriptor* zero_point_desc =
         weights.zero_point.has_value() ? &weights.zero_point->tensor_desc
                                        : nullptr;
-    conv_int8 =
-        SelectConvolutionInt8(gpu_info_, op_def, src_packed_type, weights.shape,
-                              dst_shape, &conv_weights_desc);
+    // Agello (PERFORMANCE.md, D1, first step): on runs of up to 128 rows, read
+    // the INT4 weights where they are (the decode layout) and expand them to
+    // INT8 in the kernel, instead of a WeightsConversion node that rewrites
+    // every weight to INT8 on every run (28 % of a 128-token prefill run on
+    // the M6). The expansion gives the value the converter writes (the nibble
+    // less 8), and the products accumulate in INT32, so the result is the
+    // same; a zero-point tensor is the dequantization's to apply either way
+    // (the converter ignores it for INT8). Larger runs keep the converted
+    // weights: there each weight tile would be expanded once per 64 rows.
+    const ExternalWeights external_weights = ToExternalWeights(weights);
+    const int src_rows = src_shape.b * src_shape.h * src_shape.w;
+    if (src_rows <= 128 && weights.desc.type == DataType::kUint4 &&
+        SupportsConvAppleMPP(gpu_info_, external_weights)) {
+      conv_int8 = std::make_unique<ConvAppleMPP>(CreateConvAppleMPPInt8(
+          op_def.src_tensors[0], op_def.dst_tensors[0], external_weights));
+      conv_weights_desc = weights.desc;  // read in place: no conversion node
+    } else {
+      conv_int8 = SelectConvolutionInt8(gpu_info_, op_def, src_packed_type,
+                                        weights.shape, dst_shape,
+                                        &conv_weights_desc);
+    }
 
     auto dequant_op = CreateDequantization(
         weights.shape, gpu_info_, interm_dst, dst.tensor_desc,
