@@ -295,6 +295,13 @@ absl::Status EmbeddingLookupText::Initialize() {
                                     litert::HwAccelerators::kCpu);
 #else
     options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
+    // Agello (PERFORMANCE.md, E7): the embedding tables are quantized per row
+    // with zero points that are all 0 (E4B's per-layer tables: 11,010,048 of
+    // them). Without this TFLite copies one int32 per row into the heap, 44 MB
+    // for E4B; with it, one value. EMBEDDING_LOOKUP accepts a single zero
+    // point, as the CPU LLM path already relies on.
+    LITERT_ASSIGN_OR_RETURN(auto& runtime_options, options.GetRuntimeOptions());
+    runtime_options.SetCompressQuantizationZeroPoints(true);
 #endif
     if (external_weight_file_.has_value() &&
         !external_weight_sections_.empty()) {

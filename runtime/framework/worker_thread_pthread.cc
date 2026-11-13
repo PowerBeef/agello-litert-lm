@@ -14,6 +14,9 @@
 
 #include <errno.h>
 #include <pthread.h>
+#if defined(__APPLE__)
+#include <pthread/qos.h>
+#endif  // __APPLE__
 #include <string.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -74,7 +77,20 @@ WorkerThreadPthread::WorkerThreadPthread(ThreadPool* absl_nonnull pool,
     : WorkerThread(pool, name_prefix) {}
 
 absl::Status WorkerThreadPthread::Start() {
+#if defined(__APPLE__)
+  // Agello (PERFORMANCE.md, A1): the engine's threads run the decode loop
+  // between GPU runs (drafter picks, verify inputs, sampling). Created with
+  // default attributes they carry no quality of service, and the scheduler can
+  // run them on efficiency cores while the GPU waits on them. Ask for the
+  // interactive class: a reply is what the user is waiting for.
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_set_qos_class_np(&attr, QOS_CLASS_USER_INTERACTIVE, 0);
+  int res = pthread_create(&thread_, &attr, ThreadBody, this);
+  pthread_attr_destroy(&attr);
+#else
   int res = pthread_create(&thread_, nullptr, ThreadBody, this);
+#endif  // __APPLE__
   if (res == 0) {
     return absl::OkStatus();
   }
