@@ -690,7 +690,11 @@ absl::Status FillSingleBufferCacheParamTensor(
   // 3rd parameter is used by runtime_batched_matmul kernel to check the end
   // channel index, which doesn't have to be aligned as the kernel does that.
   int end_index = start_index + update_length;
-  int32_t params[] = {start_index, end_index, end_index};
+  // Agello (PERFORMANCE.md, E2): the 4th parameter is the update length, which a
+  // ring-buffer cache_update (is_ring_buffer) reads to know how many positions
+  // to write at start_index modulo its size. Left at 0, a ring cache was never
+  // written.
+  int32_t params[] = {start_index, end_index, end_index, update_length};
   LITERT_RETURN_IF_ERROR(sizeof(params) <= packed_size);
   std::memcpy(param_tensor_lock_and_addr.second, params, sizeof(params));
   return absl::OkStatus();

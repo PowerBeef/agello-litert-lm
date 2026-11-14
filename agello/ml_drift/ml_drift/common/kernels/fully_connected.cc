@@ -670,8 +670,13 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
   }
   std::string src_end_slices = "args.src_tensor.Slices()";
   if (conv_params_.runtime_check.src_end_ch_index.has_value()) {
+    // Agello (PERFORMANCE.md, E2): clamped to the source's slices like every
+    // other runtime end (GetRuntimeEndSlice). A ring-buffer KV cache has fewer
+    // slots than the position the runtime passes, and the value product (PV)
+    // then read probabilities and values past its end.
     c += "  int src_end_slices = "
-         "(args.params.Read(args.src_end_ch_index) + 3) / 4;\n";
+         "min((args.params.Read(args.src_end_ch_index) + 3) / 4, "
+         "args.src_tensor.Slices());\n";
     src_end_slices = "src_end_slices";
   }
   if (wg_reduction_) {

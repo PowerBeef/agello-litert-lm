@@ -96,6 +96,17 @@ std::optional<int> FindSlidingWindow(const GraphFloat32& graph) {
     if (keys == nullptr || shifted == nullptr || keys->empty() || keys->size() != shifted->size()) {
       continue;
     }
+    // Agello (PERFORMANCE.md, E2): the keys are positions, one per cache slot: a
+    // run of consecutive integers. The rotary fix's block selector (patch_rope.py
+    // --split) also compares against one-element constants 512 apart and read as a
+    // 512 window; harmless while the real window was 512 too, but with ring-buffer
+    // local caches (ring_kv.py) it was the only match, and the window kernels then
+    // started each local layer at an absolute position the ring doesn't hold.
+    bool consecutive = keys->size() > 1;
+    for (size_t i = 1; consecutive && i < keys->size(); ++i) {
+      consecutive = (*keys)[i] == (*keys)[0] + static_cast<int32_t>(i);
+    }
+    if (!consecutive) continue;
     const int w = (*shifted)[0] - (*keys)[0];
     bool uniform = w > 0;
     for (size_t i = 0; uniform && i < keys->size(); ++i) {
