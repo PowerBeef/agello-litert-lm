@@ -18,12 +18,15 @@
 #import <Metal/Metal.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/hash/hash.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -57,6 +60,24 @@ class MemoryManager {
                                  MetalSpatialTensor* tensor_ptr);
   uint64_t GetIntermediateTensorsSize() const;
   uint64_t GetConstantTensorsSize() const;
+
+  // Agello: a prefill graph's own pool buffers are freed between its runs. Once a graph runs
+  // with a pool buffer, all of the buffer stays resident (wired) until it's freed, and marking it
+  // purgeable releases nothing: after one message of 1,024 tokens or more, the 1,024-token
+  // prefill's buffers (1.3 GB at a 32K window) stayed with the chat for the engine's life. A
+  // buffer only one graph references, of a graph that runs as a prefill with at least
+  // kMinReleaseBytes of such buffers, is freed when another graph runs next, and allocated again
+  // before the graph runs again; the tensor views on it are recreated in place and the graph's
+  // kernels re-pointed (no recompilation). Each context registers how to re-point its kernels.
+  using Rebind = std::function<absl::Status(const absl::flat_hash_set<ValueId>&)>;
+  void SetRebind(ModelId model_id, Rebind rebind);
+  // Before a run of `model_id`: records whether it's a prefill and says whether another
+  // graph's own buffers are due for release. The caller then makes sure no work that uses them
+  // is in flight or pending, and calls ReleasePending.
+  bool BeginRun(ModelId model_id, bool is_prefill);
+  absl::Status ReleasePending();
+  // Allocates `model_id`'s own buffers again if they were freed, and re-points its kernels.
+  absl::Status EnsureBuffers(ModelId model_id);
 
   // Adds allocated internal constant GPU resources to the given residency set.
   // The residency_set parameter must be of type id<MTLResidencySet>.
@@ -129,6 +150,25 @@ class MemoryManager {
                       std::equal_to<Key>>
       value_id_to_texture_;
   ModelId next_model_id_ = 0;
+
+  // Agello: what freeing and reallocating a graph's own buffers needs.
+  struct PoolView {
+    Key key;
+    const Buffer* buffer;
+    uint64_t offset;
+    // A 2D texture view on the buffer, with its row alignment, or a buffer view.
+    bool image2d = false;
+    size_t row_alignment = 0;
+  };
+  std::vector<const Buffer*> OwnBuffers(ModelId model_id) const;
+  id<MTLDevice> device_ = nil;
+  std::vector<PoolView> pool_views_;
+  absl::flat_hash_map<const Buffer*, absl::flat_hash_set<ModelId>> buffer_models_;
+  absl::flat_hash_set<ModelId> prefill_models_;
+  absl::flat_hash_set<ModelId> released_;
+  absl::flat_hash_map<ModelId, Rebind> rebind_;
+  std::optional<ModelId> last_run_model_;
+  std::optional<ModelId> pending_release_;
 };
 
 }  // namespace metal

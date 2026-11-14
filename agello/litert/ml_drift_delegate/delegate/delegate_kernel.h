@@ -59,6 +59,9 @@ class DelegateKernel {
   // Returns true if there are any quantized tensors in the model.
   bool HasQuantizedTensors() const { return !quant_conversion_map_.empty(); }
 
+  // Agello: the context's work before a run binds or converts anything.
+  absl::Status BeforeInvoke() { return ctx_ ? ctx_->BeforeInvoke() : absl::OkStatus(); }
+
   // Calls the delegate to get the list of tensors that need to be temporarily
   // storage. It's usually needed for quantized tensors. And it's eventually
   // stored in TfLiteNode::temporaries.

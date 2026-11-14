@@ -345,6 +345,9 @@ class GpuInferenceContext {
   // [REQUIRED]
   virtual absl::Status Dispatch() = 0;
 
+  // Agello: called first in each run, before its inputs are bound or converted.
+  virtual absl::Status BeforeInvoke() { return absl::OkStatus(); }
+
   // Gets a GPU event used to synchronize with the inference context before
   // dispatching. If it returns with a GPU event, the client must wait for it
   // completed by calling WaitForEventsCompleted() before Dispatch().

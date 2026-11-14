@@ -534,6 +534,33 @@ absl::Status GpuInferenceContextMetal::Dispatch() {
   return absl::OkStatus();
 }
 
+absl::Status GpuInferenceContextMetal::BeforeInvoke() {
+  // Agello: a prefill graph's own pool buffers are freed when another graph runs next and
+  // allocated again before the prefill runs again (ml_drift::metal::MemoryManager::BeginRun).
+  // Before a release, what the previous run left pending (its output conversions) is committed
+  // and the queue drains: it runs in order, so once an empty buffer committed after them
+  // completes, nothing that uses the buffers is in flight. DoNotWait keeps one buffer for its
+  // events and keeps its pool.
+  const bool is_prefill =
+      ::agello::telemetry::CurrentRun() == ::agello::telemetry::kGpuPrefill;
+  if (ctx_->PoolReleaseDue(is_prefill) &&
+      backend_->wait_type() != kGpuDelegateWaitTypeDoNotWait) {
+    @autoreleasepool {
+      id<MTLCommandBuffer> pending = backend_->command_buffer();
+      if (pending != nullptr && [pending status] < MTLCommandBufferStatusCommitted) {
+        ::agello::telemetry::AttachGpuTiming(pending);
+        [pending commit];
+        backend_->set_command_buffer([backend_->command_queue() commandBuffer]);
+      }
+      id<MTLCommandBuffer> fence = [backend_->command_queue() commandBuffer];
+      [fence commit];
+      [fence waitUntilCompleted];
+    }
+    ABSL_RETURN_IF_ERROR(ctx_->ReleasePoolBuffers());
+  }
+  return ctx_->EnsurePoolBuffers();
+}
+
 absl::StatusOr<GpuEventHandle> GpuInferenceContextMetal::GetPreDispatchEvent() {
   return absl::UnimplementedError("GetPreDispatchEvent is not implemented.");
 }

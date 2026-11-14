@@ -159,6 +159,7 @@ TfLiteStatus Invoke(TfLiteContext* context, TfLiteNode* node) {
     auto* delegate_kernel =
         reinterpret_cast<litert::ml_drift::DelegateKernelLiteRt*>(node->user_data);
 
+    CALL_DELEGATE_KERNEL(BeforeInvoke);
     if (delegate_kernel->HasQuantizedTensors()) {
       CALL_DELEGATE_KERNEL(DequantizeInputs, context);
     }

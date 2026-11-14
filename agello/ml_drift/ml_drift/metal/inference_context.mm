@@ -103,6 +103,24 @@ InferenceContext::InferenceContext()
 InferenceContext::InferenceContext(MemoryManager* memory_manager)
     : memory_manager_(*memory_manager) {}
 
+InferenceContext::~InferenceContext() { memory_manager_.SetRebind(model_id_, nullptr); }
+
+absl::Status InferenceContext::RebindPoolTensors(const absl::flat_hash_set<ValueId>& ids) {
+  for (auto& node : nodes_) {
+    for (int i = 0; i < node.inputs.size(); ++i) {
+      if (ids.contains(node.inputs[i])) {
+        ABSL_RETURN_IF_ERROR(node.task.SetSrcTensor(GetTensor(node.inputs[i]), i));
+      }
+    }
+    for (int i = 0; i < node.outputs.size(); ++i) {
+      if (ids.contains(node.outputs[i])) {
+        ABSL_RETURN_IF_ERROR(node.task.SetDstTensor(GetTensor(node.outputs[i]), i));
+      }
+    }
+  }
+  return absl::OkStatus();
+}
+
 void InferenceContext::EnableOptionalNodes(absl::flat_hash_set<int> tags) {
   enabled_tags_ = std::move(tags);
 }
@@ -154,6 +172,9 @@ absl::Status InferenceContext::InitFromGpuModel(
       model_id_, memory_manager_.AllocateMemory(*environment, *gpu_model, external_tensors,
                                                 external_mutable_tensors_allocated_temporarily));
 
+  memory_manager_.SetRebind(model_id_, [this](const absl::flat_hash_set<ValueId>& ids) {
+    return RebindPoolTensors(ids);
+  });
   GetMutableNodes(create_info.external_mutable_tensors);
   ABSL_RETURN_IF_ERROR(CompileOperations(environment));
   ABSL_RETURN_IF_ERROR(BindTensorsToOperations());
@@ -228,6 +249,9 @@ absl::Status InferenceContext::RestoreDeserialized(
       model_id_, memory_manager_.AllocateMemory(environment, gpu_model, external_tensors,
                                                 external_mutable_tensors_allocated_temporarily));
 
+  memory_manager_.SetRebind(model_id_, [this](const absl::flat_hash_set<ValueId>& ids) {
+    return RebindPoolTensors(ids);
+  });
   ABSL_RETURN_IF_ERROR(DecodeTasks(&environment, decoded_fb));
 
   GetMutableNodes(create_info_ref.external_mutable_tensors);

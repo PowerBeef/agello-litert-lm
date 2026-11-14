@@ -234,6 +234,7 @@ class GpuInferenceContextMetal : public GpuInferenceContext {
   absl::Status ReadWeightTensorToDescriptor(
       ::ml_drift::ValueId id, ::ml_drift::TensorDescriptor& desc) override;
   absl::Status Dispatch() override;
+  absl::Status BeforeInvoke() override;
   absl::StatusOr<GpuEventHandle> GetPreDispatchEvent() override;
   absl::StatusOr<GpuEventHandle> GetPostDispatchEvent(
       bool is_async_execution_mode) override;

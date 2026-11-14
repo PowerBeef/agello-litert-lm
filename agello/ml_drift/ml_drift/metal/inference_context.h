@@ -72,6 +72,14 @@ class InferenceContext {
  public:
   InferenceContext();
   explicit InferenceContext(MemoryManager* memory_manager);
+  ~InferenceContext();
+
+  // Agello: before a run of this context (MemoryManager::BeginRun): whether another graph's own
+  // pool buffers are due for release; then the release, once nothing that uses them is in flight
+  // or pending; and this graph's own buffers, allocated again if they were freed.
+  bool PoolReleaseDue(bool is_prefill) { return memory_manager_.BeginRun(model_id_, is_prefill); }
+  absl::Status ReleasePoolBuffers() { return memory_manager_.ReleasePending(); }
+  absl::Status EnsurePoolBuffers() { return memory_manager_.EnsureBuffers(model_id_); }
 
   absl::Status InitFromGpuModel(
       const CreateGpuModelInfo& create_info, GpuModel* gpu_model,
@@ -180,6 +188,8 @@ class InferenceContext {
                            external_mutable_tensors);
 
   absl::Status BindTensorsToOperations();
+  // Agello: re-points the kernels that read or write these pool tensors.
+  absl::Status RebindPoolTensors(const absl::flat_hash_set<ValueId>& ids);
   absl::Status UpdateParams(const GpuInfo& gpu_info);
   absl::Status Tune(TuningType tuning_type, Environment* env);
 

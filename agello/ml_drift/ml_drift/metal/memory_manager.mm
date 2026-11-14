@@ -14,8 +14,12 @@
 
 #include "ml_drift/metal/memory_manager.h"
 
+#include <mach/mach.h>
+
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <numeric>
 #include <string>
@@ -149,6 +153,7 @@ absl::StatusOr<MemoryManager::ModelId> MemoryManager::AllocateMemory(
     const Environment& env, const GpuModel& gpu_model, const ExternalTensorsInfo& external_tensors,
     std::vector<std::unique_ptr<MetalSpatialTensor>>& external_mutable_tensors) {
   ModelId model_id = next_model_id_++;
+  device_ = env.device();
   for (const auto& [id, desc] : gpu_model.tensors) {
     tensors_descs_[Key(model_id, id)] = desc;
   }
@@ -162,6 +167,127 @@ absl::StatusOr<MemoryManager::ModelId> MemoryManager::AllocateMemory(
   ABSL_RETURN_IF_ERROR(AllocateMemoryForBuffers(model_id, env, buffer_usages));
   ABSL_RETURN_IF_ERROR(AllocateMemoryForTextures(model_id, env, texture_usages));
   return model_id;
+}
+
+namespace {
+constexpr uint64_t kMinReleaseBytes = 256ull << 20;
+
+int64_t FootprintMegabytes() {
+  task_vm_info_data_t info;
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) !=
+      KERN_SUCCESS) {
+    return -1;
+  }
+  return static_cast<int64_t>(info.phys_footprint >> 20);
+}
+
+bool LogPool() {
+  static const bool log = std::getenv("AGELLO_LOG_POOL") != nullptr;
+  return log;
+}
+}  // namespace
+
+void MemoryManager::SetRebind(ModelId model_id, Rebind rebind) {
+  if (rebind) {
+    rebind_[model_id] = std::move(rebind);
+  } else {
+    rebind_.erase(model_id);
+  }
+}
+
+std::vector<const Buffer*> MemoryManager::OwnBuffers(ModelId model_id) const {
+  std::vector<const Buffer*> own;
+  for (const auto& [buffer, models] : buffer_models_) {
+    if (models.size() == 1 && models.contains(model_id)) {
+      own.push_back(buffer);
+    }
+  }
+  return own;
+}
+
+bool MemoryManager::BeginRun(ModelId model_id, bool is_prefill) {
+  if (is_prefill) prefill_models_.insert(model_id);
+  bool due = false;
+  if (last_run_model_.has_value() && *last_run_model_ != model_id) {
+    const ModelId last = *last_run_model_;
+    if (prefill_models_.contains(last) && !released_.contains(last) && rebind_.contains(last)) {
+      uint64_t bytes = 0;
+      for (const Buffer* buffer : OwnBuffers(last)) bytes += buffer->GetMemorySizeInBytes();
+      if (bytes >= kMinReleaseBytes) {
+        pending_release_ = last;
+        due = true;
+      }
+    }
+  }
+  last_run_model_ = model_id;
+  return due;
+}
+
+absl::Status MemoryManager::ReleasePending() {
+  if (!pending_release_.has_value()) return absl::OkStatus();
+  const ModelId model_id = *pending_release_;
+  pending_release_.reset();
+  const int64_t before = LogPool() ? FootprintMegabytes() : 0;
+  const std::vector<const Buffer*> own = OwnBuffers(model_id);
+  const absl::flat_hash_set<const Buffer*> own_set(own.begin(), own.end());
+  absl::flat_hash_set<ValueId> ids;
+  @autoreleasepool {
+    for (const PoolView& view : pool_views_) {
+      if (view.key.first != model_id || !own_set.contains(view.buffer)) continue;
+      // A view on no buffer keeps its descriptor; a 2D texture view's texture goes with it.
+      ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(nil, tensors_descs_[view.key],
+                                                    &value_id_to_buffer_[view.key], view.offset));
+      ids.insert(view.key.second);
+    }
+    // The kernels drop their references to the buffers, then the pool does.
+    ABSL_RETURN_IF_ERROR(rebind_[model_id](ids));
+    uint64_t bytes = 0;
+    for (const Buffer* buffer : own) {
+      bytes += buffer->GetMemorySizeInBytes();
+      *const_cast<Buffer*>(buffer) = Buffer(nil, buffer->GetMemorySizeInBytes());
+    }
+    if (LogPool()) {
+      fprintf(stderr, "Agello pool: freed model %u's %zu own buffers (%llu MB, %zu tensors);"
+              " footprint %lld -> %lld MB\n", model_id, own.size(),
+              static_cast<unsigned long long>(bytes >> 20), ids.size(),
+              static_cast<long long>(before), static_cast<long long>(FootprintMegabytes()));
+    }
+  }
+  released_.insert(model_id);
+  return absl::OkStatus();
+}
+
+absl::Status MemoryManager::EnsureBuffers(ModelId model_id) {
+  if (!released_.contains(model_id)) return absl::OkStatus();
+  released_.erase(model_id);
+  const std::vector<const Buffer*> own = OwnBuffers(model_id);
+  const absl::flat_hash_set<const Buffer*> own_set(own.begin(), own.end());
+  absl::flat_hash_set<ValueId> ids;
+  @autoreleasepool {
+    for (const Buffer* buffer : own) {
+      ABSL_RETURN_IF_ERROR(CreateBuffer(buffer->GetMemorySizeInBytes(), /*data=*/nullptr, device_,
+                                        const_cast<Buffer*>(buffer)));
+    }
+    for (const PoolView& view : pool_views_) {
+      if (view.key.first != model_id || !own_set.contains(view.buffer)) continue;
+      if (view.image2d) {
+        ABSL_RETURN_IF_ERROR(CreateTensorSharedImage2DBuffer(
+            view.buffer->GetMemoryPtr(), tensors_descs_[view.key], view.row_alignment,
+            &value_id_to_buffer_[view.key], view.offset));
+      } else {
+        ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(view.buffer->GetMemoryPtr(),
+                                                      tensors_descs_[view.key],
+                                                      &value_id_to_buffer_[view.key], view.offset));
+      }
+      ids.insert(view.key.second);
+    }
+  }
+  if (LogPool()) {
+    fprintf(stderr, "Agello pool: allocated model %u's %zu own buffers again (%zu tensors)\n",
+            model_id, own.size(), ids.size());
+  }
+  return rebind_[model_id](ids);
 }
 
 MetalSpatialTensor* MemoryManager::GetSpatialTensor(Key key) {
@@ -393,6 +519,7 @@ absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Env
       selected_buffer = mtl_buffers[buffer_index];
       base_buffer_offset = 0;
     }
+    buffer_models_[selected_buffer].insert(model_id);
     if (td.GetStorageType() == TensorStorageType::kTexture2D ||
         td.GetStorageType() == TensorStorageType::kSingleTexture2D) {
       size_t row_bytes_alignment = [env.device()
@@ -403,11 +530,14 @@ absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Env
         ABSL_RETURN_IF_ERROR(CreateTensorSharedImage2DBuffer(
             selected_buffer->GetMemoryPtr(), td, row_bytes_alignment, &tensor, base_buffer_offset));
       }
+      pool_views_.push_back({Key(model_id, usage.first), selected_buffer, base_buffer_offset,
+                             /*image2d=*/true, row_bytes_alignment});
     } else {
       @autoreleasepool {
         ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(selected_buffer->GetMemoryPtr(), td, &tensor,
                                                       base_buffer_offset));
       }
+      pool_views_.push_back({Key(model_id, usage.first), selected_buffer, base_buffer_offset});
     }
   }
   return absl::OkStatus();
