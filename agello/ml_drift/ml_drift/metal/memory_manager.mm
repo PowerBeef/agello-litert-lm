@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <algorithm>
 #include <cstdlib>
 #include <map>
 #include <numeric>
@@ -28,6 +29,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
 #include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "ml_drift/common/gpu_info.h"
@@ -157,6 +159,28 @@ absl::StatusOr<MemoryManager::ModelId> MemoryManager::AllocateMemory(
   for (const auto& [id, desc] : gpu_model.tensors) {
     tensors_descs_[Key(model_id, id)] = desc;
   }
+  // Agello: the large prefill gets a pool of its own (private_models_). A graph's positions per
+  // run are its positions input's batch ([positions, 1, 1, 1, 1]); the caches and masks have a
+  // batch of 1. AGELLO_PRIVATE_POOLS=all (development) gives every graph one.
+  {
+    constexpr int kPrivatePoolRows = 512;
+    static const bool shared = std::getenv("AGELLO_SHARED_POOL") != nullptr;
+    int rows = 0;
+    for (const auto& [id, _] : gpu_model.input_ids_and_refs) {
+      auto it = gpu_model.tensors.find(id);
+      if (it == gpu_model.tensors.end()) continue;
+      rows = std::max(rows, it->second.GetBHWDCShape().b);
+    }
+    static const bool all = [] {
+      const char* value = std::getenv("AGELLO_PRIVATE_POOLS");
+      return value != nullptr && std::string(value) == "all";
+    }();
+    if (!shared && (all || rows >= kPrivatePoolRows)) private_models_.insert(model_id);
+    if (std::getenv("AGELLO_LOG_POOL") != nullptr) {
+      fprintf(stderr, "Agello pool: model %u, %d positions per run%s\n", model_id, rows,
+              private_models_.contains(model_id) ? ", a pool of its own" : "");
+    }
+  }
   ABSL_ASSIGN_OR_RETURN(external_mutable_tensors,
                         AllocateExternalTensors(model_id, external_tensors, env));
   ABSL_RETURN_IF_ERROR(AllocateMemoryForConstTensors(model_id, gpu_model, env));
@@ -245,6 +269,26 @@ absl::Status MemoryManager::ReleasePending() {
     uint64_t bytes = 0;
     for (const Buffer* buffer : own) {
       bytes += buffer->GetMemorySizeInBytes();
+      if (LogPool() && buffer->GetMemorySizeInBytes() >= (64ull << 20)) {
+        // The pool's own reference is one: more means a kernel or a texture still holds it.
+        const long retains = CFGetRetainCount((__bridge CFTypeRef)buffer->GetMemoryPtr());
+        int views = 0, image2d = 0;
+        std::string ids_text;
+        for (const PoolView& view : pool_views_) {
+          if (view.key.first != model_id || view.buffer != buffer) continue;
+          ++views;
+          image2d += view.image2d;
+          if (ids_text.size() < 120) absl::StrAppend(&ids_text, " ", view.key.second, view.image2d ? "t" : "");
+        }
+        fprintf(stderr, "Agello pool: freeing %llu MB, retain count %ld, %d views (%d 2D textures):%s\n",
+                static_cast<unsigned long long>(buffer->GetMemorySizeInBytes() >> 20), retains, views,
+                image2d, ids_text.c_str());
+      }
+      // A few buffers stay referenced from outside the pool after the rebind (a retain count of 3,
+      // not 2: both 256 MB score buffers of the 1,024-token prefill at 64K and one more), so the
+      // object outlives the pool's reference. Nothing runs on them any more (the queue drained),
+      // so their pages are discarded first: an empty buffer holds no memory whoever keeps it.
+      [buffer->GetMemoryPtr() setPurgeableState:MTLPurgeableStateEmpty];
       *const_cast<Buffer*>(buffer) = Buffer(nil, buffer->GetMemorySizeInBytes());
     }
     if (LogPool()) {
@@ -402,6 +446,13 @@ absl::Status MemoryManager::AllocateMemoryForConstTensors(ModelId model_id,
   return absl::OkStatus();
 }
 
+std::vector<const Buffer*> MemoryManager::AvailableBuffers(ModelId model_id) const {
+  if (private_models_.contains(model_id)) return {};
+  std::vector<const Buffer*> available = GetSortedVector(shared_buffers_);
+  std::erase_if(available, [this](const Buffer* b) { return private_buffers_.contains(b); });
+  return available;
+}
+
 absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Environment& env,
                                                      const std::map<ValueId, int2>& buffer_usages) {
   // From Apple documentation:
@@ -473,7 +524,7 @@ absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Env
 
   if (use_offset_assignment) {
     size_t required_size = offset_assignment.total_size;
-    std::vector<const Buffer*> available_buffers = GetSortedVector(shared_buffers_);
+    std::vector<const Buffer*> available_buffers = AvailableBuffers(model_id);
     const Buffer* selected_buffer = TakeAvailableBuffer(available_buffers, required_size);
     if (!selected_buffer) {
       new_buffers.push_back(std::make_unique<Buffer>());
@@ -483,7 +534,7 @@ absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Env
     }
     mtl_buffers.push_back(selected_buffer);
   } else {
-    std::vector<const Buffer*> available_buffers = GetSortedVector(shared_buffers_);
+    std::vector<const Buffer*> available_buffers = AvailableBuffers(model_id);
     mtl_buffers.resize(buffer_assignment.object_sizes.size());
     for (int i = 0; i < buffer_assignment.object_sizes.size(); ++i) {
       size_t size = buffer_assignment.object_sizes[i];
@@ -498,7 +549,35 @@ absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Env
     }
   }
 
+  if (LogPool()) {
+    uint64_t reused = 0, created = 0;
+    std::string owners;
+    for (const Buffer* buffer : mtl_buffers) {
+      const bool is_new = absl::c_any_of(new_buffers, [buffer](const auto& b) { return b.get() == buffer; });
+      (is_new ? created : reused) += buffer->GetMemorySizeInBytes();
+      if (!is_new && buffer_models_.contains(buffer)) {
+        absl::StrAppend(&owners, " ", buffer->GetMemorySizeInBytes() >> 20, "MB<-");
+        for (ModelId m : buffer_models_[buffer]) absl::StrAppend(&owners, m, ".");
+      }
+    }
+    std::string big_new;
+    for (const auto& b : new_buffers) {
+      if (b->GetMemorySizeInBytes() >= (64ull << 20)) {
+        id<MTLBuffer> handle = b->GetMemoryPtr();
+        absl::StrAppend(&big_new, " ", b->GetMemorySizeInBytes() >> 20, "MB@",
+                        absl::Hex(reinterpret_cast<uintptr_t>(handle != nil ? [handle contents] : nullptr)));
+      }
+    }
+    fprintf(stderr, "Agello pool: model %u new buffers of 64 MB or more:%s\n", model_id,
+            big_new.c_str());
+    fprintf(stderr, "Agello pool: model %u allocates %zu tensors in %zu buffers (%s): %llu MB new, "
+            "%llu MB reused%s\n", model_id, buffer_usages.size(), mtl_buffers.size(),
+            use_offset_assignment ? "offsets" : "objects",
+            static_cast<unsigned long long>(created >> 20),
+            static_cast<unsigned long long>(reused >> 20), owners.c_str());
+  }
   for (auto& buf : new_buffers) {
+    if (private_models_.contains(model_id)) private_buffers_.insert(buf.get());
     shared_buffers_.push_back(std::move(buf));
   }
 
@@ -588,6 +667,19 @@ absl::Status MemoryManager::AllocateMemoryForTextures(
     }
   }
 
+  if (std::getenv("AGELLO_LOG_POOL") != nullptr) {
+    uint64_t created = 0;
+    std::string big;
+    for (const auto& tex : new_textures) {
+      created += tex->GetMemorySizeInBytes();
+      if (tex->GetMemorySizeInBytes() >= (32ull << 20)) {
+        absl::StrAppend(&big, " ", tex->GetMemorySizeInBytes() >> 20, "MB");
+      }
+    }
+    fprintf(stderr, "Agello pool: model %u textures: %zu objects, %zu new (%llu MB):%s\n", model_id,
+            mtl_textures.size(), new_textures.size(), static_cast<unsigned long long>(created >> 20),
+            big.c_str());
+  }
   for (auto& tex : new_textures) {
     shared_texture_tensors_.push_back(std::move(tex));
   }

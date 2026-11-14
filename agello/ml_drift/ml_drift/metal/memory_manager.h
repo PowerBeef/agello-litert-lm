@@ -161,10 +161,18 @@ class MemoryManager {
     size_t row_alignment = 0;
   };
   std::vector<const Buffer*> OwnBuffers(ModelId model_id) const;
+  // The pool's buffers `model_id` may take: none for a private model, the shared ones otherwise.
+  std::vector<const Buffer*> AvailableBuffers(ModelId model_id) const;
   id<MTLDevice> device_ = nil;
   std::vector<PoolView> pool_views_;
   absl::flat_hash_map<const Buffer*, absl::flat_hash_set<ModelId>> buffer_models_;
   absl::flat_hash_set<ModelId> prefill_models_;
+  // Agello (the window's step 2): graphs with a pool of their own, the large prefill's (inputs of
+  // kPrivatePoolRows positions or more), and the buffers only they use. They take no buffer from
+  // the shared pool and lend none to it, so every buffer they touch is their own and is freed
+  // after a long prompt (BeginRun); the everyday graphs never hold its pages.
+  absl::flat_hash_set<ModelId> private_models_;
+  absl::flat_hash_set<const Buffer*> private_buffers_;
   absl::flat_hash_set<ModelId> released_;
   absl::flat_hash_map<ModelId, Rebind> rebind_;
   std::optional<ModelId> last_run_model_;

@@ -2378,7 +2378,15 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
   // 128-token chunk's are 8 times smaller; since D1 those runs read the INT4
   // weights in place, so they cost little speed. Until a fused attention
   // kernel removes the score tensors.
-  constexpr uint32_t kLongWindow = 32768;
+  // Agello (the window's step 2): 65,536 since the 1,024-token prefill has a pool of its own (ML
+  // Drift's MemoryManager): at 64K it reads a 44K-token prompt in 18.9 s against 24.1 with
+  // 128-token runs, peaking at 3.0 GB and holding 1.86 GB after (M6). AGELLO_LONG_WINDOW
+  // (development) sets another threshold.
+  static const uint32_t kLongWindow = [] {
+    const char* value = std::getenv("AGELLO_LONG_WINDOW");
+    return value != nullptr && std::atoi(value) > 0 ? static_cast<uint32_t>(std::atoi(value))
+                                                    : 65536u;
+  }();
   constexpr int kLongWindowMaxPrefillChunk = 128;
   if (executor_settings.GetMaxNumTokens() > kLongWindow &&
       executor_settings.GetSelectedSignatures().empty()) {
