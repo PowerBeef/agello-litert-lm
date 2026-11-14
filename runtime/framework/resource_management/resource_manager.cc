@@ -295,6 +295,10 @@ class LockedLlmExecutor : public LlmExecutor {
         uses_ringbuffers = gpu_artisan_config.use_autosized_ringbuffers;
       }
     }
+    // Agello (ring rewind): the same holds for our ring caches. After a rewind, a processed
+    // token past the step may have had its ring slots overwritten (or put back as they were at
+    // the rewind point), so matching tokens are prefilled again instead of reused.
+    uses_ringbuffers = uses_ringbuffers || llm_executor_->HasRingCaches();
     // If the processed tokens size is larger than the current step, update
     // the input_ids and current_step by removing the matching tokens. This
     // must currently be skipped when GPU artisan ringbuffers are enabled.
@@ -440,6 +444,10 @@ class LockedLlmExecutor : public LlmExecutor {
   absl::Status SetCurrentStep(int new_step) override {
     return llm_executor_->SetCurrentStep(new_step);
   }
+
+  // Agello (ring rewind).
+  absl::Status SaveRewindPoint() override { return llm_executor_->SaveRewindPoint(); }
+  bool HasRingCaches() const override { return llm_executor_->HasRingCaches(); }
 
   absl::StatusOr<const ProcessedTokens*> GetProcessedTokens() const override {
     return llm_executor_->GetProcessedTokens();

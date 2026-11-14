@@ -54,6 +54,16 @@ cc_library(
     ],
 )
 
+# Agello (ring rewind): the window comparison's slot arithmetic, with no test data.
+cc_test(
+    name = "state_ring_test",
+    srcs = ["state_ring_test.cc"],
+    deps = [
+        ":state",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "state_test",
     srcs = ["state_test.cc"],

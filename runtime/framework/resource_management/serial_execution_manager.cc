@@ -832,7 +832,13 @@ absl::Status SerialExecutionManager::AddPrefillTask(
     auto responses =
         Tasks::Prefill(*llm_executor.value(), *executor_inputs,
                        /*wait_for_completion=*/true,
-                       /*benchmark_info=*/session_info->benchmark_info);
+                       /*benchmark_info=*/session_info->benchmark_info,
+                       /*cancelled=*/cancelled.get());
+    // Agello (stop between runs): a prefill stopped between its runs ends as cancelled.
+    if (!responses.ok() && absl::IsCancelled(responses.status()) && cancelled != nullptr &&
+        cancelled->load()) {
+      responses = Responses(TaskState::kCancelled);
+    }
     if (!responses.ok()) {
       FinishTaskAndLogErrors(task_id, responses.status(), std::move(callback));
       return;
@@ -1163,6 +1169,14 @@ absl::Status SerialExecutionManager::SetCurrentStep(
         "Target step is greater than the current step: ", current_step));
   }
   return llm_executor->SetCurrentStep(target_step);
+}
+
+absl::Status SerialExecutionManager::SaveRewindPoint(
+    const SessionInfo& session_info) {
+  ABSL_ASSIGN_OR_RETURN(auto llm_executor,
+                        resource_manager_->AcquireExecutorWithContextHandler(
+                            session_info.context_handler));
+  return llm_executor->SaveRewindPoint();
 }
 
 absl::StatusOr<std::unique_ptr<ProcessedContext>>

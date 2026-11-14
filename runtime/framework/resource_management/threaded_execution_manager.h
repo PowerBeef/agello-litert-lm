@@ -242,6 +242,9 @@ class ThreadedExecutionManager : public ExecutionManager {
   absl::Status SetCurrentStep(const SessionInfo& session_info,
                               int target_step) override;
 
+  // Agello (ring rewind): passes a saved checkpoint on to the session's executor.
+  absl::Status SaveRewindPoint(const SessionInfo& session_info) override;
+
   // Saves the processed context of the session.
   absl::StatusOr<std::unique_ptr<ProcessedContext>> SaveContext(
       const SessionInfo& session_info) override;

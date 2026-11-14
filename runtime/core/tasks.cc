@@ -570,7 +570,7 @@ class DecodeOneStep {
 
 absl::StatusOr<Responses> Prefill(
     LlmExecutor& executor, ExecutorInputs& inputs, bool wait_for_completion,
-    std::optional<BenchmarkInfo>& benchmark_info) {
+    std::optional<BenchmarkInfo>& benchmark_info, const std::atomic<bool>* cancelled) {
   AGELLO_SPAN(kTurnPrefill);
   const int max_num_tokens = TryGetMaxNumTokens(executor);
   ABSL_ASSIGN_OR_RETURN(auto text_data, inputs.GetTextDataPtr());
@@ -596,6 +596,7 @@ absl::StatusOr<Responses> Prefill(
     num_token_ids = ids_buffer_span.size();
   }
   ExecutorPrefillParams params;
+  params.SetCancelFlag(cancelled);
   // Wait for prefill to complete if benchmark mode is enabled.
   params.SetWaitForCompletion(wait_for_completion | benchmark_info.has_value());
   if (benchmark_info.has_value()) {

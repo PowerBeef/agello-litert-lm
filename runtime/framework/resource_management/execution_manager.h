@@ -262,6 +262,12 @@ class ExecutionManager {
   virtual absl::Status SetCurrentStep(const SessionInfo& session_info,
                                       int target_step) = 0;
 
+  // Agello (ring rewind): the session saved a checkpoint at its current step
+  // (LlmExecutorBase::SaveRewindPoint).
+  virtual absl::Status SaveRewindPoint(const SessionInfo& session_info) {
+    return absl::OkStatus();
+  }
+
   // Saves the processed context of the session.
   virtual absl::StatusOr<std::unique_ptr<ProcessedContext>> SaveContext(
       const SessionInfo& session_info) = 0;

@@ -15,10 +15,12 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_LITERT_STATE_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_LITERT_STATE_H_
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -106,6 +108,39 @@ class LitertState : public StateInterface {
   // TODO: b/572018960 - Revisit once LiteRT supports keeping Metal snapshots
   // in device memory so that restores can swap buffers instead of copying.
   absl::Status CopyContentsFrom(const LitertState& other);
+
+  // Agello (ring rewind): the ring caches' bytes. A ring cache (a KV cache with fewer slots
+  // than the largest one) can't rewind far on its own: the positions written after a step
+  // overwrite slots that the step's window reads. The executor copies the rings at a rewind
+  // point and writes them back when it rewinds to it.
+  struct RingBuffer {
+    std::string name;
+    std::vector<uint8_t> bytes;
+    bool is_k = false;
+    size_t a_dim = 0;   // [1, heads, A, C]: K caches have their slots along A, V caches along C
+    size_t slices = 0;  // groups of four along C
+    size_t width = 1;   // bytes per element
+  };
+  struct RingCopy {
+    std::vector<RingBuffer> buffers;
+    int64_t bytes = 0;
+  };
+
+  // The bytes in `window_slots` that differ between two copies of the same rings.
+  // With `per_slot`, also the count for each slot that differs, and whether it's in a K cache.
+  static int64_t DifferentWindowBytes(
+      const RingCopy& a, const RingCopy& b, const std::vector<int>& window_slots,
+      int ring_slots, std::vector<std::pair<int, int64_t>>* per_slot = nullptr);
+
+  // The ring caches' slots, 0 when there are none.
+  int RingSlots() const;
+
+  // A copy of the ring caches; empty without rings, or when the buffers aren't shared Metal
+  // ones that the host can read.
+  absl::StatusOr<RingCopy> CopyRings() const;
+
+  // Writes `copy` back into the ring caches.
+  absl::Status RestoreRings(const RingCopy& copy);
 
   // Resizes the KV cache to the given number of entries (sequence length).
   // Note: Resize is a no-op if the requested size is smaller than the current

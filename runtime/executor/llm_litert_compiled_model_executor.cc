@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -671,6 +673,9 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::PrefillInternal(
             .GetNextUnprocessedToken();
     RET_CHECK_LE(pending_input_token.size(), 1);
     const int start_step = internal_start_step;
+    // Agello (ring rewind): the run writes at most its signature's positions from here.
+    ABSL_RETURN_IF_ERROR(KeepRewindWindow(
+        start_step + static_cast<int>(prefill_input_pos_size / sizeof(int32_t)) - 1));
     const bool has_pending_input_token = !pending_input_token.empty();
     const bool use_token_as_lookup = !signatures_.input_tokens.empty();
     const bool use_per_layer_embedding =
@@ -1082,6 +1087,8 @@ LlmLiteRtCompiledModelExecutorBase::ConsumePendingOrAddProcessedToken(
 absl::Status LlmLiteRtCompiledModelExecutorBase::DecodeInternal(
     const std::vector<std::shared_ptr<TokenData>>& token,
     TensorBuffer& output_logits) {
+  // Agello (ring rewind).
+  ABSL_RETURN_IF_ERROR(KeepRewindWindow(llm_context_->runtime_state().current_step + 16));
   int step = llm_context_->runtime_state().current_step - 1;
   if (sampler_ && sampler_->HandlesInput()) {
     // The sampler has already been running decode for this step. Check if
@@ -1342,6 +1349,8 @@ LlmLiteRtCompiledModelExecutorBase::Decode() {
 absl::StatusOr<std::vector<std::vector<int>>>
 LlmLiteRtCompiledModelExecutorBase::Decode(
     const ExecutorDecodeParams& decode_params) {
+  // Agello (ring rewind): a speculative round writes a few positions past the step.
+  ABSL_RETURN_IF_ERROR(KeepRewindWindow(llm_context_->runtime_state().current_step + 16));
 
   // The drafter can only continue from its own last verified state if the
   // previous step was a successful MTP round. Invalidate the flag up front so
@@ -1800,6 +1809,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreContext(
   llm_context_ = std::move(context_data);
   mtp_primed_ = false;
   ClearMtpDeferral();
+  rewind_point_.reset();
 
   // We can keep our kv cache buffers if this is the first step. This lets us
   // restore from LlmContexts at step 0 with an empty kv cache.
@@ -2045,8 +2055,137 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
     // Thus we can roll back executor state to step 0.
     return Reset();
   }
+  ABSL_RETURN_IF_ERROR(RewindRings(max_step, new_step));
   llm_context_->runtime_state().current_step = new_step;
 
+  return absl::OkStatus();
+}
+
+// Agello (ring rewind): a ring cache holds the last `ring` positions written, so once a run
+// writes `ring` less the local window past a step, that step's window reads overwritten slots
+// (a Think reply's rewind to drop its reasoning, past 1,024 tokens with 1,536-slot rings: the
+// answer was refilled against them). The rings are copied just before the first run that would
+// do it: every position before the step is written by then (the prompt's last token is only
+// written by the first decode), and a run spans at most 1,024 positions, so the one that reaches
+// that far starts after the step.
+static constexpr int kRingWindowPositions = 512;  // Gemma 4's local window
+
+static bool VerifyRingRewind() {
+  static const bool verify = std::getenv("AGELLO_VERIFY_RING_REWIND") != nullptr;
+  return verify;
+}
+
+absl::Status LlmLiteRtCompiledModelExecutorBase::SaveRewindPoint() {
+  rewind_point_.reset();
+  auto* litert_state = dynamic_cast<LitertState*>(state_.get());
+  const int ring = litert_state != nullptr ? litert_state->RingSlots() : 0;
+  if (ring == 0) return absl::OkStatus();
+  rewind_point_ = RewindPoint{llm_context_.get(), llm_context_->runtime_state().current_step,
+                              ring};
+  first_window_change_reported_ = false;
+  if (VerifyRingRewind()) {
+    ABSL_ASSIGN_OR_RETURN(rewind_point_->at_point, litert_state->CopyRings());
+  }
+  return absl::OkStatus();
+}
+
+absl::Status LlmLiteRtCompiledModelExecutorBase::KeepRewindWindow(int last_position) {
+  // AGELLO_VERIFY_RING_REWIND: the first run after the point that changes its window's slots
+  // before its last position (which the first decode writes).
+  if (VerifyRingRewind() && rewind_point_.has_value() && rewind_point_->at_point.has_value() &&
+      !rewind_point_->rings.has_value() && rewind_point_->context == llm_context_.get() &&
+      !first_window_change_reported_) {
+    auto* state = dynamic_cast<LitertState*>(state_.get());
+    const int ring = rewind_point_->ring_slots, q = rewind_point_->step;
+    std::vector<int> before_last;
+    for (int p = std::max(0, q - kRingWindowPositions); p < q - 1; ++p) before_last.push_back(p % ring);
+    ABSL_ASSIGN_OR_RETURN(LitertState::RingCopy live, state->CopyRings());
+    std::vector<std::pair<int, int64_t>> per_slot;
+    const int64_t changed = LitertState::DifferentWindowBytes(*rewind_point_->at_point, live,
+                                                              before_last, ring, &per_slot);
+    if (changed > 0) {
+      first_window_change_reported_ = true;
+      std::string slots;
+      for (const auto& [slot, count] : per_slot) {
+        absl::StrAppend(&slots, slot < ring ? " K slot " : " V slot ", slot % ring, ":", count);
+      }
+      fprintf(stderr, "Agello ring rewind: point %d, window changed before a run at step %d "
+              "(last position %d):%s\n", q, llm_context_->runtime_state().current_step,
+              last_position, slots.c_str());
+    }
+  }
+  if (!rewind_point_.has_value() || rewind_point_->rings.has_value() ||
+      rewind_point_->context != llm_context_.get() ||
+      last_position < rewind_point_->step + rewind_point_->ring_slots - kRingWindowPositions) {
+    return absl::OkStatus();
+  }
+  auto* litert_state = dynamic_cast<LitertState*>(state_.get());
+  RET_CHECK(litert_state != nullptr);
+  AGELLO_SPAN(kKvClone);
+  ABSL_ASSIGN_OR_RETURN(rewind_point_->rings, litert_state->CopyRings());
+  AGELLO_COUNT(kKvCopies);
+  AGELLO_COUNT(kKvCopyBytes, rewind_point_->rings->bytes);
+  return absl::OkStatus();
+}
+
+// A rewind to the rewind point puts the rings back as they were before anything overwrote its
+// window; any other rewind that far fails rather than read overwritten slots.
+absl::Status LlmLiteRtCompiledModelExecutorBase::RewindRings(int furthest_step, int new_step) {
+  auto* litert_state = dynamic_cast<LitertState*>(state_.get());
+  const int ring = litert_state != nullptr ? litert_state->RingSlots() : 0;
+  if (ring == 0 || new_step >= furthest_step) return absl::OkStatus();
+  if (rewind_point_.has_value() && rewind_point_->context == llm_context_.get() &&
+      rewind_point_->step == new_step) {
+    RewindPoint point = std::move(*rewind_point_);
+    rewind_point_.reset();
+    if (VerifyRingRewind()) {
+      std::vector<int> window, window_before_last;
+      for (int p = std::max(0, new_step - kRingWindowPositions); p < new_step; ++p) {
+        window.push_back(p % ring);
+        if (p < new_step - 1) window_before_last.push_back(p % ring);
+      }
+      ABSL_ASSIGN_OR_RETURN(LitertState::RingCopy live, litert_state->CopyRings());
+      const int64_t overwritten =
+          point.rings.has_value()
+              ? LitertState::DifferentWindowBytes(*point.rings, live, window, ring) : 0;
+      std::vector<std::pair<int, int64_t>> per_slot;
+      const int64_t copy_vs_point =
+          point.rings.has_value() && point.at_point.has_value()
+              ? LitertState::DifferentWindowBytes(*point.rings, *point.at_point,
+                                                  window_before_last, ring, &per_slot)
+              : -1;
+      std::string slots;
+      for (const auto& [slot, count] : per_slot) {
+        // The window's positions run from new_step - 512 to new_step - 1.
+        int position = slot;
+        while (position + ring < new_step) position += ring;
+        absl::StrAppend(&slots, " ", position, ":", count);
+        if (slots.size() > 400) break;
+      }
+      if (!slots.empty()) fprintf(stderr, "Agello ring rewind: differing positions%s\n", slots.c_str());
+      fprintf(stderr,
+              "Agello ring rewind: %d -> %d (%d positions), rings %s; %lld bytes of the window "
+              "overwritten since the copy; copy against the point, before its last position: "
+              "%lld bytes differ\n",
+              furthest_step, new_step, furthest_step - new_step,
+              point.rings.has_value() ? "put back" : "untouched (no run went that far)",
+              static_cast<long long>(overwritten), static_cast<long long>(copy_vs_point));
+    }
+    if (point.rings.has_value()) {
+      AGELLO_SPAN(kKvClone, 1);
+      AGELLO_COUNT(kKvCopies);
+      AGELLO_COUNT(kKvCopyBytes, point.rings->bytes);
+      ABSL_RETURN_IF_ERROR(litert_state->RestoreRings(*point.rings));
+    }
+    return absl::OkStatus();
+  }
+  if (furthest_step - new_step > ring - kRingWindowPositions) {
+    fprintf(stderr, "Agello ring rewind: refused, %d positions without a rewind point\n",
+            furthest_step - new_step);
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Ring caches of ", ring, " slots can't rewind ", furthest_step - new_step,
+        " positions without a rewind point"));
+  }
   return absl::OkStatus();
 }
 
@@ -2054,6 +2193,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::Reset() {
   llm_context_->runtime_state().current_step = 0;
   mtp_primed_ = false;
   ClearMtpDeferral();
+  rewind_point_.reset();
   return absl::OkStatus();
 }
 
@@ -2164,6 +2304,13 @@ absl::Status LlmLiteRtCompiledModelExecutorStatic::Prefill(
                                               ids.size(), remaining_capacity,
                                               /*use_greedy_chunking=*/is_cpu));
   for (int i = 0; i < work_groups.size(); ++i) {
+    // Agello (stop between runs): a long prompt is many runs; Stop and leaving the app end it at
+    // the next one instead of waiting the whole read out.
+    if (i > 0 && params.GetCancelFlag() != nullptr &&
+        params.GetCancelFlag()->load(std::memory_order_relaxed)) {
+      AGELLO_COUNT(kStopCancelled);
+      return absl::CancelledError("Prefill cancelled between runs");
+    }
     const auto& prefill_signature = work_groups[i].first;
     int prefill_length = work_groups[i].second;
     // Keep track of the signatures that have already had their buffers

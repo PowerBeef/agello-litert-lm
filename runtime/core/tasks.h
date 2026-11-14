@@ -39,9 +39,12 @@ namespace litert::lm::Tasks {
 
 using ::litert::support::Tokenizer;
 
+// Agello (stop between runs): with `cancelled`, the executor stops between prefill runs once
+// it is set, and the prefill returns a CANCELLED error.
 absl::StatusOr<Responses> Prefill(LlmExecutor& executor, ExecutorInputs& inputs,
                                   bool wait_for_completion,
-                                  std::optional<BenchmarkInfo>& benchmark_info);
+                                  std::optional<BenchmarkInfo>& benchmark_info,
+                                  const std::atomic<bool>* cancelled = nullptr);
 
 absl::StatusOr<Responses> Decode(
     LlmExecutor& executor, Tokenizer& tokenizer,

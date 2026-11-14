@@ -993,4 +993,125 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::MetadataBasedCreate(
       std::move(bank_2_state_buffers), allocation_policy));
 }
 
+namespace {
+
+// Agello (ring rewind): a KV cache's slots (the A of a K cache, the C of a V cache; see
+// FilledRuns for the layout), or nothing for any other buffer.
+std::optional<int> CacheSlots(absl::string_view name, const TensorBuffer& buffer) {
+  const bool is_k = absl::StartsWith(name, "kv_cache_k_");
+  const bool is_v = absl::StartsWith(name, "kv_cache_v_");
+  if (!is_k && !is_v) return std::nullopt;
+  auto tensor_type = buffer.TensorType();
+  if (!tensor_type) return std::nullopt;
+  auto dims = tensor_type->Layout().Dimensions();
+  if (dims.size() != 4 || dims[0] != 1) return std::nullopt;
+  return static_cast<int>(is_k ? dims[2] : dims[3]);
+}
+
+// The slot a byte of a ring cache belongs to: element ((y * slices + c / 4) * A + a) * 4 + c % 4
+// of a [1, heads, A, C] tensor, the slot being a for K and c for V.
+int SlotOfByte(const LitertState::RingBuffer& ring, size_t offset) {
+  const size_t element = offset / ring.width;
+  const size_t lane = element % 4;
+  const size_t rest = element / 4;
+  const size_t a = rest % ring.a_dim;
+  const size_t group = (rest / ring.a_dim) % ring.slices;
+  return static_cast<int>(ring.is_k ? a : group * 4 + lane);
+}
+
+}  // namespace
+
+int LitertState::RingSlots() const {
+  int largest = 0, smallest = 0;
+  for (const auto& [name, state_buffer] : bank_1_state_buffers_) {
+    std::optional<int> slots = CacheSlots(name, state_buffer.buffer);
+    if (!slots.has_value()) continue;
+    largest = std::max(largest, *slots);
+    smallest = smallest == 0 ? *slots : std::min(smallest, *slots);
+  }
+  return smallest < largest ? smallest : 0;
+}
+
+absl::StatusOr<LitertState::RingCopy> LitertState::CopyRings() const {
+  RingCopy copy;
+  const int ring = RingSlots();
+  if (ring == 0) return copy;
+  auto copy_bank = [&](const absl::flat_hash_map<std::string, StateBuffer>& bank) -> bool {
+    for (const auto& [name, state_buffer] : bank) {
+      std::optional<int> slots = CacheSlots(name, state_buffer.buffer);
+      if (!slots.has_value() || *slots != ring) continue;
+      std::optional<MetalRawBuffer> storage = RawMetalStorage(state_buffer.buffer);
+      auto tensor_type = state_buffer.buffer.TensorType();
+      if (!storage.has_value() || !tensor_type) return false;
+      std::optional<size_t> width = GetByteWidth(tensor_type->ElementType());
+      if (!width.has_value()) return false;
+      auto dims = tensor_type->Layout().Dimensions();
+      const auto* bytes = static_cast<const uint8_t*>(storage->contents);
+      copy.buffers.push_back(RingBuffer{
+          .name = name,
+          .bytes = std::vector<uint8_t>(bytes, bytes + storage->length),
+          .is_k = absl::StartsWith(name, "kv_cache_k_"),
+          .a_dim = static_cast<size_t>(dims[2]),
+          .slices = static_cast<size_t>((dims[3] + 3) / 4),
+          .width = *width,
+      });
+      copy.bytes += static_cast<int64_t>(storage->length);
+    }
+    return true;
+  };
+  if (!copy_bank(bank_1_state_buffers_) ||
+      (bank_2_state_buffers_.has_value() && !copy_bank(*bank_2_state_buffers_))) {
+    return RingCopy{};
+  }
+  return copy;
+}
+
+absl::Status LitertState::RestoreRings(const RingCopy& copy) {
+  for (const RingBuffer& ring : copy.buffers) {
+    auto find = [&](absl::flat_hash_map<std::string, StateBuffer>& bank) -> StateBuffer* {
+      auto it = bank.find(ring.name);
+      return it == bank.end() ? nullptr : &it->second;
+    };
+    StateBuffer* state_buffer = find(bank_1_state_buffers_);
+    if (state_buffer == nullptr && bank_2_state_buffers_.has_value()) {
+      state_buffer = find(*bank_2_state_buffers_);
+    }
+    RET_CHECK(state_buffer != nullptr) << "Missing ring cache: " << ring.name;
+    std::optional<MetalRawBuffer> storage = RawMetalStorage(state_buffer->buffer);
+    RET_CHECK(storage.has_value()) << "Ring cache isn't a shared Metal buffer: " << ring.name;
+    RET_CHECK_EQ(storage->length, ring.bytes.size()) << ring.name;
+    memcpy(storage->contents, ring.bytes.data(), ring.bytes.size());
+  }
+  return absl::OkStatus();
+}
+
+int64_t LitertState::DifferentWindowBytes(const RingCopy& a, const RingCopy& b,
+                                          const std::vector<int>& window_slots, int ring_slots,
+                                          std::vector<std::pair<int, int64_t>>* per_slot) {
+  std::vector<bool> in_window(ring_slots, false);
+  for (int slot : window_slots) {
+    if (slot >= 0 && slot < ring_slots) in_window[slot] = true;
+  }
+  std::vector<int64_t> counts(2 * ring_slots, 0);  // K caches' counts, then V caches'
+  int64_t different = 0;
+  for (const RingBuffer& x : a.buffers) {
+    for (const RingBuffer& y : b.buffers) {
+      if (x.name != y.name || x.bytes.size() != y.bytes.size()) continue;
+      for (size_t i = 0; i < x.bytes.size(); ++i) {
+        if (x.bytes[i] == y.bytes[i]) continue;
+        const int slot = SlotOfByte(x, i);
+        if (!in_window[slot]) continue;
+        ++different;
+        ++counts[x.is_k ? slot : ring_slots + slot];
+      }
+    }
+  }
+  if (per_slot != nullptr) {
+    for (int slot = 0; slot < 2 * ring_slots; ++slot) {
+      if (counts[slot] > 0) per_slot->emplace_back(slot, counts[slot]);
+    }
+  }
+  return different;
+}
+
 }  // namespace litert::lm

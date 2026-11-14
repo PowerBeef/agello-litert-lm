@@ -114,6 +114,15 @@ class LlmExecutorBase {
         "SetCurrentStep not implemented for backend: ", ExecutorBackendName()));
   };
 
+  // Agello (ring rewind): a session saved a checkpoint at the current step, which a later
+  // SetCurrentStep may rewind to. An executor whose caches can't rewind far on their own (ring
+  // caches) keeps what that rewind needs.
+  virtual absl::Status SaveRewindPoint() { return absl::OkStatus(); }
+
+  // Agello (ring rewind): whether some KV caches are rings, which hold only the last positions
+  // written, so a processed token past the current step may no longer have its slots.
+  virtual bool HasRingCaches() const { return false; }
+
   // Gets the executor settings of the executor.
   virtual absl::StatusOr<LlmExecutorSettings> GetExecutorSettings() const {
     return absl::UnimplementedError(

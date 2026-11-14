@@ -42,6 +42,7 @@
 #include "runtime/components/sampler.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/executor_stats.h"
+#include "runtime/executor/litert/state.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -152,6 +153,16 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
 
   // Sets the current step of the executor.
   absl::Status SetCurrentStep(int new_step) override;
+
+  // Agello (ring rewind): marks the current step (a conversation's checkpoint before its reply)
+  // as one a rewind may come back to; the ring caches are copied later, only if a run is about
+  // to overwrite what that step's window reads.
+  absl::Status SaveRewindPoint() override;
+
+  bool HasRingCaches() const override {
+    const auto* litert_state = dynamic_cast<const LitertState*>(state_.get());
+    return litert_state != nullptr && litert_state->RingSlots() > 0;
+  }
 
   absl::StatusOr<const ProcessedTokens*> GetProcessedTokens() const override {
     return &llm_context_->processed_context().processed_tokens();
@@ -493,6 +504,21 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   // state/context restore, step change or failed round invalidates it, and the
   // next MTP round then goes through the priming path.
   bool mtp_primed_ = false;
+
+  // Agello (ring rewind): the last rewind point, and the ring caches copied just before a run
+  // overwrote a slot its window reads (none while no run has gone that far).
+  struct RewindPoint {
+    const LlmContext* context = nullptr;
+    int step = -1;
+    int ring_slots = 0;
+    std::optional<LitertState::RingCopy> rings;
+    std::optional<LitertState::RingCopy> at_point;  // AGELLO_VERIFY_RING_REWIND: a copy at the point
+  };
+  std::optional<RewindPoint> rewind_point_;
+  bool first_window_change_reported_ = false;
+  // Before a run that may write positions up to `last_position`.
+  absl::Status KeepRewindWindow(int last_position);
+  absl::Status RewindRings(int furthest_step, int new_step);
 
   // Agello (PERFORMANCE.md, A2): the first decode call after a prefill hands
   // back the priming step's token alone, so it streams one round sooner, and

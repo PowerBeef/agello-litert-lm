@@ -511,6 +511,8 @@ absl::Status SessionAdvanced::SaveCheckpoint(absl::string_view label) {
   }
   ABSL_ASSIGN_OR_RETURN(int current_step,
                         execution_manager_lock->GetCurrentStep(*session_info_));
+  // Agello (ring rewind): ring caches keep what a rewind to this step needs.
+  ABSL_RETURN_IF_ERROR(execution_manager_lock->SaveRewindPoint(*session_info_));
   checkpoint_map_[label] = {current_step, session_state_, last_task_ids_};
   return absl::OkStatus();
 }
