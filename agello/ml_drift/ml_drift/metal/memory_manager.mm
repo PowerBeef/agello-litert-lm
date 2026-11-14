@@ -95,11 +95,21 @@ std::vector<const T*> GetSortedVector(const std::vector<std::unique_ptr<T>>& ite
   return sorted_items;
 }
 
-// Takes the smallest available buffer which can hold `size`.
+// Takes the smallest available buffer which can hold `size`. Agello: not one more than twice
+// `size` and 16 MB over it (a new buffer is made instead). The pool is shared by every graph of
+// a model, and once a graph runs with a buffer, all of that buffer stays resident (wired) until
+// it's freed: verify's and the 128-token prefill's small tensors used to borrow the 1,024-token
+// prefill's 524 MB score buffers, so a 32K window held 1.3 GB more on every chat, whether or not
+// a prompt ever needed the 1,024-token prefill.
 const Buffer* TakeAvailableBuffer(std::vector<const Buffer*>& available_buffers, size_t size) {
   auto it = absl::c_find_if(available_buffers,
                             [size](const Buffer* b) { return b->GetMemorySizeInBytes() >= size; });
   if (it == available_buffers.end()) {
+    return nullptr;
+  }
+  constexpr uint64_t kMaxWasteBytes = 16ull << 20;
+  const uint64_t found = (*it)->GetMemorySizeInBytes();
+  if (found > 2 * static_cast<uint64_t>(size) && found - size > kMaxWasteBytes) {
     return nullptr;
   }
 
