@@ -51,14 +51,21 @@ absl::Status CreateBoundedMaskFromNode(const std::vector<::ml_drift::Value*>& in
     op_desc.args.AddFloat("clamp_low", *attr->clamp_low, type);
     op_desc.args.AddFloat("clamp_high", *attr->clamp_high, type);
   }
+  int component = 0;
   for (const char* c : {"x", "y", "z", "w"}) {
     const std::string value = std::string("in_value.") + c;
     const std::string kept_value =
         attr->clamp_low && attr->clamp_high
             ? "clamp(" + value + ", args.clamp_low, args.clamp_high)"
             : value;
-    op_desc.code += std::string("  out_value.") + c + " = in2_value." + c + " ? " + kept_value +
+    // Agello (engine review, step 4): with row_end, key S_COORD * 4 + component against the
+    // row's bound (an int32 read).
+    const std::string keep =
+        attr->row_end ? "(S_COORD * 4 + " + std::to_string(component) + ") < in2_value.x"
+                      : std::string("in2_value.") + c;
+    op_desc.code += std::string("  out_value.") + c + " = " + keep + " ? " + kept_value +
                     " : args.mask_value;\n";
+    ++component;
   }
   auto dst = model_builder->AddTensor(logits.tensor_desc);
   ::ml_drift::OperationDef definition;
@@ -69,6 +76,65 @@ absl::Status CreateBoundedMaskFromNode(const std::vector<::ml_drift::Value*>& in
       definition, std::move(op_desc), mask.tensor_desc.GetBHWCShape(),
       dst.tensor_desc.GetBHWCShape()));
   model_builder->AddGpuOperation({logits, mask}, {dst}, std::move(op), kBoundedMaskType);
+  return model_builder->UpdateOutputTensor(dst, outputs[0]->id);
+}
+
+namespace {
+// Agello (engine review, step 4): one thread per row of the mask.
+class MaskBoundsOp : public ::ml_drift::GPUOperation {
+ public:
+  MaskBoundsOp() = default;
+  ::ml_drift::int3 GetGridSize() const override {
+    return ::ml_drift::int3(dst_[0]->Width() * dst_[0]->Batch(), dst_[0]->Height(), 1);
+  }
+  MaskBoundsOp(MaskBoundsOp&&) = default;
+  MaskBoundsOp& operator=(MaskBoundsOp&&) = default;
+  MaskBoundsOp(const MaskBoundsOp&) = delete;
+  MaskBoundsOp& operator=(const MaskBoundsOp&) = delete;
+};
+}  // namespace
+
+absl::Status CreateMaskBoundsFromNode(const std::vector<::ml_drift::Value*>& inputs,
+                                      const std::vector<::ml_drift::Value*>& outputs,
+                                      const ::ml_drift::Node& node,
+                                      ::ml_drift::GpuModelBuilder* model_builder) {
+  if (inputs.size() != 1 || outputs.size() != 1) {
+    return absl::InvalidArgumentError("Mask bounds expect one mask and one output.");
+  }
+  ABSL_ASSIGN_OR_RETURN(auto mask, model_builder->GetTensor(inputs[0]->id));
+  ::ml_drift::TensorDescriptor dst_desc = mask.tensor_desc;
+  dst_desc.SetDataType(::ml_drift::DataType::kInt32);
+  ::ml_drift::BHWC dst_shape = mask.tensor_desc.GetBHWCShape();
+  dst_shape.c = 1;
+  dst_desc.SetBHWCShape(dst_shape);
+  auto dst = model_builder->AddTensor(dst_desc);
+
+  MaskBoundsOp op;
+  op.AddSrcTensor("src_tensor", mask.tensor_desc);
+  op.AddDstTensor("dst_tensor", dst.tensor_desc);
+  // One thread per row (W, with the batch and the height folded in): one past the last kept
+  // key, so a row that isn't a prefix still bounds every key it keeps.
+  op.code_ = R"(
+MAIN_FUNCTION($0) {
+  int X = ucl::GetGlobalId<0>();
+  int Y = ucl::GetGlobalId<1>();
+  if (X >= args.dst_tensor.Width() || Y >= args.dst_tensor.Height()) {
+    return;
+  }
+  int end = 0;
+  for (int s = 0; s < args.src_tensor.Slices(); ++s) {
+    int4 kept = ucl::Convert<int4>(args.src_tensor.Read(X, Y, s));
+    if (kept.x != 0) end = s * 4 + 1;
+    if (kept.y != 0) end = s * 4 + 2;
+    if (kept.z != 0) end = s * 4 + 3;
+    if (kept.w != 0) end = s * 4 + 4;
+  }
+  args.dst_tensor.Write(ucl::Convert<args.dst_tensor::type>(int4(end, 0, 0, 0)), X, Y, 0);
+}
+)";
+  model_builder->AddGpuOperation({mask}, {dst},
+                                 std::make_unique<MaskBoundsOp>(std::move(op)),
+                                 kMaskBoundsType);
   return model_builder->UpdateOutputTensor(dst, outputs[0]->id);
 }
 

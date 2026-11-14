@@ -17,6 +17,7 @@
 #include <any>
 #include <cstdint>
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -25,6 +26,8 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/container/flat_hash_set.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/log/log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/status_macros.h"  // from @com_google_absl
@@ -370,12 +373,22 @@ absl::Status SliceRows(GraphFloat32* graph, const Tail& tail, int slices,
   Value* v = pv_inputs[1];
   Value* out = pv_outputs[0];
   const int rows = tail.selected->tensor.shape.w;
-  if (q->tensor.shape.w != rows || mask->tensor.shape.w != rows || out->tensor.shape.w != rows) {
+  const int slice_rows = rows / slices;
+  // Agello (engine review, step 4): a mask with one row per chunk row (the bounds, [1, 1, R, 1],
+  // read by query row w % R) is sliced to a slice's rows only when the slice lies within one
+  // query head's R rows; a slice of whole heads reads it whole. A [rows, T] mask is sliced like
+  // the rows.
+  const int chunk_rows = mask->tensor.shape.w;
+  const bool per_chunk_row = chunk_rows != rows && chunk_rows > 0 && rows % chunk_rows == 0;
+  const bool per_chunk_row_ok =
+      per_chunk_row && ((slice_rows <= chunk_rows && chunk_rows % slice_rows == 0) ||
+                        slice_rows % chunk_rows == 0);
+  if (q->tensor.shape.w != rows || out->tensor.shape.w != rows ||
+      (per_chunk_row ? !per_chunk_row_ok : mask->tensor.shape.w != rows)) {
     ABSL_LOG(WARNING) << "Agello: an attention tail with a context-sized score tensor stays "
                          "whole (unexpected row shapes).";
     return absl::OkStatus();
   }
-  const int slice_rows = rows / slices;
   ::ml_drift::NodeId cursor = tail.pv->id;
   auto insert = [&](const std::string& type, std::any attributes,
                     const std::vector<Value*>& inputs, Value* output) -> absl::Status {
@@ -408,11 +421,16 @@ absl::Status SliceRows(GraphFloat32* graph, const Tail& tail, int slices,
   std::vector<Value*> outputs;
   for (int i = 0; i < slices; ++i) {
     const int start = i * slice_rows;
-    Value*& mask_slice = (*mask_slices)[{mask->id, i}];
-    if (mask_slice == nullptr) {
-      mask_slice = value_like(mask, slice_rows);
-      ABSL_RETURN_IF_ERROR(insert(slice_type, row_slice(mask->tensor.shape, start), {mask},
-                                  mask_slice));
+    Value* mask_slice = mask;
+    if (!per_chunk_row || slice_rows < chunk_rows) {
+      const int mask_start = per_chunk_row ? start % chunk_rows : start;
+      Value*& cached = (*mask_slices)[{mask->id, mask_start}];
+      if (cached == nullptr) {
+        cached = value_like(mask, slice_rows);
+        ABSL_RETURN_IF_ERROR(insert(slice_type, row_slice(mask->tensor.shape, mask_start),
+                                    {mask}, cached));
+      }
+      mask_slice = cached;
     }
     Value* q_slice = value_like(q, slice_rows);
     ABSL_RETURN_IF_ERROR(insert(slice_type, row_slice(q->tensor.shape, start), {q}, q_slice));
@@ -445,7 +463,115 @@ absl::Status SliceRows(GraphFloat32* graph, const Tail& tail, int slices,
   return insert(ToString(OperationType::kConcat), concat, outputs, out);
 }
 
+// Agello (engine review, step 4): the boolean [1, 1, R, keys] condition a global layer's mask is
+// copied from, one copy per query head: mask <- RESHAPE <- NOT_EQUAL(0) <- CONCAT(height) <-
+// [COPY] <- CAST <- condition. Null if the mask isn't built that way.
+Value* MatchRowMask(const GraphFloat32& graph, const Value* mask, int keys) {
+  const auto producer_of = [&](const Value* value, OperationType type) -> Node* {
+    Node* node = graph.FindProducer(value->id);
+    return node != nullptr && node->operation.type == ToString(type) ? node : nullptr;
+  };
+  const auto single_input = [&](const Node* node) -> Value* {
+    const auto inputs = graph.FindInputs(node->id);
+    return inputs.size() == 1 ? inputs[0] : nullptr;
+  };
+  Node* reshape = producer_of(mask, OperationType::kReshape);
+  Value* value = reshape ? single_input(reshape) : nullptr;
+  Node* not_equal = value ? producer_of(value, OperationType::kNotEqual) : nullptr;
+  if (not_equal == nullptr || ScalarParam(*not_equal) != std::optional<float>(0.0f)) {
+    return nullptr;
+  }
+  value = single_input(not_equal);
+  Node* concat = value ? producer_of(value, OperationType::kConcat) : nullptr;
+  if (concat == nullptr) return nullptr;
+  const auto* concat_attr =
+      std::any_cast<::ml_drift::ConcatAttributes>(&concat->operation.attributes);
+  if (concat_attr == nullptr || concat_attr->axis != ::ml_drift::Axis::kHeight) return nullptr;
+  const Value* cast_value = nullptr;
+  const auto concat_inputs = graph.FindInputs(concat->id);
+  for (const Value* input : concat_inputs) {
+    const Value* source = input;
+    if (Node* copy = producer_of(source, OperationType::kCopy)) source = single_input(copy);
+    if (source == nullptr || (cast_value != nullptr && source != cast_value)) return nullptr;
+    cast_value = source;
+  }
+  Node* cast = cast_value ? producer_of(cast_value, OperationType::kCast) : nullptr;
+  Value* condition = cast ? single_input(cast) : nullptr;
+  if (condition == nullptr) return nullptr;
+  const ::ml_drift::BHWC& c = condition->tensor.shape;
+  const int heads = static_cast<int>(concat_inputs.size());
+  const bool row_shaped = condition->tensor.type == ::ml_drift::DataType::kBool && c.b == 1 &&
+                          c.h == 1 && c.c == keys && mask->tensor.shape.w == heads * c.w;
+  return row_shaped ? condition : nullptr;
+}
+
+// Deletes `value`'s producer and, going back, every producer whose outputs nothing reads.
+// `graph_outputs` are the graph's outputs before the rewrite: GraphFloat32::IsGraphOutput also
+// counts any value with no reader, which is every value this cleans up.
+absl::Status DeleteDeadChain(GraphFloat32* graph, Value* value,
+                             const absl::flat_hash_set<::ml_drift::ValueId>& graph_outputs) {
+  std::vector<Value*> pending{value};
+  while (!pending.empty()) {
+    Value* current = pending.back();
+    pending.pop_back();
+    if (graph_outputs.contains(current->id) || !graph->FindConsumers(current->id).empty()) {
+      continue;
+    }
+    Node* producer = graph->FindProducer(current->id);
+    if (producer == nullptr) continue;
+    const auto outputs = graph->FindOutputs(producer->id);
+    bool dead = true;
+    for (const Value* output : outputs) {
+      dead = dead && !graph_outputs.contains(output->id) &&
+             graph->FindConsumers(output->id).empty();
+    }
+    if (!dead) continue;
+    const auto inputs = graph->FindInputs(producer->id);
+    ABSL_RETURN_IF_ERROR(graph->DeleteNode(producer->id));
+    for (const Value* output : outputs) ABSL_RETURN_IF_ERROR(graph->DeleteValue(output->id));
+    for (Value* input : inputs) pending.push_back(input);
+  }
+  return absl::OkStatus();
+}
+
+// A kMaskBoundsType node on `condition`, right after its first reader, so the boolean mask can
+// die early: [1, 1, R, 1] int32.
+absl::StatusOr<Value*> AddMaskBounds(GraphFloat32* graph, Value* condition) {
+  const Node* first_reader = nullptr;
+  for (const Node* node : graph->nodes()) {
+    if (node == nullptr) continue;
+    for (const Value* input : graph->FindInputs(node->id)) {
+      if (input->id == condition->id) {
+        first_reader = node;
+        break;
+      }
+    }
+    if (first_reader != nullptr) break;
+  }
+  if (first_reader == nullptr) return absl::InternalError("A mask with no reader");
+  Node* node = nullptr;
+  ABSL_RETURN_IF_ERROR(graph->InsertNodeAfter(first_reader->id, &node));
+  node->operation.type = kMaskBoundsType;
+  Value* bounds = graph->NewValue();
+  bounds->tensor = condition->tensor;
+  bounds->tensor.ref = -1;
+  bounds->tensor.is_variable_input = false;
+  bounds->tensor.type = ::ml_drift::DataType::kInt32;
+  bounds->tensor.shape.c = 1;
+  graph->AddConsumer(node->id, condition->id);
+  graph->SetProducer(node->id, bounds->id);
+  return bounds;
+}
+
 }  // namespace
+
+bool MaskBoundsEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_MASK_BOUNDS");
+    return value == nullptr || value[0] != '0';
+  }();
+  return enabled;
+}
 
 bool SliceAttentionEnabled() {
   static const bool enabled = [] {
@@ -490,6 +616,11 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
     const char* value = std::getenv("AGELLO_DRAFTER_WINDOW");
     return value != nullptr ? std::max(0, std::atoi(value)) : 0;
   }();
+  absl::flat_hash_map<::ml_drift::ValueId, Value*> bounds_of;
+  std::vector<Value*> replaced_masks;
+  absl::flat_hash_set<::ml_drift::ValueId> graph_outputs;
+  for (const Value* output : graph->outputs()) graph_outputs.insert(output->id);
+  int bounded = 0;
   std::optional<int> global_window;
   if (drafter_window > 0) {
     int tails = 0;
@@ -505,12 +636,47 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
     if (!tail) continue;
     ABSL_RETURN_IF_ERROR(Rewrite(graph, *tail, window, global_window));
     ++rewritten;
+    // Agello (engine review, step 4): a global layer's mask as per-row bounds. Only global
+    // layers, whose mask is the runtime's own input (a prefix per row); a ring file's local
+    // masks come out of floor_mod in the graph and wrap, so they aren't prefixes.
+    const auto* qk_attr =
+        std::any_cast<RuntimeBatchedMatMulAttributes>(&tail->qk->operation.attributes);
+    const bool global = qk_attr != nullptr && qk_attr->is_global.value_or(false);
+    if (MaskBoundsEnabled() && global) {
+      Value* condition = MatchRowMask(*graph, tail->mask, tail->selected->tensor.shape.c);
+      if (condition != nullptr && graph->FindProducer(condition->id) != nullptr) {
+        condition = nullptr;  // not an input: built in the graph
+      }
+      if (condition != nullptr) {
+        Value*& bounds = bounds_of[condition->id];
+        if (bounds == nullptr) {
+          ABSL_ASSIGN_OR_RETURN(bounds, AddMaskBounds(graph, condition));
+        }
+        ABSL_RETURN_IF_ERROR(graph->ReplaceInput(tail->select->id, tail->mask->id, bounds->id));
+        auto* attr = std::any_cast<BoundedMaskAttributes>(&tail->select->operation.attributes);
+        attr->row_end = true;
+        ++bounded;
+        if (std::find(replaced_masks.begin(), replaced_masks.end(), tail->mask) ==
+            replaced_masks.end()) {
+          replaced_masks.push_back(tail->mask);
+        }
+      }
+    }
     // Agello (D2): a prefill's tail in slices of query rows.
     if (SliceAttentionEnabled()) {
       if (const int slices = RowSlices(*tail); slices > 1) {
         ABSL_RETURN_IF_ERROR(SliceRows(graph, *tail, slices, &mask_slices));
       }
     }
+  }
+  for (Value* mask : replaced_masks) {
+    ABSL_RETURN_IF_ERROR(DeleteDeadChain(graph, mask, graph_outputs));
+  }
+  if (std::getenv("AGELLO_LOG_ATTENTION") != nullptr) {
+    int nodes = 0;
+    for (const Node* node : graph->nodes()) nodes += node != nullptr;
+    fprintf(stderr, "Agello attention: %d tails, %d read row bounds (%zu bounds, %zu masks freed), "
+            "%d nodes left\n", rewritten, bounded, bounds_of.size(), replaced_masks.size(), nodes);
   }
   return rewritten;
 }

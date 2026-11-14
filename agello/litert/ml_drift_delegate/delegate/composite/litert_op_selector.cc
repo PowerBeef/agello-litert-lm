@@ -176,6 +176,9 @@ absl::Status LiteRtOpSelector::GPUOperationFromNode(
   if (node.operation.type == kBoundedMaskType) {
     return CreateBoundedMaskFromNode(inputs, outputs, node, model_builder);
   }
+  if (node.operation.type == kMaskBoundsType) {
+    return CreateMaskBoundsFromNode(inputs, outputs, node, model_builder);
+  }
   if (node.operation.type == kBoundedSoftmaxReduceType) {
     std::vector<::ml_drift::Value*> reduce_inputs = inputs;
     if (inputs.size() == 2) {

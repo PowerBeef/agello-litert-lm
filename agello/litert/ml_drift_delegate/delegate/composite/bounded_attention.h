@@ -42,6 +42,9 @@ namespace litert::ml_drift {
 
 constexpr const char kBoundedMaskType[] = "agello_bounded_mask";
 constexpr const char kBoundedSoftmaxReduceType[] = "agello_bounded_softmax_reduce";
+// Agello (engine review, step 4): a boolean [1, 1, R, T] mask's per-row bound, [1, 1, R, 1]
+// int32: one past the row's last kept key (0 for a row with none).
+constexpr const char kMaskBoundsType[] = "agello_mask_bounds";
 
 // out = mask ? clamp(logits, clamp_low, clamp_high) : mask_value, with the
 // logits as the first input so the op links into their producer.
@@ -49,6 +52,11 @@ struct BoundedMaskAttributes {
   float mask_value = -10000.0f;
   std::optional<float> clamp_low;
   std::optional<float> clamp_high;
+  // Agello (engine review, step 4): the second input is a kMaskBoundsType tensor, [1, 1, R, 1]
+  // int32 (query row w reads chunk row w % R), and key k (the element's channel) is kept when
+  // k < the row's bound: the global layers' masks are prefixes, so this is the same mask without
+  // its [rows, keys] copies.
+  bool row_end = false;
 };
 
 // A softmax reduction over channels [0, params[end_ch_index]), or from a sliding
@@ -78,6 +86,10 @@ std::optional<int> FindSlidingWindow(const ::ml_drift::GraphFloat32& graph);
 // rows: yes unless AGELLO_SLICE_ATTENTION=0 (for A/B measurements). Part of the program cache
 // key.
 bool SliceAttentionEnabled();
+
+// Agello (engine review, step 4): whether global masks become per-row bounds: yes unless
+// AGELLO_MASK_BOUNDS=0 (for A/B measurements). Part of the program cache key.
+bool MaskBoundsEnabled();
 
 // Rewrites every matching attention tail; returns how many it rewrote.
 absl::StatusOr<int> FuseBoundedAttentionSoftmax(::ml_drift::GraphFloat32* graph);

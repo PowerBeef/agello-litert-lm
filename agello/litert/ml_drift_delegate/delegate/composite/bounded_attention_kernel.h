@@ -32,6 +32,12 @@ absl::Status CreateBoundedMaskFromNode(const std::vector<::ml_drift::Value*>& in
                                        ::ml_drift::GpuModelBuilder* model_builder);
 
 // kBoundedSoftmaxReduceType: inputs [masked logits, params (buffer storage)].
+// kMaskBoundsType: input [mask (boolean [1, 1, R, T])], output [1, 1, R, 1] int32.
+absl::Status CreateMaskBoundsFromNode(const std::vector<::ml_drift::Value*>& inputs,
+                                      const std::vector<::ml_drift::Value*>& outputs,
+                                      const ::ml_drift::Node& node,
+                                      ::ml_drift::GpuModelBuilder* model_builder);
+
 absl::Status CreateBoundedSoftmaxReduceFromNode(const std::vector<::ml_drift::Value*>& inputs,
                                                 const std::vector<::ml_drift::Value*>& outputs,
                                                 const ::ml_drift::Node& node,
