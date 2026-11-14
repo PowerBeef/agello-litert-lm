@@ -865,8 +865,9 @@ std::string DelegateKernel::ComputeOptionsFingerprint() const {
     absl::StrAppend(&options_fingerprint, "|agello-bounded-attention-2",
                     BoundedWindowEnabled() ? "" : "-nowindow",
                     SliceAttentionEnabled() ? "-sliced" : "");
-    // Agello (D2 sweep): the score-slice limit and the x V tile change the program.
-    for (const char* name : {"AGELLO_SLICE_SCORE_MB", "AGELLO_PV_TILE"}) {
+    // Agello (D2 sweep): the score-slice limit, the x V tile and the drafter's window change
+    // the program.
+    for (const char* name : {"AGELLO_SLICE_SCORE_MB", "AGELLO_PV_TILE", "AGELLO_DRAFTER_WINDOW"}) {
       if (const char* value = std::getenv(name); value != nullptr) {
         absl::StrAppend(&options_fingerprint, "|", name, "=", value);
       }

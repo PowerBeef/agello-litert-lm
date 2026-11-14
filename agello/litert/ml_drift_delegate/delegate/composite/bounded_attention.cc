@@ -16,6 +16,7 @@
 
 #include <any>
 #include <cstdint>
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -229,7 +230,8 @@ std::optional<Tail> MatchTail(const GraphFloat32& graph, Node* softmax) {
   return tail;
 }
 
-absl::Status Rewrite(GraphFloat32* graph, const Tail& tail, std::optional<int> window) {
+absl::Status Rewrite(GraphFloat32* graph, const Tail& tail, std::optional<int> window,
+                     std::optional<int> global_window = std::nullopt) {
   // 1. The select becomes the bounded mask: (logits, mask), with the capping
   //    folded in. Masked keys get what the capped select gave them.
   for (Value* input : {tail.mask, tail.logits, tail.fill}) {
@@ -285,6 +287,20 @@ absl::Status Rewrite(GraphFloat32* graph, const Tail& tail, std::optional<int> w
     pv_attr->runtime_check.src_window = true;
     reduce_attr.window_pos_index = 0;
     reduce_attr.window_size = *window;
+  }
+  // Agello (engine review, step 6): the drafter's global layer reads only its last
+  // `global_window` positions. Its keys below the window aren't masked, but the reduction and
+  // the PV product start at the window, so they don't count: attention over the window. Only the
+  // drafts change; verify decides what is kept.
+  if (global_window && qk_attr->is_global.has_value() && *qk_attr->is_global) {
+    qk_attr->runtime_check.window_pos_index = 0;
+    qk_attr->runtime_check.window_size = *global_window;
+    qk_attr->runtime_check.dst_window = true;
+    pv_attr->runtime_check.window_pos_index = 0;
+    pv_attr->runtime_check.window_size = *global_window;
+    pv_attr->runtime_check.src_window = true;
+    reduce_attr.window_pos_index = 0;
+    reduce_attr.window_size = *global_window;
   }
   tail.softmax->operation.attributes = reduce_attr;
   ::ml_drift::BHWC& reduced_shape = tail.probabilities->tensor.shape;
@@ -467,12 +483,27 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
   }
   int rewritten = 0;
   MaskSlices mask_slices;
+  // Agello (engine review, step 6): the drafter's graph is the one with a handful of attention
+  // tails (four: three local, one global; the main graphs have 42). AGELLO_DRAFTER_WINDOW sets
+  // its global layer's window in positions; 0 or unset keeps the whole cache.
+  static const int drafter_window = [] {
+    const char* value = std::getenv("AGELLO_DRAFTER_WINDOW");
+    return value != nullptr ? std::max(0, std::atoi(value)) : 0;
+  }();
+  std::optional<int> global_window;
+  if (drafter_window > 0) {
+    int tails = 0;
+    for (::ml_drift::NodeId id : softmax_ids) {
+      if (Node* s = graph->GetNode(id); s != nullptr && MatchTail(*graph, s)) ++tails;
+    }
+    if (tails > 0 && tails <= 4) global_window = drafter_window;
+  }
   for (::ml_drift::NodeId id : softmax_ids) {
     Node* softmax = graph->GetNode(id);
     if (softmax == nullptr) continue;
     std::optional<Tail> tail = MatchTail(*graph, softmax);
     if (!tail) continue;
-    ABSL_RETURN_IF_ERROR(Rewrite(graph, *tail, window));
+    ABSL_RETURN_IF_ERROR(Rewrite(graph, *tail, window, global_window));
     ++rewritten;
     // Agello (D2): a prefill's tail in slices of query rows.
     if (SliceAttentionEnabled()) {
