@@ -36,6 +36,7 @@
 #include "absl/status/status_macros.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
+#include "absl/strings/numbers.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
@@ -2211,6 +2212,30 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
   // capabilities of the GPU and set the activation data type accordingly.
   if (executor_settings.GetActivationDataType().has_value()) {
     activation_data_type = executor_settings.GetActivationDataType().value();
+  }
+  // Agello (PERFORMANCE.md, E3, interim): above a 32,768-token window, leave
+  // out the prefill chunks longer than 128. A 1,024-token chunk's attention
+  // builds score tensors as long as the window, [1, 2, 4096, T] in each global
+  // layer: 2.1 GB apiece at T = 131,072, kept by the GPU's memory pool. The
+  // 128-token chunk's are 8 times smaller; since D1 those runs read the INT4
+  // weights in place, so they cost little speed. Until a fused attention
+  // kernel removes the score tensors.
+  constexpr uint32_t kLongWindow = 32768;
+  constexpr int kLongWindowMaxPrefillChunk = 128;
+  if (executor_settings.GetMaxNumTokens() > kLongWindow &&
+      executor_settings.GetSelectedSignatures().empty()) {
+    LITERT_ASSIGN_OR_RETURN(auto keys, litert_model->GetSignatureKeys());
+    std::vector<std::string> selected;
+    for (absl::string_view key : keys) {
+      int chunk = 0;
+      if (absl::StartsWith(key, kPrefillSignatureRunner) &&
+          absl::SimpleAtoi(key.substr(key.rfind('_') + 1), &chunk) &&
+          chunk > kLongWindowMaxPrefillChunk) {
+        continue;
+      }
+      selected.push_back(std::string(key));
+    }
+    executor_settings.SetSelectedSignatures(std::move(selected));
   }
   LITERT_ASSIGN_OR_RETURN(auto decode_signature,
                           litert_model->FindSignature(kDecodeSignatureRunner));

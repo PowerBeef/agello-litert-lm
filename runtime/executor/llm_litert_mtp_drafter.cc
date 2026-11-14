@@ -228,13 +228,18 @@ LlmLiteRtMtpDrafter::Create(
       executor_settings.GetActivationDataType().value_or(
           ActivationDataType::FLOAT16);
   auto cache_suffix = std::string(ExecutorSettingsBase::kMtpDrafterCacheSuffix);
+  // Agello (PERFORMANCE.md, E3): the drafter compiles its own model, whose one
+  // signature isn't among the main model's: a selection made for the main
+  // graph (long windows leave out the 1,024-token prefill) doesn't apply here.
+  LlmExecutorSettings drafter_settings = executor_settings;
+  drafter_settings.SetSelectedSignatures({});
   ABSL_ASSIGN_OR_RETURN(
       auto compilation_options,
-      CreateCompilationOptions(executor_settings, activation_data_type,
+      CreateCompilationOptions(drafter_settings, activation_data_type,
                                /*signatures=*/std::nullopt,
                                /*cache_suffix=*/cache_suffix));
   ABSL_RETURN_IF_ERROR(
-      UpdateCompilationOptions(executor_settings, compilation_options));
+      UpdateCompilationOptions(drafter_settings, compilation_options));
   ABSL_RETURN_IF_ERROR(SetExternalWeightOptions(
       resources, ModelType::kTfLiteMtpDrafter, compilation_options));
   ABSL_ASSIGN_OR_RETURN(auto model,
