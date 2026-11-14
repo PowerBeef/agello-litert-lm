@@ -97,6 +97,10 @@ class MockTokenizer : public Tokenizer {
         } else {
           result += "\xc3\xa9";
         }
+      } else if (id == 13) {
+        // Simulates a special token (<pad>): decoded alone it shows its name,
+        // beside other tokens nothing.
+        if (token_ids.size() == 1) result += "<pad>";
       } else if (id == 12) {
         // Simulates a raw orphaned UTF-8 continuation byte (malformed output).
         result += '\x80';
@@ -153,6 +157,31 @@ TEST(BufferedStreamingDetokenizerTest, ReleaseFirstDecode) {
               IsOkAndHolds(std::vector<DetokenizedStep>{{" World", {2}}}));
   EXPECT_THAT(detokenizer.Flush(),
               IsOkAndHolds(std::vector<DetokenizedStep>{{"!", {3}}}));
+}
+
+TEST(BufferedStreamingDetokenizerTest, ReleaseFirstDecodeHoldsSpecialTokens) {
+  MockTokenizer tokenizer;
+  BufferedStreamingDetokenizer detokenizer(&tokenizer, 1, /*lookback_tokens=*/8,
+                                           /*release_first_decode=*/true);
+  EXPECT_THAT(detokenizer.ProcessStep({{13}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"", {}}}));
+  EXPECT_THAT(detokenizer.ProcessStep({{13}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"", {}}}));
+  EXPECT_THAT(detokenizer.ProcessStep({{1}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"Hello", {13, 13, 1}}}));
+}
+
+TEST(BufferedStreamingDetokenizerTest, ReleaseFirstDecodeHoldsNonAscii) {
+  MockTokenizer tokenizer;
+  BufferedStreamingDetokenizer detokenizer(&tokenizer, 1, /*lookback_tokens=*/8,
+                                           /*release_first_decode=*/true);
+  // [10] decodes to "\xc3\xa9" but [10, 11] to "\xc3\xa8!": nothing goes early.
+  EXPECT_THAT(detokenizer.ProcessStep({{10}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"", {}}}));
+  EXPECT_THAT(detokenizer.ProcessStep({{11}}),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"", {}}}));
+  EXPECT_THAT(detokenizer.Flush(),
+              IsOkAndHolds(std::vector<DetokenizedStep>{{"\xc3\xa8!", {10, 11}}}));
 }
 
 TEST(BufferedStreamingDetokenizerTest, IncompleteBpe) {

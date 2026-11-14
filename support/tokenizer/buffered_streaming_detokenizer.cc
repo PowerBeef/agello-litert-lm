@@ -133,12 +133,33 @@ BufferedStreamingDetokenizer::ProcessStep(
     // Agello (PERFORMANCE.md, A2): with release_first_decode_ the first valid
     // decode is released at once (see the constructor). With speculative
     // decoding the first token comes back alone, and the lag held its text
-    // until the first round's tokens.
+    // until the first round's tokens. Only text that stays is released: what
+    // the tokens still decode to when repeated (a special token decoded alone
+    // shows its name, "<pad>", and nothing beside others), and only if it ends
+    // in an ASCII character (a character's bytes can decode differently once
+    // the next token arrives). Otherwise the first step waits, as without the
+    // option.
     bool released_whole_decode = false;
-    if (prev_decoded_trimmed.empty() && release_first_decode_) {
-      released_text = std::string(decoded_trimmed);
-      released_lengths_[i] = decoded_trimmed.length();
-      released_whole_decode = !released_text.empty();
+    size_t early_length = 0;
+    if (prev_decoded_trimmed.empty() && release_first_decode_ &&
+        !decoded_trimmed.empty()) {
+      std::vector<int> repeated = accumulated_token_ids_[i];
+      repeated.insert(repeated.end(), accumulated_token_ids_[i].begin(),
+                      accumulated_token_ids_[i].end());
+      ABSL_ASSIGN_OR_RETURN(std::string repeated_text,
+                            tokenizer_->TokenIdsToText(repeated));
+      early_length = GetLongestCommonPrefixLength(
+          decoded_trimmed, TrimTrailingReplacement(repeated_text));
+      if (early_length > 0 &&
+          (static_cast<uint8_t>(decoded_trimmed[early_length - 1]) &
+           kUtf8HighBitMask) != 0) {
+        early_length = 0;
+      }
+    }
+    if (early_length > 0) {
+      released_text = std::string(decoded_trimmed.substr(0, early_length));
+      released_lengths_[i] = early_length;
+      released_whole_decode = early_length == decoded_trimmed.length();
     } else if (prev_decoded_trimmed.empty()) {
       // First valid decode. We don't release anything yet to lag by 1 step.
       released_text = "";
