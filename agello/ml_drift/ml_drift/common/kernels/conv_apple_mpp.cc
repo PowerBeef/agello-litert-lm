@@ -14,6 +14,8 @@
 
 #include "ml_drift/common/kernels/conv_apple_mpp.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <variant>
 
@@ -622,7 +624,30 @@ ConvAppleMPP CreateConvAppleMPPExternalWeights(
   params.runtime_check = runtime_check;
   params.softmax_input_activation = src_exp != nullptr;
 
-  ConvAppleMPP conv(src, params);
+  // Agello (PERFORMANCE.md, D2 sweep): AGELLO_PV_TILE="MxN" sets the tile of the products that
+  // compute probabilities from a softmax reduction (attention's x V), keeping the 8,192-element
+  // destination: each output tile recomputes its rows' exponentials, so wider tiles compute
+  // fewer. N stops at the output's width (M grows to match).
+  int m_tile = 64;
+  int n_tile = 128;
+  if (params.softmax_input_activation) {
+    if (const char* tile = std::getenv("AGELLO_PV_TILE"); tile != nullptr) {
+      int m = 0, n = 0;
+      if (std::sscanf(tile, "%dx%d", &m, &n) == 2 && m * n == 8192 && n % 64 == 0 &&
+          (m == 16 || m == 32 || m == 64 || m == 128)) {
+        const int width = AlignByN(weights_shape.o, 64);
+        if (n > width) {
+          n = width;
+          m = 8192 / n;
+        }
+        if (m == 16 || m == 32 || m == 64 || m == 128) {
+          m_tile = m;
+          n_tile = n;
+        }
+      }
+    }
+  }
+  ConvAppleMPP conv(src, params, m_tile, n_tile);
   conv.AddSrcTensor("src", src);
   conv.AddDstTensor("dst", dst);
 

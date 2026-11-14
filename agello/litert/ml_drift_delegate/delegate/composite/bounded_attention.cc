@@ -310,12 +310,24 @@ absl::Status Rewrite(GraphFloat32* graph, const Tail& tail, std::optional<int> w
 // mask is sliced the same way, once for all the layers that read it.
 constexpr int64_t kMaxScoreBytes = 256ll << 20;
 
+// AGELLO_SLICE_SCORE_MB overrides the limit (for the D2 sweep; part of the program cache key).
+int64_t MaxScoreBytes() {
+  static const int64_t bytes = [] {
+    const char* value = std::getenv("AGELLO_SLICE_SCORE_MB");
+    const int64_t megabytes = value != nullptr ? std::atoll(value) : 0;
+    return megabytes > 0 ? (megabytes << 20) : kMaxScoreBytes;
+  }();
+  return bytes;
+}
+
 int RowSlices(const Tail& tail) {
   const ::ml_drift::BHWC& scores = tail.selected->tensor.shape;
   const int64_t bytes = 2ll * scores.b * scores.h * scores.w * scores.c;
   int slices = 1;
-  while (bytes / slices > kMaxScoreBytes && scores.w % (2 * slices) == 0 &&
-         scores.w / (2 * slices) >= 128) {
+  // At least 256 rows a slice: the graph builder picks other product kernels for runs of 128 rows
+  // or fewer, which sum differently (the D2 sweep: 128-row slices changed replies).
+  while (bytes / slices > MaxScoreBytes() && scores.w % (2 * slices) == 0 &&
+         scores.w / (2 * slices) >= 256) {
     slices *= 2;
   }
   return slices;
