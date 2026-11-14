@@ -489,6 +489,19 @@ LiteRtStatus LiteRtDestroyMetalMemory(HwMemoryInfoPtr hw_memory_info) {
   return kLiteRtStatusOk;
 }
 
+// Agello (E6): a packed buffer in shared storage holds the host layout byte for byte, so it's
+// locked in place: the caller reads and writes the MTLBuffer's contents, with no host shadow
+// (kept for the buffer's lifetime: about 100 MB of prefill masks and embeddings at a 32K window)
+// and no copy on unlock. The caller already waits for the GPU before a lock: LiteRT waits on the
+// buffer's event, prefill on Metal runs synchronously, and decode's inputs are written after its
+// last logits are read. The unlock's copy into a shared buffer was a CPU memcpy too.
+bool LocksInPlace(const MetalMemoryInfo* memory_info) {
+  if (memory_info->buffer_type != kLiteRtTensorBufferTypeMetalBufferPacked) return false;
+  id<MTLBuffer> buffer = memory_info->metal_tensor.GetBufferHandle();
+  return buffer != nil && buffer.storageMode == MTLStorageModeShared && buffer.contents != nullptr &&
+         buffer.length >= memory_info->packed_bytes;
+}
+
 LiteRtStatus LiteRtUnlockMetalMemory(HwMemoryInfoPtr hw_memory_info) {
   if (hw_memory_info == nullptr) {
     return kLiteRtStatusErrorInvalidArgument;
@@ -500,8 +513,8 @@ LiteRtStatus LiteRtUnlockMetalMemory(HwMemoryInfoPtr hw_memory_info) {
                              << "The Metal memory is already unlocked.");
   absl::Cleanup unlock = [&memory_info] { memory_info->lock_state = LockState::kUnlocked; };
 
-  // Don't upload data if read only.
-  if (memory_info->lock_state == LockState::kReadLocked) {
+  // Don't upload data if read only, or if it was written in place (Agello, E6).
+  if (memory_info->lock_state == LockState::kReadLocked || LocksInPlace(memory_info)) {
     return kLiteRtStatusOk;
   }
 
@@ -564,6 +577,12 @@ LiteRtStatus LiteRtLockMetalMemory(HwMemoryInfoPtr hw_memory_info, LiteRtTensorB
 
   LockState new_lock_state = litert::internal::ToLockState(mode);
   ::agello::telemetry::Count(::agello::telemetry::kHostLocks);
+
+  if (LocksInPlace(memory_info)) {
+    *host_memory_ptr = [memory_info->metal_tensor.GetBufferHandle() contents];
+    memory_info->lock_state = new_lock_state;
+    return kLiteRtStatusOk;
+  }
 
   if (memory_info->host_memory == nullptr) {
     ::agello::telemetry::Count(::agello::telemetry::kHostShadowAllocs);
