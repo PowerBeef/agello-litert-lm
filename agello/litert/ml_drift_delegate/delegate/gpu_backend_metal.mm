@@ -51,6 +51,26 @@ namespace {
 constexpr absl::string_view kBackendName = "Metal";
 constexpr absl::string_view kSerializedDataPrefix = "gpuv3_metal_data_";
 constexpr int kFlushPeriodDuringDispatch = 256;
+
+// Agello, the replay test (AGELLO_MTP_REPLAY): while the telemetry library defers GPU waits, a
+// run's last command buffer is committed and kept here instead of waited on; the replay waits for
+// it once at the end. Every delegate of an environment shares one command queue, which runs
+// buffers in commit order, so the last one committed finishing means all have.
+absl::Mutex g_deferred_mutex;
+id<MTLCommandBuffer> g_last_deferred ABSL_GUARDED_BY(g_deferred_mutex) = nil;
+
+void WaitForLastDeferred() {
+  id<MTLCommandBuffer> last = nil;
+  {
+    absl::MutexLock lock(&g_deferred_mutex);
+    last = g_last_deferred;
+    g_last_deferred = nil;
+  }
+  if (last != nil) {
+    ::agello::telemetry::ScopedSpan wait_span(::agello::telemetry::kGpuWaitOther);
+    [last waitUntilCompleted];
+  }
+}
 }  // namespace
 
 GpuBackendMetal::GpuBackendMetal(GpuDelegateWaitType wait_type)
@@ -203,6 +223,18 @@ absl::Status GpuBackendMetal::AssociateGpuEvent(GpuEventHandle event, LiteRtEnvi
 absl::Status GpuBackendMetal::WaitForCompletion() {
   if (command_buffer_ == nullptr) {
     // No pending GPU operations. No need to wait.
+    return absl::OkStatus();
+  }
+
+  if (::agello::telemetry::GpuWaitsDeferred()) {
+    ::agello::telemetry::SetDeferredWaitHook(&WaitForLastDeferred);
+    ::agello::telemetry::AttachGpuTiming(command_buffer_);
+    [command_buffer_ commit];
+    {
+      absl::MutexLock lock(&g_deferred_mutex);
+      g_last_deferred = command_buffer_;
+    }
+    command_buffer_ = nullptr;
     return absl::OkStatus();
   }
 

@@ -405,6 +405,7 @@ int GpuWaitSpanForCurrentRun() {
     case kGpuDecode:
     case kGpuVerify:
     case kGpuDrafter:
+    case kGpuReplay:
       return kGpuWaitDecode;
     default:
       return kGpuWaitOther;
@@ -632,6 +633,22 @@ void SetFact(const char* key, const std::string& value) {
 
 void SetCurrentRun(int gpu_span) { current_run.store(gpu_span, std::memory_order_relaxed); }
 int CurrentRun() { return current_run.load(std::memory_order_relaxed); }
+
+namespace {
+std::atomic<bool> gpu_waits_deferred{false};
+std::atomic<void (*)()> deferred_wait_hook{nullptr};
+}  // namespace
+
+void DeferGpuWaits(bool deferred) {
+  gpu_waits_deferred.store(deferred, std::memory_order_release);
+}
+bool GpuWaitsDeferred() { return gpu_waits_deferred.load(std::memory_order_acquire); }
+void SetDeferredWaitHook(void (*hook)()) {
+  deferred_wait_hook.store(hook, std::memory_order_release);
+}
+void WaitForDeferredGpuWork() {
+  if (auto* hook = deferred_wait_hook.load(std::memory_order_acquire)) hook();
+}
 
 void ReportAnomaly(Anomaly code, Severity severity, int64_t a, int64_t b, const char* message) {
   if (GetLevel() < kCounters) return;

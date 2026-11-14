@@ -85,6 +85,7 @@ enum Level : int { kOff = 0, kCounters = 1, kSpans = 2, kTrace = 3, kDeep = 4 };
   X(kMtpDrafted, "mtp_drafted")                             \
   X(kMtpAccepted, "mtp_accepted")                           \
   X(kMtpSkippedAtCacheEnd, "mtp_skipped_cache_end")         \
+  X(kMtpReplayRounds, "mtp_replay_rounds")                  \
   X(kStopEos, "stop_eos")                                   \
   X(kStopMaxTokens, "stop_max_tokens")                      \
   X(kStopKvFull, "stop_kv_full")                            \
@@ -134,6 +135,8 @@ enum Counter : int {
   X(kToken, "token")                                  \
   X(kMtpDraft, "mtp.draft")                           \
   X(kMtpVerify, "mtp.verify")                         \
+  X(kMtpRound, "mtp.round")                           \
+  X(kMtpReplay, "mtp.replay")                         \
   X(kKvClone, "kv_clone")                             \
   X(kHostLockRead, "host.lock_read")                  \
   X(kHostUnlockWrite, "host.unlock_write")            \
@@ -149,6 +152,7 @@ enum Counter : int {
   X(kGpuDecode, "gpu.decode")                         \
   X(kGpuVerify, "gpu.verify")                         \
   X(kGpuDrafter, "gpu.drafter")                       \
+  X(kGpuReplay, "gpu.replay")                         \
   X(kGpuOther, "gpu.other")                           \
   X(kGpuQueueDelay, "gpu.queue_delay")
 
@@ -309,6 +313,15 @@ int InternSpan(const char* name);
 // The model run in flight, so GPU completion handlers can attribute their time.
 void SetCurrentRun(int gpu_span);
 int CurrentRun();
+
+// The replay test (AGELLO_MTP_REPLAY, the MTP drafter): while waits are deferred, the Metal
+// backend commits each run's command buffers without waiting for them, and
+// WaitForDeferredGpuWork waits for the last one committed (one queue runs them in order). The
+// backend registers the wait as a hook, so this library stays free of Metal.
+void DeferGpuWaits(bool deferred);
+bool GpuWaitsDeferred();
+void SetDeferredWaitHook(void (*hook)());
+void WaitForDeferredGpuWork();
 
 // Anomalies: counted from level 1, kept in a bounded ring, mirrored to os_log.
 // `message` must be a string literal (stored by pointer).

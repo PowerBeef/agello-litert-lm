@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -70,6 +71,31 @@ namespace litert::lm {
 namespace {
 
 constexpr bool kEnableMtpDrafterLogs = false;
+
+// Agello, the replay test (engine review step 7): AGELLO_MTP_REPLAY=1 runs every round twice.
+// After the real round, the same round again: its inputs written as before, its three drafter
+// runs and its verify committed back to back, one wait at the end, no logits read and no picks.
+// That is the ceiling of a GPU-resident round, which would still pay that host preparation. The
+// replay writes what the real round wrote (same inputs, same positions), so replies are unchanged.
+// Telemetry: mtp.round (the real round) against mtp.replay; gpu.replay is the replay's GPU time.
+bool MtpReplayEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_MTP_REPLAY");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+  }();
+  return enabled;
+}
+
+// Restores waiting even when a replayed run fails, then waits for what was committed.
+struct DeferredGpuWaits {
+  DeferredGpuWaits() { ::agello::telemetry::DeferGpuWaits(true); }
+  ~DeferredGpuWaits() {
+    ::agello::telemetry::DeferGpuWaits(false);
+    ::agello::telemetry::WaitForDeferredGpuWork();
+  }
+  DeferredGpuWaits(const DeferredGpuWaits&) = delete;
+  DeferredGpuWaits& operator=(const DeferredGpuWaits&) = delete;
+};
 
 #define MTP_DRAFTER_LOG() \
   ABSL_LOG_IF(INFO, kEnableMtpDrafterLogs) << "MTP Drafter - "
@@ -718,6 +744,7 @@ absl::StatusOr<std::vector<int>> LlmLiteRtMtpDrafter::RunVerification(
 absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     int position, int token_id, std::optional<TensorBuffer> activations,
     StateInterface& state, const Constraint* constraint) {
+  ::agello::telemetry::ScopedSpan round_span(::agello::telemetry::kMtpRound);
   auto* litert_state = dynamic_cast<LitertState*>(&state);
   RET_CHECK(litert_state != nullptr);
   LITERT_ASSIGN_OR_RETURN(
@@ -788,6 +815,33 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
         constraint_state_ = constraint_->Start();
       }
     }
+  }
+
+  round_span.End();
+  if (MtpReplayEnabled() && constraint_ == nullptr) {
+    AGELLO_SPAN(kMtpReplay);
+    AGELLO_COUNT(kMtpReplayRounds);
+    ABSL_RETURN_IF_ERROR(
+        PrepareDrafterInputBuffers(position - 1, state_buffers.output_buffers));
+    ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
+        position, token_id, drafting_result.drafted_tokens,
+        state_buffers.input_buffers));
+    ABSL_RETURN_IF_ERROR(
+        PrepareVerifierOutputBuffers(state_buffers.output_buffers));
+    DeferredGpuWaits deferred;
+    for (int i = 0; i < num_draft_steps_; ++i) {
+      LITERT_RETURN_IF_ERROR(PrepareDrafterOutputBuffers());
+      ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuReplay);
+      bool async = true;
+      LITERT_RETURN_IF_ERROR(mtp_drafter_model_.RunAsync(
+          drafter_signature_.Key(), active_drafter_input_buffers_,
+          active_drafter_output_buffers_, async));
+    }
+    ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuReplay);
+    bool async = true;
+    LITERT_RETURN_IF_ERROR(base_model_.RunAsync(
+        verify_signature_.Key(), active_verifier_input_buffers_,
+        active_verifier_output_buffers_, async));
   }
 
   MTP_DRAFTER_LOG() << "drafted_tokens: "
