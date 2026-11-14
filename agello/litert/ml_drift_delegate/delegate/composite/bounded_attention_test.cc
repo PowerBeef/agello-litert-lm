@@ -62,6 +62,7 @@ struct Attention {
   Node* select;
   Node* softmax;
   Node* pv;
+  Value* out;
 };
 
 // A sliding-window mask: LOGICAL_AND(GREATER_EQUAL(p, keys), LESS(p, keys + window)).
@@ -86,14 +87,15 @@ void AddWindowMask(GraphFloat32& g, int keys, int window, int offset_of_last = 0
   NewNode(g, ToString(OperationType::kLogicalAnd), {ge, lt}, both);
 }
 
-void Build(Attention& a, std::optional<bool> is_global = std::nullopt) {
+void Build(Attention& a, std::optional<bool> is_global = std::nullopt, int rows = 4,
+           int keys = 64, Value* shared_mask = nullptr, Value* shared_params = nullptr) {
   GraphFloat32& g = a.graph;
-  Value* q = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 256));
-  Value* k = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 64 * 256));
-  a.v = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 256 * 64));
-  a.params = NewValue(g, DataType::kInt32, BHWC(1, 1, 1, 7));
-  a.mask = NewValue(g, DataType::kBool, BHWC(1, 1, 4, 64));
-  a.logits = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 64));
+  Value* q = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, 256));
+  Value* k = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, keys * 256));
+  a.v = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 256 * keys));
+  a.params = shared_params ? shared_params : NewValue(g, DataType::kInt32, BHWC(1, 1, 1, 7));
+  a.mask = shared_mask ? shared_mask : NewValue(g, DataType::kBool, BHWC(1, 1, rows, keys));
+  a.logits = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
 
   RuntimeBatchedMatMulAttributes qk_attr;
   qk_attr.runtime_check.dst_end_ch_index = 2;
@@ -107,19 +109,20 @@ void Build(Attention& a, std::optional<bool> is_global = std::nullopt) {
   constant->operation.type = ToString(OperationType::kConstant);
   g.SetProducer(constant->id, fill->id);
 
-  a.selected = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 64));
+  a.selected = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
   a.select = NewNode(g, ToString(OperationType::kSelectV2), {a.mask, a.logits, fill}, a.selected);
-  Value* raised = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 64));
+  Value* raised = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
   NewNode(g, ToString(OperationType::kMaximum), {a.selected}, raised)->operation.attributes =
       ::ml_drift::ElementwiseAttributes{::ml_drift::ScalarValue(-65504.0f)};
-  Value* capped = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 64));
+  Value* capped = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
   NewNode(g, ToString(OperationType::kMinimum), {raised}, capped)->operation.attributes =
       ::ml_drift::ElementwiseAttributes{::ml_drift::ScalarValue(65504.0f)};
-  a.probabilities = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 64));
+  a.probabilities = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
   a.softmax = NewNode(g, ToString(OperationType::kSoftmax), {capped}, a.probabilities);
   a.softmax->operation.attributes = ::ml_drift::SoftmaxAttributes{::ml_drift::Axis::kChannels};
 
-  Value* out = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4, 256));
+  Value* out = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, 256));
+  a.out = out;
   RuntimeBatchedMatMulAttributes pv_attr;
   pv_attr.runtime_check.src_end_ch_index = 2;
   pv_attr.external_weights = ExternalWeightsAttributes{};
@@ -165,6 +168,108 @@ TEST(BoundedAttentionTest, RewritesTheAttentionTail) {
   EXPECT_EQ(pv_inputs[3]->id, a.params->id);
   EXPECT_TRUE(
       std::any_cast<const RuntimeBatchedMatMulAttributes&>(a.pv->operation.attributes).src_exp_input);
+}
+
+// Agello (D2): a 1,024-token prefill's tail (4,096 query rows) over 32,768 keys has a 512 MiB
+// score tensor, so it runs in two slices of 2,048 rows, each at the 256 MiB limit.
+TEST(BoundedAttentionTest, SlicesALargeTailByRows) {
+  Attention a;
+  Build(a, /*is_global=*/true, /*rows=*/4096, /*keys=*/32768);
+  const auto rewritten = FuseBoundedAttentionSoftmax(&a.graph);
+  ASSERT_TRUE(rewritten.ok()) << rewritten.status();
+  EXPECT_EQ(*rewritten, 1);
+  // Per slice: a Q slice, a mask slice, QK, the bounded mask, the reduction and PV; then the
+  // concatenation, which produces the tail's output.
+  EXPECT_EQ(a.graph.nodes().size(), 2u * 6 + 1);
+  const Node* concat = a.graph.FindProducer(a.out->id);
+  ASSERT_NE(concat, nullptr);
+  EXPECT_EQ(concat->operation.type, ToString(OperationType::kConcat));
+  const auto parts = a.graph.FindInputs(concat->id);
+  ASSERT_EQ(parts.size(), 2u);
+  int pv_nodes = 0;
+  for (const Value* part : parts) {
+    EXPECT_EQ(part->tensor.shape, BHWC(1, 2, 2048, 256));
+    const Node* pv = a.graph.FindProducer(part->id);
+    ASSERT_NE(pv, nullptr);
+    ASSERT_EQ(pv->operation.type, kRuntimeBatchedMatMulType);
+    ++pv_nodes;
+    const auto pv_inputs = a.graph.FindInputs(pv->id);
+    ASSERT_EQ(pv_inputs.size(), 4u);
+    EXPECT_EQ(pv_inputs[0]->tensor.shape, BHWC(1, 2, 2048, 32768));
+    EXPECT_EQ(pv_inputs[1]->id, a.v->id);
+    EXPECT_EQ(pv_inputs[2]->tensor.shape, BHWC(1, 2, 2048, 4));
+    EXPECT_EQ(pv_inputs[3]->id, a.params->id);
+    // The masked logits come from a bounded mask over this slice's QK and mask slice.
+    const Node* mask = a.graph.FindProducer(pv_inputs[0]->id);
+    ASSERT_NE(mask, nullptr);
+    EXPECT_EQ(mask->operation.type, kBoundedMaskType);
+    const auto mask_inputs = a.graph.FindInputs(mask->id);
+    ASSERT_EQ(mask_inputs.size(), 2u);
+    EXPECT_EQ(mask_inputs[1]->tensor.shape, BHWC(1, 1, 2048, 32768));
+    const Node* qk = a.graph.FindProducer(mask_inputs[0]->id);
+    ASSERT_NE(qk, nullptr);
+    const auto qk_inputs = a.graph.FindInputs(qk->id);
+    ASSERT_EQ(qk_inputs.size(), 3u);
+    EXPECT_EQ(qk_inputs[0]->tensor.shape, BHWC(1, 2, 2048, 256));
+    EXPECT_EQ(qk_inputs[2]->id, a.params->id);
+  }
+  EXPECT_EQ(pv_nodes, 2);
+}
+
+TEST(BoundedAttentionTest, LeavesASmallTailWhole) {
+  Attention a;
+  Build(a, /*is_global=*/true, /*rows=*/512, /*keys=*/32768);  // 64 MB of scores.
+  ASSERT_TRUE(FuseBoundedAttentionSoftmax(&a.graph).ok());
+  EXPECT_EQ(a.graph.nodes().size(), 4u);
+}
+
+// Two layers reading one mask share its slices.
+TEST(BoundedAttentionTest, SlicesASharedMaskOnce) {
+  Attention a;
+  Build(a, /*is_global=*/true, /*rows=*/4096, /*keys=*/32768);
+  // The second tail in the same graph, on the first one's mask and params.
+  struct Shared { Value* mask; Value* params; } shared{a.mask, a.params};
+  GraphFloat32& g = a.graph;
+  {
+    // Build the second tail into the first graph.
+    Value* q = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4096, 256));
+    Value* k = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 32768 * 256));
+    Value* v = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 256 * 32768));
+    Value* logits = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4096, 32768));
+    RuntimeBatchedMatMulAttributes qk_attr;
+    qk_attr.runtime_check.dst_end_ch_index = 2;
+    qk_attr.external_weights = ExternalWeightsAttributes{};
+    qk_attr.is_global = true;
+    NewNode(g, kRuntimeBatchedMatMulType, {q, k, shared.params}, logits)->operation.attributes =
+        qk_attr;
+    Value* fill = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 1));
+    Node* constant = g.NewNode();
+    constant->operation.type = ToString(OperationType::kConstant);
+    g.SetProducer(constant->id, fill->id);
+    Value* selected = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4096, 32768));
+    NewNode(g, ToString(OperationType::kSelectV2), {shared.mask, logits, fill}, selected);
+    Value* probabilities = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4096, 32768));
+    NewNode(g, ToString(OperationType::kSoftmax), {selected}, probabilities)->operation.attributes =
+        ::ml_drift::SoftmaxAttributes{::ml_drift::Axis::kChannels};
+    Value* out = NewValue(g, DataType::kFloat32, BHWC(1, 2, 4096, 256));
+    RuntimeBatchedMatMulAttributes pv_attr;
+    pv_attr.runtime_check.src_end_ch_index = 2;
+    pv_attr.external_weights = ExternalWeightsAttributes{};
+    NewNode(g, kRuntimeBatchedMatMulType, {probabilities, v, shared.params}, out)
+        ->operation.attributes = pv_attr;
+  }
+  const auto rewritten = FuseBoundedAttentionSoftmax(&g);
+  ASSERT_TRUE(rewritten.ok()) << rewritten.status();
+  EXPECT_EQ(*rewritten, 2);
+  int mask_slices = 0;
+  for (const Node* node : g.nodes()) {
+    if (node->operation.type != ToString(OperationType::kSlice)) continue;
+    const auto inputs = g.FindInputs(node->id);
+    if (inputs.size() == 1 && inputs[0]->id == shared.mask->id) ++mask_slices;
+  }
+  EXPECT_EQ(mask_slices, 2);
+  // Two tails of 2 slices x (Q slice, QK, mask, reduction, PV), 2 shared mask slices, 2 concats.
+  EXPECT_EQ(g.nodes().size(), 2u * 2 * 5 + 2 + 2);
 }
 
 TEST(BoundedAttentionTest, LeavesOtherSoftmaxesAlone) {

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/log/log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/status_macros.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -330,7 +331,9 @@ absl::Status SliceRows(GraphFloat32* graph, const Tail& tail, int slices,
   const auto pv_outputs = graph->FindOutputs(tail.pv->id);
   if (qk_inputs.size() != 3 || mask_inputs.size() != 2 || pv_inputs.size() != 4 ||
       pv_outputs.size() != 1) {
-    return absl::OkStatus();  // Not the rewritten shape: leave it whole.
+    ABSL_LOG(WARNING) << "Agello: an attention tail with a context-sized score tensor stays "
+                         "whole (unexpected inputs).";
+    return absl::OkStatus();
   }
   Value* q = qk_inputs[0];
   Value* k = qk_inputs[1];
@@ -340,6 +343,8 @@ absl::Status SliceRows(GraphFloat32* graph, const Tail& tail, int slices,
   Value* out = pv_outputs[0];
   const int rows = tail.selected->tensor.shape.w;
   if (q->tensor.shape.w != rows || mask->tensor.shape.w != rows || out->tensor.shape.w != rows) {
+    ABSL_LOG(WARNING) << "Agello: an attention tail with a context-sized score tensor stays "
+                         "whole (unexpected row shapes).";
     return absl::OkStatus();
   }
   const int slice_rows = rows / slices;
