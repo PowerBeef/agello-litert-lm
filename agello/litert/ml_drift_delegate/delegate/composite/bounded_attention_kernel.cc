@@ -138,6 +138,61 @@ MAIN_FUNCTION($0) {
   return model_builder->UpdateOutputTensor(dst, outputs[0]->id);
 }
 
+namespace {
+// Agello (engine review, step 4): one thread per row.
+class BoundsFlagOp : public ::ml_drift::GPUOperation {
+ public:
+  explicit BoundsFlagOp(int rows) : rows_(rows) {}
+  ::ml_drift::int3 GetGridSize() const override { return ::ml_drift::int3(rows_, 1, 1); }
+  BoundsFlagOp(BoundsFlagOp&&) = default;
+  BoundsFlagOp& operator=(BoundsFlagOp&&) = default;
+  BoundsFlagOp(const BoundsFlagOp&) = delete;
+  BoundsFlagOp& operator=(const BoundsFlagOp&) = delete;
+
+ private:
+  int rows_;
+};
+}  // namespace
+
+absl::Status CreateBoundsFlagFromNode(const std::vector<::ml_drift::Value*>& inputs,
+                                      const std::vector<::ml_drift::Value*>& outputs,
+                                      const ::ml_drift::Node& node,
+                                      ::ml_drift::GpuModelBuilder* model_builder) {
+  if (inputs.size() != 1 || outputs.size() != 1) {
+    return absl::InvalidArgumentError("A bounds flag expects one bounds tensor and one output.");
+  }
+  ABSL_ASSIGN_OR_RETURN(auto bounds, model_builder->GetTensor(inputs[0]->id));
+  const ::ml_drift::BHWC flag_shape = outputs[0]->tensor.shape;
+  const int rows = bounds.tensor_desc.GetBHWCShape().w;
+  const bool rows_in_height = flag_shape.h == rows && flag_shape.w == 1;
+  if (flag_shape.c != 1 || flag_shape.b != 1 || !(rows_in_height || flag_shape.w == rows)) {
+    return absl::InvalidArgumentError("A bounds flag needs one boolean per row.");
+  }
+  ::ml_drift::TensorDescriptor dst_desc = bounds.tensor_desc;
+  dst_desc.SetDataType(::ml_drift::DataType::kBool);
+  dst_desc.SetBHWCShape(flag_shape);
+  auto dst = model_builder->AddTensor(dst_desc);
+  BoundsFlagOp op(rows);
+  op.AddSrcTensor("src_tensor", bounds.tensor_desc);
+  op.AddDstTensor("dst_tensor", dst.tensor_desc);
+  op.args_.AddInt("rows", rows);
+  const std::string coords = rows_in_height ? "0, R, 0" : "R, 0, 0";
+  op.code_ = R"(
+MAIN_FUNCTION($0) {
+  int R = ucl::GetGlobalId<0>();
+  if (R >= args.rows) {
+    return;
+  }
+  int4 bound = ucl::Convert<int4>(args.src_tensor.Read(R, 0, 0));
+  int4 kept = int4(bound.x > 0 ? 1 : 0, 0, 0, 0);
+  args.dst_tensor.Write(ucl::Convert<args.dst_tensor::type>(kept), )" + coords + R"();
+}
+)";
+  model_builder->AddGpuOperation({bounds}, {dst},
+                                 std::make_unique<BoundsFlagOp>(std::move(op)), kBoundsFlagType);
+  return model_builder->UpdateOutputTensor(dst, outputs[0]->id);
+}
+
 absl::Status CreateBoundedSoftmaxReduceFromNode(const std::vector<::ml_drift::Value*>& inputs,
                                                 const std::vector<::ml_drift::Value*>& outputs,
                                                 const ::ml_drift::Node& node,

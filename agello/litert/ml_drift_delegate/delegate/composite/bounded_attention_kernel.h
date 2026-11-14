@@ -38,6 +38,12 @@ absl::Status CreateMaskBoundsFromNode(const std::vector<::ml_drift::Value*>& inp
                                       const ::ml_drift::Node& node,
                                       ::ml_drift::GpuModelBuilder* model_builder);
 
+// kBoundsFlagType: input [bounds ([1, 1, R, 1] int32)], output boolean, one per row.
+absl::Status CreateBoundsFlagFromNode(const std::vector<::ml_drift::Value*>& inputs,
+                                      const std::vector<::ml_drift::Value*>& outputs,
+                                      const ::ml_drift::Node& node,
+                                      ::ml_drift::GpuModelBuilder* model_builder);
+
 absl::Status CreateBoundedSoftmaxReduceFromNode(const std::vector<::ml_drift::Value*>& inputs,
                                                 const std::vector<::ml_drift::Value*>& outputs,
                                                 const ::ml_drift::Node& node,

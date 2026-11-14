@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <cstdio>
+#include <set>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -563,6 +564,64 @@ absl::StatusOr<Value*> AddMaskBounds(GraphFloat32* graph, Value* condition) {
   return bounds;
 }
 
+// Agello (engine review, step 4): the flag the graph makes from the same mask, "does this row
+// keep any key": condition -> RESHAPE -> CAST -> REDUCE_MAXIMUM(channels) -> NOT_EQUAL(0), read
+// after each global layer to zero padded rows. Its cast holds a 16-bit copy of the whole mask for
+// most of the run (128 MB at 64K). Null if there's none.
+Value* MatchRowFlag(const GraphFloat32& graph, const Value* condition) {
+  const auto only_consumer = [&](const Value* value, OperationType type) -> Node* {
+    const auto consumers = graph.FindConsumers(value->id);
+    return consumers.size() == 1 && consumers[0]->operation.type == ToString(type) ? consumers[0]
+                                                                                  : nullptr;
+  };
+  const auto output_of = [&](const Node* node) -> Value* {
+    const auto outputs = graph.FindOutputs(node->id);
+    return outputs.size() == 1 ? outputs[0] : nullptr;
+  };
+  for (Node* reshape : graph.FindConsumers(condition->id)) {
+    if (reshape->operation.type != ToString(OperationType::kReshape)) continue;
+    Value* value = output_of(reshape);
+    Node* cast = value ? only_consumer(value, OperationType::kCast) : nullptr;
+    value = cast ? output_of(cast) : nullptr;
+    Node* reduce = value ? only_consumer(value, OperationType::kReduceMaximum) : nullptr;
+    if (reduce == nullptr) continue;
+    const auto* reduce_attr = std::any_cast<::ml_drift::ReduceAttributes>(&reduce->operation.attributes);
+    if (reduce_attr == nullptr || reduce_attr->dims != std::set<::ml_drift::Axis>{::ml_drift::Axis::kChannels}) {
+      continue;
+    }
+    value = output_of(reduce);
+    Node* not_equal = value ? only_consumer(value, OperationType::kNotEqual) : nullptr;
+    if (not_equal == nullptr || ScalarParam(*not_equal) != std::optional<float>(0.0f)) continue;
+    Value* flag = output_of(not_equal);
+    if (flag == nullptr || flag->tensor.type != ::ml_drift::DataType::kBool) continue;
+    const ::ml_drift::BHWC& s = flag->tensor.shape;
+    const int rows = condition->tensor.shape.w;
+    if (s.b == 1 && s.c == 1 && ((s.h == rows && s.w == 1) || (s.w == rows && s.h == 1))) {
+      return flag;
+    }
+  }
+  return nullptr;
+}
+
+// Replaces `flag` with a kBoundsFlagType node on `bounds`, after the bounds' producer.
+absl::StatusOr<Value*> AddBoundsFlag(GraphFloat32* graph, Value* bounds, Value* flag) {
+  const Node* producer = graph->FindProducer(bounds->id);
+  if (producer == nullptr) return absl::InternalError("Bounds with no producer");
+  Node* node = nullptr;
+  ABSL_RETURN_IF_ERROR(graph->InsertNodeAfter(producer->id, &node));
+  node->operation.type = kBoundsFlagType;
+  Value* replacement = graph->NewValue();
+  replacement->tensor = flag->tensor;
+  replacement->tensor.ref = -1;
+  replacement->tensor.is_variable_input = false;
+  graph->AddConsumer(node->id, bounds->id);
+  graph->SetProducer(node->id, replacement->id);
+  for (Node* reader : graph->FindConsumers(flag->id)) {
+    ABSL_RETURN_IF_ERROR(graph->ReplaceInput(reader->id, flag->id, replacement->id));
+  }
+  return replacement;
+}
+
 }  // namespace
 
 bool MaskBoundsEnabled() {
@@ -618,6 +677,7 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
   }();
   absl::flat_hash_map<::ml_drift::ValueId, Value*> bounds_of;
   std::vector<Value*> replaced_masks;
+  int flags = 0;
   absl::flat_hash_set<::ml_drift::ValueId> graph_outputs;
   for (const Value* output : graph->outputs()) graph_outputs.insert(output->id);
   int bounded = 0;
@@ -651,6 +711,11 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
         Value*& bounds = bounds_of[condition->id];
         if (bounds == nullptr) {
           ABSL_ASSIGN_OR_RETURN(bounds, AddMaskBounds(graph, condition));
+          if (Value* flag = MatchRowFlag(*graph, condition)) {
+            ABSL_RETURN_IF_ERROR(AddBoundsFlag(graph, bounds, flag).status());
+            replaced_masks.push_back(flag);  // its chain goes with the masks'
+            ++flags;
+          }
         }
         ABSL_RETURN_IF_ERROR(graph->ReplaceInput(tail->select->id, tail->mask->id, bounds->id));
         auto* attr = std::any_cast<BoundedMaskAttributes>(&tail->select->operation.attributes);
@@ -675,8 +740,9 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
   if (std::getenv("AGELLO_LOG_ATTENTION") != nullptr) {
     int nodes = 0;
     for (const Node* node : graph->nodes()) nodes += node != nullptr;
-    fprintf(stderr, "Agello attention: %d tails, %d read row bounds (%zu bounds, %zu masks freed), "
-            "%d nodes left\n", rewritten, bounded, bounds_of.size(), replaced_masks.size(), nodes);
+    fprintf(stderr, "Agello attention: %d tails, %d read row bounds (%zu bounds, %d row flags, "
+            "%zu chains freed), %d nodes left\n", rewritten, bounded, bounds_of.size(), flags,
+            replaced_masks.size(), nodes);
   }
   return rewritten;
 }

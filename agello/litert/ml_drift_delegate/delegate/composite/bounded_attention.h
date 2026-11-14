@@ -45,6 +45,9 @@ constexpr const char kBoundedSoftmaxReduceType[] = "agello_bounded_softmax_reduc
 // Agello (engine review, step 4): a boolean [1, 1, R, T] mask's per-row bound, [1, 1, R, 1]
 // int32: one past the row's last kept key (0 for a row with none).
 constexpr const char kMaskBoundsType[] = "agello_mask_bounds";
+// Agello (engine review, step 4): whether each row keeps any key (bound > 0), the flag the graph
+// made from the mask by REDUCE_MAXIMUM; boolean, one per chunk row ([1, R, 1, 1] or [1, 1, R, 1]).
+constexpr const char kBoundsFlagType[] = "agello_bounds_flag";
 
 // out = mask ? clamp(logits, clamp_low, clamp_high) : mask_value, with the
 // logits as the first input so the op links into their producer.
