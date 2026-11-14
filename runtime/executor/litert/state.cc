@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -26,6 +27,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/log/log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/status_macros.h"  // from @com_google_absl
@@ -271,15 +273,35 @@ absl::Status LitertState::BroadcastAndCopyFrom(StateInterface& other) {
 
 namespace {
 
+// Agello (E4): a byte range of a buffer.
+struct ByteRun {
+  size_t offset;
+  size_t length;
+};
+
+void CopyRuns(void* dst, const void* src, size_t length, const std::vector<ByteRun>* runs) {
+  if (runs == nullptr) {
+    memcpy(dst, src, length);
+    return;
+  }
+  for (const ByteRun& run : *runs) {
+    memcpy(static_cast<uint8_t*>(dst) + run.offset,
+           static_cast<const uint8_t*>(src) + run.offset, run.length);
+  }
+}
+
 // Agello (T3): a raw snapshot of a buffer with its own shared MTLBuffer: a host buffer of the
 // MTLBuffer's length holding its bytes as they are. A lock would convert the GPU layout to row
 // order and back on restore (the KV caches' transpose cost about 290 ms per snapshot at 16K).
 // The host buffer has pages of its own, unmapped when the snapshot is freed.
+// Agello (E4): with `runs`, only those bytes are copied; the snapshot keeps the buffer's length
+// and layout, and its pages past them are never touched (never resident).
 absl::StatusOr<TensorBuffer> RawMetalSnapshot(Environment& env, const TensorBuffer& buffer,
-                                              const MetalRawBuffer& raw) {
+                                              const MetalRawBuffer& raw,
+                                              const std::vector<ByteRun>* runs = nullptr) {
   LITERT_ASSIGN_OR_RETURN(auto tensor_type, buffer.TensorType());
   if (void* memory = AllocateSnapshotMemory(raw.length); memory != nullptr) {
-    memcpy(memory, raw.contents, raw.length);
+    CopyRuns(memory, raw.contents, raw.length, runs);
     auto litert_type = static_cast<LiteRtRankedTensorType>(tensor_type);
     auto holder = env.GetHolder();
     LiteRtTensorBuffer handle;
@@ -296,13 +318,94 @@ absl::StatusOr<TensorBuffer> RawMetalSnapshot(Environment& env, const TensorBuff
       TensorBuffer::CreateManaged(env, TensorBufferType::kHostMemory, tensor_type, raw.length));
   LITERT_ASSIGN_OR_RETURN(auto lock_and_addr,
                           TensorBufferScopedLock::Create(copy, TensorBuffer::LockMode::kWrite));
-  memcpy(lock_and_addr.second, raw.contents, raw.length);
+  CopyRuns(lock_and_addr.second, raw.contents, raw.length, runs);
   return copy;
+}
+
+// Agello (E4): the bytes of a KV cache buffer that hold its first `positions` slots. The caches
+// are [1, heads, A, C] tensors stored with the heads outermost, then groups of four along C, then
+// A: element ((y * slices + c / 4) * A + a) * 4 + c % 4 (read on the M6 with
+// AGELLO_VERIFY_KV_PREFIX: every byte of a filled cache inside these runs, none outside). K caches
+// are [1, heads, slots, dim]: one run per head and group of four dims. V caches are
+// [1, heads, dim, slots], the slots along C: one run per head. Other buffers, and one whose
+// length isn't that layout's, have none: they're copied whole. A ring cache whose positions
+// passed its slots is one run of everything.
+std::optional<std::vector<ByteRun>> FilledRuns(absl::string_view name, const TensorBuffer& buffer,
+                                               size_t length, int positions) {
+  const bool is_k = absl::StartsWith(name, "kv_cache_k_");
+  const bool is_v = absl::StartsWith(name, "kv_cache_v_");
+  if (!is_k && !is_v) return std::nullopt;
+  auto tensor_type = buffer.TensorType();
+  if (!tensor_type) return std::nullopt;
+  auto dims = tensor_type->Layout().Dimensions();
+  if (dims.size() != 4 || dims[0] != 1) return std::nullopt;
+  std::optional<size_t> width = GetByteWidth(tensor_type->ElementType());
+  if (!width.has_value()) return std::nullopt;
+  const size_t h = dims[1], w = dims[2], c = dims[3];
+  const size_t slices = (c + 3) / 4;
+  const size_t vec = 4 * *width;
+  if (slices * h * w * vec != length) return std::nullopt;
+  const size_t slots = is_k ? w : c;
+  const size_t n = std::min<size_t>(slots, static_cast<size_t>(std::max(positions, 0)));
+  std::vector<ByteRun> runs;
+  if (n == slots) {
+    runs.push_back({0, length});
+  } else if (is_k) {
+    runs.reserve(h * slices);
+    for (size_t y = 0; y < h; ++y) {
+      for (size_t s = 0; s < slices; ++s) runs.push_back({(y * slices + s) * w * vec, n * vec});
+    }
+  } else {
+    runs.reserve(h);
+    for (size_t y = 0; y < h; ++y) runs.push_back({y * slices * w * vec, (n + 3) / 4 * w * vec});
+  }
+  return runs;
+}
+
+// Agello (E4): with AGELLO_VERIFY_KV_PREFIX set, a check of the layout FilledRuns assumes, on a
+// live buffer: the share of zero bytes inside the runs of the first `positions` slots (low when
+// the layout holds) and the nonzero bytes outside the runs of `positions` + 1,024 (zero on an
+// engine whose caches were never filled further, when the layout holds; the 1,024 slots cover
+// a prefill chunk's padding and speculative rounds).
+void VerifyFilledRuns(absl::string_view name, const TensorBuffer& buffer, const uint8_t* bytes,
+                      size_t length, int positions) {
+  auto inside = FilledRuns(name, buffer, length, positions);
+  auto margin = FilledRuns(name, buffer, length, positions + 1024);
+  if (!inside.has_value() || !margin.has_value()) return;
+  size_t inside_bytes = 0, inside_zero = 0;
+  for (const ByteRun& run : *inside) {
+    inside_bytes += run.length;
+    for (size_t i = 0; i < run.length; ++i) inside_zero += bytes[run.offset + i] == 0;
+  }
+  std::vector<bool> covered(length, false);
+  for (const ByteRun& run : *margin) {
+    std::fill(covered.begin() + run.offset, covered.begin() + run.offset + run.length, true);
+  }
+  size_t outside_nonzero = 0;
+  for (size_t i = 0; i < length; ++i) outside_nonzero += !covered[i] && bytes[i] != 0;
+  ABSL_LOG(INFO) << "Agello E4 verify " << name << ": positions " << positions << ", runs "
+                 << inside->size() << ", inside " << inside_bytes << " bytes ("
+                 << (inside_bytes ? 100.0 * inside_zero / inside_bytes : 0.0)
+                 << " % zero), nonzero past the margin " << outside_nonzero << " of " << length;
 }
 
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopy() const {
+  return DeepCopyImpl(std::nullopt);
+}
+
+absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopyFilled(
+    int positions) const {
+  return DeepCopyImpl(positions);
+}
+
+int64_t LitertState::CopiedBytes() const {
+  return copied_bytes_ >= 0 ? copied_bytes_ : ByteSize();
+}
+
+absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopyImpl(
+    std::optional<int> positions) const {
   // Agello (T3): raw snapshots when every buffer is a Metal buffer of its own.
   bool raw = !bank_1_state_buffers_.empty();
   auto all_raw = [](const absl::flat_hash_map<std::string, StateBuffer>& bank) {
@@ -313,15 +416,34 @@ absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopy() const {
   };
   raw = raw && all_raw(bank_1_state_buffers_) &&
         (!bank_2_state_buffers_.has_value() || all_raw(*bank_2_state_buffers_));
-  auto copy_buffer = [&](const TensorBuffer& buffer) -> absl::StatusOr<TensorBuffer> {
-    if (raw) return RawMetalSnapshot(env_, buffer, *RawMetalStorage(buffer));
+  // Agello (E4): the filled slots only, for raw snapshots that were asked for them.
+  const bool filled = raw && positions.has_value();
+  const bool verify = filled && std::getenv("AGELLO_VERIFY_KV_PREFIX") != nullptr;
+  int64_t copied_bytes = 0;
+  auto copy_buffer = [&](absl::string_view name,
+                         const TensorBuffer& buffer) -> absl::StatusOr<TensorBuffer> {
+    if (raw) {
+      MetalRawBuffer storage = *RawMetalStorage(buffer);
+      std::optional<std::vector<ByteRun>> runs;
+      if (filled) runs = FilledRuns(name, buffer, storage.length, *positions);
+      if (verify) {
+        VerifyFilledRuns(name, buffer, static_cast<const uint8_t*>(storage.contents),
+                         storage.length, *positions);
+      }
+      if (!runs.has_value()) {
+        copied_bytes += static_cast<int64_t>(storage.length);
+        return RawMetalSnapshot(env_, buffer, storage);
+      }
+      for (const ByteRun& run : *runs) copied_bytes += static_cast<int64_t>(run.length);
+      return RawMetalSnapshot(env_, buffer, storage, &*runs);
+    }
     LITERT_ASSIGN_OR_RETURN(auto buf_copy, CopyTensorBuffer(env_, buffer));
     return buf_copy;
   };
 
   absl::flat_hash_map<std::string, StateBuffer> bank_1_state_buffers;
   for (const auto& [name, state_buffer] : bank_1_state_buffers_) {
-    ABSL_ASSIGN_OR_RETURN(auto buf_copy, copy_buffer(state_buffer.buffer));
+    ABSL_ASSIGN_OR_RETURN(auto buf_copy, copy_buffer(name, state_buffer.buffer));
     bank_1_state_buffers[name] = StateBuffer{
         .buffer = std::move(buf_copy),
         .type = state_buffer.type,
@@ -335,7 +457,7 @@ absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopy() const {
     bank_2_state_buffers.emplace();
     auto& map = *bank_2_state_buffers;
     for (const auto& [name, state_buffer] : *bank_2_state_buffers_) {
-      ABSL_ASSIGN_OR_RETURN(auto buf_copy, copy_buffer(state_buffer.buffer));
+      ABSL_ASSIGN_OR_RETURN(auto buf_copy, copy_buffer(name, state_buffer.buffer));
       map[name] = StateBuffer{
           .buffer = std::move(buf_copy),
           .type = state_buffer.type,
@@ -349,6 +471,10 @@ absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopy() const {
       std::move(bank_2_state_buffers), allocation_policy_));
   copy->bank_1_is_input_ = bank_1_is_input_;
   copy->raw_metal_snapshot_ = raw;
+  if (filled) {
+    copy->snapshot_positions_ = positions;
+    copy->copied_bytes_ = copied_bytes;
+  }
 
   return copy;
 }
@@ -393,8 +519,9 @@ absl::Status LitertState::CopyContentsFrom(const LitertState& other) {
                other.bank_2_state_buffers_.has_value());
 
   const bool raw = other.raw_metal_snapshot_;
-  auto copy_bank = [raw](absl::flat_hash_map<std::string, StateBuffer>& dst,
-                         const absl::flat_hash_map<std::string, StateBuffer>& src)
+  const std::optional<int> positions = other.snapshot_positions_;
+  auto copy_bank = [raw, positions](absl::flat_hash_map<std::string, StateBuffer>& dst,
+                                    const absl::flat_hash_map<std::string, StateBuffer>& src)
       -> absl::Status {
     RET_CHECK_EQ(dst.size(), src.size());
     for (auto& [name, state_buffer] : dst) {
@@ -410,7 +537,13 @@ absl::Status LitertState::CopyContentsFrom(const LitertState& other) {
         LITERT_ASSIGN_OR_RETURN(auto src_lock_and_addr,
                                 TensorBufferScopedLock::Create(
                                     it->second.buffer, TensorBuffer::LockMode::kRead));
-        memcpy(storage->contents, src_lock_and_addr.second, storage->length);
+        // Agello (E4): a snapshot of the filled slots puts back only those.
+        std::optional<std::vector<ByteRun>> runs;
+        if (positions.has_value()) {
+          runs = FilledRuns(name, state_buffer.buffer, storage->length, *positions);
+        }
+        CopyRuns(storage->contents, src_lock_and_addr.second, storage->length,
+                 runs.has_value() ? &*runs : nullptr);
         continue;
       }
       ABSL_RETURN_IF_ERROR(

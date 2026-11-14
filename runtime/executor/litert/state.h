@@ -75,6 +75,12 @@ class LitertState : public StateInterface {
 
   absl::StatusOr<std::unique_ptr<StateInterface>> DeepCopy() const override;
 
+  // Agello (E4): a copy that holds only the first `positions` slots of each KV cache (a raw
+  // snapshot of Metal buffers; any other state is copied whole). Positions at or past the
+  // conversation's step are written before they're read, so the executor's snapshots for a
+  // helper need no more, and their pages past the filled slots are never touched.
+  absl::StatusOr<std::unique_ptr<StateInterface>> DeepCopyFilled(int positions) const;
+
   bool Contains(absl::string_view tensor_name) const override;
 
   absl::Status Clear() override;
@@ -84,6 +90,10 @@ class LitertState : public StateInterface {
 
   // Agello telemetry: the bytes a copy of this state moves (every buffer of both banks).
   int64_t ByteSize() const;
+
+  // Agello telemetry: the bytes a snapshot holds and a restore from it moves (E4: the filled
+  // slots), or ByteSize() for any other state.
+  int64_t CopiedBytes() const;
 
   // Copies the contents of all state buffers (both banks for kPingPong) and
   // the ping-pong bank index from `other` into this state's existing buffers,
@@ -169,6 +179,12 @@ class LitertState : public StateInterface {
   // Agello (T3): this state is a raw snapshot of Metal buffers (DeepCopy): host buffers holding
   // each MTLBuffer's bytes in the GPU's layout, only meaningful to CopyContentsFrom.
   bool raw_metal_snapshot_ = false;
+  // Agello (E4): a raw snapshot of the first `positions` slots of each KV cache only.
+  std::optional<int> snapshot_positions_;
+  int64_t copied_bytes_ = -1;
+
+  absl::StatusOr<std::unique_ptr<StateInterface>> DeepCopyImpl(
+      std::optional<int> positions) const;
 
   AllocationPolicy allocation_policy_;
 };

@@ -1707,6 +1707,17 @@ LlmLiteRtCompiledModelExecutorBase::CloneState() const {
   AGELLO_SPAN(kKvClone);
   AGELLO_COUNT(kKvCopies);
   if (const auto* litert_state = dynamic_cast<const LitertState*>(active_state)) {
+    if (output_heads == 1) {
+      // Agello (E4): only the filled positions, with a margin. Positions at or past the step are
+      // written before they're read, so the rest of each cache needn't be kept, and the
+      // snapshot's pages past them are never touched.
+      constexpr int kSnapshotMarginPositions = 16;
+      ABSL_ASSIGN_OR_RETURN(
+          auto copy, litert_state->DeepCopyFilled(llm_context_->runtime_state().current_step +
+                                                  kSnapshotMarginPositions));
+      AGELLO_COUNT(kKvCopyBytes, static_cast<const LitertState&>(*copy).CopiedBytes());
+      return copy;
+    }
     AGELLO_COUNT(kKvCopyBytes, litert_state->ByteSize());
   }
   return active_state->DeepCopy();
@@ -1739,7 +1750,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreState(
       restored->IsHostMemory()) {
     AGELLO_SPAN(kKvClone, 1);
     AGELLO_COUNT(kKvCopies);
-    AGELLO_COUNT(kKvCopyBytes, current->ByteSize());
+    AGELLO_COUNT(kKvCopyBytes, restored->CopiedBytes());
     return current->CopyContentsFrom(*restored);
   }
 
