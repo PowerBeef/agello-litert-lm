@@ -172,6 +172,8 @@ class MemoryManager {
   // the shared pool and lend none to it, so every buffer they touch is their own and is freed
   // after a long prompt (BeginRun); the everyday graphs never hold its pages.
   absl::flat_hash_set<ModelId> private_models_;
+  // AGELLO_LOG_POOL: each value's producing node, for the log of a large buffer's tenants.
+  absl::flat_hash_map<ValueId, std::string> producer_names_;
   absl::flat_hash_set<const Buffer*> private_buffers_;
   absl::flat_hash_set<ModelId> released_;
   absl::flat_hash_map<ModelId, Rebind> rebind_;

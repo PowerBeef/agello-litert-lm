@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "agello/agello_telemetry.h"  // from @agello_telemetry
 #include "ml_drift_delegate/delegate/delegate_metal.h"
 
 #import <Metal/Metal.h>
@@ -183,6 +184,9 @@ TfLiteStatus Invoke(TfLiteContext* context, TfLiteNode* node) {
           if (delegate_kernel->runtime_context()->find_opaque_options_data(
                   opaque_gpu_options, identifier, &gpu_payload_data) ==
               kLiteRtStatusOk) {
+            // Agello telemetry: how often the GPU options are parsed (4 times in a 468-run reply:
+            // only some Invokes carry run options, so caching the parse buys nothing).
+            AGELLO_COUNT(kRunOptionParses);
             LrtGpuOptions* gpu_opts = nullptr;
             if (LrtCreateGpuOptionsFromToml(
                     reinterpret_cast<const char*>(gpu_payload_data),

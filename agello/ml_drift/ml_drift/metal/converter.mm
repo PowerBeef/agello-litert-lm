@@ -38,6 +38,29 @@ absl::Status TensorToBHWCBufferConverter::Init(Environment* env,
   return task_.Compile(env);
 }
 
+namespace {
+// Agello: a converter's task kept its source and destination bound until its next encode, so
+// between runs it held the buffers it last converted: a pool buffer the large prefill's release
+// had freed (a third reference on two 256 MB and one 128 MB buffer at 64K), and the executor's
+// input buffers. Once encoded, the command buffer keeps what it needs; transfers of a megabyte or
+// more are unbound (views on no buffer, as the pool's release makes), small ones keep their
+// bindings so decode pays nothing.
+constexpr uint64_t kUnbindBytes = 1ull << 20;
+
+absl::Status Unbind(ComputeTask& task, const MetalSpatialTensor& tensor, bool tensor_is_src,
+                    size_t buffer_bytes) {
+  MetalSpatialTensor none;
+  ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(nil, tensor.GetDescriptor(), &none, 0));
+  Buffer no_buffer(nil, buffer_bytes);
+  if (tensor_is_src) {
+    ABSL_RETURN_IF_ERROR(task.SetSrcTensor(&none, 0));
+    return task.SetDstBuffer(&no_buffer, 0);
+  }
+  ABSL_RETURN_IF_ERROR(task.SetSrcBuffer(&no_buffer, 0));
+  return task.SetDstTensor(&none, 0);
+}
+}  // namespace
+
 absl::Status TensorToBHWCBufferConverter::Encode(
     id<MTLComputeCommandEncoder> encoder, MetalSpatialTensor* src,
     Buffer* dst) {
@@ -45,6 +68,9 @@ absl::Status TensorToBHWCBufferConverter::Encode(
   ABSL_RETURN_IF_ERROR(task_.SetDstBuffer(dst, 0));
   ABSL_RETURN_IF_ERROR(task_.UpdateParams());
   task_.Encode(encoder);
+  if (src->GetMemorySizeInBytes() >= kUnbindBytes) {
+    return Unbind(task_, *src, /*tensor_is_src=*/true, dst->GetMemorySizeInBytes());
+  }
   return absl::OkStatus();
 }
 
@@ -78,6 +104,9 @@ absl::Status BHWCBufferToTensorConverter::Encode(
   ABSL_RETURN_IF_ERROR(task_.SetDstTensor(dst, 0));
   ABSL_RETURN_IF_ERROR(task_.UpdateParams());
   task_.Encode(encoder);
+  if (dst->GetMemorySizeInBytes() >= kUnbindBytes) {
+    return Unbind(task_, *dst, /*tensor_is_src=*/false, src->GetMemorySizeInBytes());
+  }
   return absl::OkStatus();
 }
 

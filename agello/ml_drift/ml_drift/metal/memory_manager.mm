@@ -188,6 +188,12 @@ absl::StatusOr<MemoryManager::ModelId> MemoryManager::AllocateMemory(
   std::map<ValueId, int2> texture_usages;
   ABSL_RETURN_IF_ERROR(
       CollectUsageInformation(model_id, gpu_model, env.GetInfo(), &buffer_usages, &texture_usages));
+  producer_names_.clear();
+  if (std::getenv("AGELLO_LOG_POOL") != nullptr) {
+    for (const auto& node : gpu_model.nodes) {
+      for (ValueId id : node.outputs) producer_names_[id] = node.name;
+    }
+  }
   ABSL_RETURN_IF_ERROR(AllocateMemoryForBuffers(model_id, env, buffer_usages));
   ABSL_RETURN_IF_ERROR(AllocateMemoryForTextures(model_id, env, texture_usages));
   return model_id;
@@ -575,6 +581,32 @@ absl::Status MemoryManager::AllocateMemoryForBuffers(ModelId model_id, const Env
             use_offset_assignment ? "offsets" : "objects",
             static_cast<unsigned long long>(created >> 20),
             static_cast<unsigned long long>(reused >> 20), owners.c_str());
+  }
+  if (LogPool()) {
+    // Tenants: the largest tensors each big buffer holds, with their producers.
+    absl::flat_hash_map<const Buffer*, std::vector<std::pair<uint64_t, std::string>>> tenants;
+    for (auto& usage : buffer_usages) {
+      const int index = value_id_to_shared_buffer_tensors[usage.first];
+      const Buffer* b = use_offset_assignment ? mtl_buffers[0]
+                                              : mtl_buffers[buffer_assignment.object_ids[index]];
+      if (b->GetMemorySizeInBytes() < (64ull << 20)) continue;
+      const auto& td = tensors_descs_[Key(model_id, usage.first)];
+      const BHWDC s = td.GetBHWDCShape();
+      auto it = producer_names_.find(usage.first);
+      tenants[b].push_back({buffer_usage_records[index].tensor_size,
+                            absl::StrCat(usage.first, " ", it != producer_names_.end() ? it->second : "input",
+                                         " [", s.b, ",", s.h, ",", s.w, ",", s.d, ",", s.c, "] ",
+                                         ToString(td.GetDataType()), " ",
+                                         buffer_usage_records[index].tensor_size >> 20, "MB")});
+    }
+    for (auto& [b, list] : tenants) {
+      absl::c_sort(list, [](const auto& x, const auto& y) { return x.first > y.first; });
+      std::string text;
+      for (size_t i = 0; i < list.size() && i < 4; ++i) absl::StrAppend(&text, " | ", list[i].second);
+      fprintf(stderr, "Agello pool: model %u buffer %llu MB, %zu tensors:%s\n", model_id,
+              static_cast<unsigned long long>(b->GetMemorySizeInBytes() >> 20), list.size(),
+              text.c_str());
+    }
   }
   for (auto& buf : new_buffers) {
     if (private_models_.contains(model_id)) private_buffers_.insert(buf.get());

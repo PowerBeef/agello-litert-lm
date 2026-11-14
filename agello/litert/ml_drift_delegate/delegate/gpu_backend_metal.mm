@@ -467,7 +467,7 @@ absl::Status GpuInferenceContextMetal::BindSpatialTensor(::ml_drift::ValueId ten
       ctx_->SetTensor(tensor_id, static_cast<::ml_drift::metal::MetalSpatialTensor*>(tensor)));
   if (@available(macOS 15.0, iOS 18.0, *)) {
     id<MTLResidencySet> res_set = backend_->residency_set();
-    if (res_set != nil) {
+    if (res_set != nil && backend_->ResidencyEnabled()) {
       @autoreleasepool {
         auto* metal_tensor = static_cast<::ml_drift::metal::MetalSpatialTensor*>(tensor);
         if (metal_tensor != nullptr) {

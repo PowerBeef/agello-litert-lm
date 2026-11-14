@@ -155,6 +155,12 @@ class GpuBackendMetal : public GpuBackend {
   // Underlying Metal command queue.
   id<MTLCommandQueue> command_queue() const { return command_queue_; }
   id<MTLResidencySet> residency_set() const { return residency_set_; }
+  // Agello: whether residency is enabled, so tensors are only added to the set then (the set
+  // exists whatever the setting, and an added buffer was never removed).
+  bool ResidencyEnabled() {
+    absl::MutexLock lock(&residency_mutex_);
+    return residency_runtime_enabled_;
+  }
   // Set up a new command queue to the underying Metal command queue.
   void set_command_queue(id<MTLCommandQueue> command_queue) {
     command_queue_ = command_queue;

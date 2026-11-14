@@ -947,6 +947,7 @@ objc_library(
     aspect_hints = ["//tools/build_defs/swift:no_module"],
     visibility = ["//litert:__subpackages__"],
     deps = [
+        "@agello_telemetry//:telemetry",
         ":delegate_data",
         ":delegate_kernel_litert",
         ":delegate_metal_headers",
