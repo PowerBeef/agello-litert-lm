@@ -74,6 +74,11 @@ bool BoundedWindowEnabled();
 // start rounded down to 32 keys.
 std::optional<int> FindSlidingWindow(const ::ml_drift::GraphFloat32& graph);
 
+// Agello (PERFORMANCE.md, D2): whether the rewritten tails of a prefill run in slices of query
+// rows: yes unless AGELLO_SLICE_ATTENTION=0 (for A/B measurements). Part of the program cache
+// key.
+bool SliceAttentionEnabled();
+
 // Rewrites every matching attention tail; returns how many it rewrote.
 absl::StatusOr<int> FuseBoundedAttentionSoftmax(::ml_drift::GraphFloat32* graph);
 

@@ -23,6 +23,7 @@
 #include <variant>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/status_macros.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -299,7 +300,127 @@ absl::Status Rewrite(GraphFloat32* graph, const Tail& tail, std::optional<int> w
   return absl::OkStatus();
 }
 
+// Agello (PERFORMANCE.md, D2): a prefill's attention in slices of query rows. A rewritten tail
+// computes a score tensor of [kv heads, query rows, keys]: at a 1,024-token prefill (4,096 query
+// rows, eight query heads over two KV heads) and a 32K window that's 524 MB, 2.1 GB at 128K, and
+// the reason long windows were held to 128-token chunks. Every query row attends independently,
+// so the tail runs on slices of the rows, each with a score tensor of at most kMaxScoreBytes,
+// with the same kernels and the same results, and the slices' outputs are concatenated. The
+// mask is sliced the same way, once for all the layers that read it.
+constexpr int64_t kMaxScoreBytes = 256ll << 20;
+
+int RowSlices(const Tail& tail) {
+  const ::ml_drift::BHWC& scores = tail.selected->tensor.shape;
+  const int64_t bytes = 2ll * scores.b * scores.h * scores.w * scores.c;
+  int slices = 1;
+  while (bytes / slices > kMaxScoreBytes && scores.w % (2 * slices) == 0 &&
+         scores.w / (2 * slices) >= 128) {
+    slices *= 2;
+  }
+  return slices;
+}
+
+using MaskSlices = absl::flat_hash_map<std::pair<::ml_drift::ValueId, int>, Value*>;
+
+absl::Status SliceRows(GraphFloat32* graph, const Tail& tail, int slices,
+                       MaskSlices* mask_slices) {
+  const auto qk_inputs = graph->FindInputs(tail.qk->id);
+  const auto mask_inputs = graph->FindInputs(tail.select->id);
+  const auto pv_inputs = graph->FindInputs(tail.pv->id);
+  const auto pv_outputs = graph->FindOutputs(tail.pv->id);
+  if (qk_inputs.size() != 3 || mask_inputs.size() != 2 || pv_inputs.size() != 4 ||
+      pv_outputs.size() != 1) {
+    return absl::OkStatus();  // Not the rewritten shape: leave it whole.
+  }
+  Value* q = qk_inputs[0];
+  Value* k = qk_inputs[1];
+  Value* params = qk_inputs[2];
+  Value* mask = mask_inputs[1];
+  Value* v = pv_inputs[1];
+  Value* out = pv_outputs[0];
+  const int rows = tail.selected->tensor.shape.w;
+  if (q->tensor.shape.w != rows || mask->tensor.shape.w != rows || out->tensor.shape.w != rows) {
+    return absl::OkStatus();
+  }
+  const int slice_rows = rows / slices;
+  ::ml_drift::NodeId cursor = tail.pv->id;
+  auto insert = [&](const std::string& type, std::any attributes,
+                    const std::vector<Value*>& inputs, Value* output) -> absl::Status {
+    Node* node = nullptr;
+    ABSL_RETURN_IF_ERROR(graph->InsertNodeAfter(cursor, &node));
+    cursor = node->id;
+    node->operation.type = type;
+    node->operation.attributes = std::move(attributes);
+    for (Value* input : inputs) graph->AddConsumer(node->id, input->id);
+    graph->SetProducer(node->id, output->id);
+    return absl::OkStatus();
+  };
+  auto value_like = [&](const Value* like, int width) {
+    Value* value = graph->NewValue();
+    value->tensor = like->tensor;
+    value->tensor.ref = -1;
+    value->tensor.is_variable_input = false;
+    value->tensor.shape.w = width;
+    value->quant_params = like->quant_params;
+    return value;
+  };
+  auto row_slice = [&](const ::ml_drift::BHWC& shape, int start) {
+    ::ml_drift::SliceAttributes attr;
+    attr.starts = ::ml_drift::BHWC(0, 0, start, 0);
+    attr.ends = ::ml_drift::BHWC(shape.b, shape.h, start + slice_rows, shape.c);
+    attr.strides = ::ml_drift::BHWC(1, 1, 1, 1);
+    return attr;
+  };
+  const std::string slice_type = ToString(OperationType::kSlice);
+  std::vector<Value*> outputs;
+  for (int i = 0; i < slices; ++i) {
+    const int start = i * slice_rows;
+    Value*& mask_slice = (*mask_slices)[{mask->id, i}];
+    if (mask_slice == nullptr) {
+      mask_slice = value_like(mask, slice_rows);
+      ABSL_RETURN_IF_ERROR(insert(slice_type, row_slice(mask->tensor.shape, start), {mask},
+                                  mask_slice));
+    }
+    Value* q_slice = value_like(q, slice_rows);
+    ABSL_RETURN_IF_ERROR(insert(slice_type, row_slice(q->tensor.shape, start), {q}, q_slice));
+    Value* logits = value_like(tail.logits, slice_rows);
+    ABSL_RETURN_IF_ERROR(insert(tail.qk->operation.type, tail.qk->operation.attributes,
+                                {q_slice, k, params}, logits));
+    Value* masked = value_like(tail.selected, slice_rows);
+    ABSL_RETURN_IF_ERROR(insert(tail.select->operation.type, tail.select->operation.attributes,
+                                {logits, mask_slice}, masked));
+    Value* reduced = value_like(tail.probabilities, slice_rows);
+    ABSL_RETURN_IF_ERROR(insert(tail.softmax->operation.type,
+                                tail.softmax->operation.attributes, {masked, params}, reduced));
+    Value* output = value_like(out, slice_rows);
+    ABSL_RETURN_IF_ERROR(insert(tail.pv->operation.type, tail.pv->operation.attributes,
+                                {masked, v, reduced, params}, output));
+    outputs.push_back(output);
+  }
+  // The whole tail goes; the concatenation produces its output.
+  const ::ml_drift::ValueId logits_id = tail.logits->id;
+  const ::ml_drift::ValueId selected_id = tail.selected->id;
+  const ::ml_drift::ValueId probabilities_id = tail.probabilities->id;
+  for (Node* node : {tail.qk, tail.select, tail.softmax, tail.pv}) {
+    ABSL_RETURN_IF_ERROR(graph->DeleteNode(node->id));
+  }
+  for (::ml_drift::ValueId id : {logits_id, selected_id, probabilities_id}) {
+    ABSL_RETURN_IF_ERROR(graph->DeleteValue(id));
+  }
+  ::ml_drift::ConcatAttributes concat;
+  concat.axis = ::ml_drift::Axis::kWidth;
+  return insert(ToString(OperationType::kConcat), concat, outputs, out);
+}
+
 }  // namespace
+
+bool SliceAttentionEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_SLICE_ATTENTION");
+    return value == nullptr || value[0] != '0';
+  }();
+  return enabled;
+}
 
 bool BoundedAttentionEnabled() {
   static const bool enabled = [] {
@@ -328,6 +449,7 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
     }
   }
   int rewritten = 0;
+  MaskSlices mask_slices;
   for (::ml_drift::NodeId id : softmax_ids) {
     Node* softmax = graph->GetNode(id);
     if (softmax == nullptr) continue;
@@ -335,6 +457,12 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
     if (!tail) continue;
     ABSL_RETURN_IF_ERROR(Rewrite(graph, *tail, window));
     ++rewritten;
+    // Agello (D2): a prefill's tail in slices of query rows.
+    if (SliceAttentionEnabled()) {
+      if (const int slices = RowSlices(*tail); slices > 1) {
+        ABSL_RETURN_IF_ERROR(SliceRows(graph, *tail, slices, &mask_slices));
+      }
+    }
   }
   return rewritten;
 }
