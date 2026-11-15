@@ -2,7 +2,7 @@
 # Package our CLiteRTLM.xcframework for a GitHub release of PowerBeef/agello-litert-lm.
 #
 # Usage: agello/release-xcframework.sh <tag> [--publish]
-#   e.g. agello/release-xcframework.sh agello-next-20261015
+#   e.g. agello/release-xcframework.sh agello-one-20261115
 #
 # Builds from the WORKSPACE pins (refuses .bazelrc.user overrides and uncommitted changes), then
 # writes dist/release/<tag>/:
@@ -31,6 +31,7 @@ if ! git diff --quiet HEAD; then
   exit 2
 fi
 COMMIT="$(git rev-parse HEAD)"
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 agello/build-xcframework.sh
 
@@ -52,7 +53,7 @@ cp dist/BUILD-INFO.txt "$OUT/"
 cp agello/THIRD_PARTY_NOTICES.md "$OUT/"
 
 {
-  echo "CLiteRTLM.xcframework built from $REPO@$COMMIT (branch agello-next): LiteRT-LM with"
+  echo "CLiteRTLM.xcframework built from $REPO@$COMMIT (branch $BRANCH): LiteRT-LM with"
   echo "LiteRT's Metal accelerator linked statically, iPhone and Mac slices."
   echo
   echo "SwiftPM checksum: \`$CHECKSUM\`"
