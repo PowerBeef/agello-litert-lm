@@ -150,11 +150,24 @@ struct SparseKvMapper::Impl {
   uint64_t event_value = 0;
   struct Step {
     id<MTLHeap> heap = nil;
-    std::vector<SparseRange> ranges;
+    std::vector<SparseRange> ranges;  // the tiles this step mapped
     size_t bytes = 0;
   };
   std::vector<Step> steps;
   size_t mapped_bytes = 0;
+  // Each buffer's mapped tiles: a range's tiles may straddle another's (rows that don't start on
+  // a tile), so a step maps only the tiles no earlier step did.
+  std::vector<std::pair<void*, std::vector<bool>>> tiles;
+
+  std::vector<bool>& TilesOf(void* buffer) {
+    for (auto& [b, bits] : tiles) {
+      if (b == buffer) return bits;
+    }
+    const size_t length = static_cast<size_t>(((__bridge id<MTLBuffer>)buffer).length);
+    tiles.emplace_back(buffer, std::vector<bool>((length + SparseKvTileBytes() - 1) /
+                                                 SparseKvTileBytes()));
+    return tiles.back().second;
+  }
 
   // Applies `mode` to the ranges, grouped by buffer, then waits for the mapping queue.
   bool Update(const std::vector<SparseRange>& ranges, id<MTLHeap> heap, bool map)
@@ -212,16 +225,30 @@ bool SparseKvMapper::MapStep(const std::vector<SparseRange>& ranges) {
   if (@available(macOS 26.0, iOS 26.0, *)) {
     @autoreleasepool {
       const size_t tile = SparseKvTileBytes();
+      // The tiles the ranges touch that no step has mapped, as runs of whole tiles.
+      std::vector<SparseRange> fresh;
       size_t bytes = 0;
       for (const SparseRange& range : ranges) {
-        if (range.offset % tile != 0 || range.length % tile != 0) {
-          fprintf(stderr, "Agello sparse KV: a range not on 16 KB tiles (%zu, %zu)\n",
-                  range.offset, range.length);
-          return false;
+        if (range.length == 0) continue;
+        std::vector<bool>& bits = impl_->TilesOf(range.buffer);
+        const size_t first = range.offset / tile;
+        const size_t last = std::min(bits.size(), (range.offset + range.length + tile - 1) / tile);
+        for (size_t t = first; t < last; ++t) {
+          if (bits[t]) continue;
+          bits[t] = true;
+          if (!fresh.empty() && fresh.back().buffer == range.buffer &&
+              fresh.back().offset + fresh.back().length == t * tile) {
+            fresh.back().length += tile;
+          } else {
+            fresh.push_back({range.buffer, t * tile, tile});
+          }
+          bytes += tile;
         }
-        bytes += range.length;
       }
-      if (bytes == 0) return true;
+      if (bytes == 0) {
+        impl_->steps.push_back(Impl::Step{});
+        return true;
+      }
       MTLHeapDescriptor* descriptor = [[MTLHeapDescriptor alloc] init];
       descriptor.type = MTLHeapTypePlacement;
       descriptor.storageMode = MTLStorageModePrivate;
@@ -233,8 +260,8 @@ bool SparseKvMapper::MapStep(const std::vector<SparseRange>& ranges) {
         return false;
       }
       heap.label = @"Agello sparse KV step";
-      if (!impl_->Update(ranges, heap, /*map=*/true)) return false;
-      impl_->steps.push_back(Impl::Step{heap, ranges, bytes});
+      if (!impl_->Update(fresh, heap, /*map=*/true)) return false;
+      impl_->steps.push_back(Impl::Step{heap, std::move(fresh), bytes});
       impl_->mapped_bytes += bytes;
       return true;
     }
@@ -254,7 +281,14 @@ bool SparseKvMapper::UnmapLastStep() {
         [fence waitUntilCompleted];
       }
       Impl::Step& step = impl_->steps.back();
-      if (!impl_->Update(step.ranges, nil, /*map=*/false)) return false;
+      if (!step.ranges.empty() && !impl_->Update(step.ranges, nil, /*map=*/false)) return false;
+      const size_t tile = SparseKvTileBytes();
+      for (const SparseRange& range : step.ranges) {
+        std::vector<bool>& bits = impl_->TilesOf(range.buffer);
+        for (size_t t = range.offset / tile; t < (range.offset + range.length) / tile; ++t) {
+          bits[t] = false;
+        }
+      }
       impl_->mapped_bytes -= step.bytes;
       impl_->steps.pop_back();
       return true;

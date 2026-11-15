@@ -957,7 +957,8 @@ absl::Status LoadVisionSignaturesIfPresent(
 }
 
 // Inspects a TFLite model buffer to extract context token limit from prefill
-// signature input mask tensor.
+// signature input mask tensor. Agello: the largest over every prefill signature's masks (a file
+// with ring-buffer local caches has local masks of a few thousand slots beside the global one).
 std::optional<int64_t> ExtractContextTokensFromTfliteBuffer(
     absl::string_view buffer) {
   flatbuffers::Verifier verifier(
@@ -970,6 +971,7 @@ std::optional<int64_t> ExtractContextTokensFromTfliteBuffer(
     return std::nullopt;
   }
 
+  std::optional<int64_t> largest;
   for (const auto* sig : *model->signature_defs()) {
     if (sig == nullptr || sig->signature_key() == nullptr ||
         sig->inputs() == nullptr) {
@@ -995,11 +997,12 @@ std::optional<int64_t> ExtractContextTokensFromTfliteBuffer(
 
       int rank = tensor->shape()->size();
       if (rank > 0) {
-        return tensor->shape()->Get(rank - 1);
+        const int64_t size = tensor->shape()->Get(rank - 1);
+        largest = std::max(largest.value_or(0), size);
       }
     }
   }
-  return std::nullopt;
+  return largest;
 }
 
 // Inspects main TFLite model graph for context size if not already populated
@@ -1010,13 +1013,33 @@ absl::Status InferContextTokensFallbackIfMissing(
   if (llm_cap.max_context_tokens != 0 || !main_tflite_sec.is_valid()) {
     return absl::OkStatus();
   }
+  // Agello: the graph's flatbuffer, not the whole section. A model whose weights follow the
+  // flatbuffer (buffers by offset, as Gemma 4's files) verifies on a prefix; Gemma 4 E4B's main
+  // section (2.26 GB) is past the 2 GB a whole read allows, so its window was never read. Growing
+  // prefixes until one verifies, then the whole section as before.
+  std::optional<int64_t> context_tokens;
+  for (size_t prefix : {size_t{16} << 20, size_t{64} << 20, size_t{256} << 20,
+                        size_t{1} << 30}) {
+    if (prefix >= main_tflite_sec.size()) break;
+    StreamSection head = main_tflite_sec;
+    head.end = head.begin + prefix;
+    auto prefix_or = ReadStreamSection(stream, total_stream_size, head, prefix, "Main TFLite");
+    if (!prefix_or.ok()) break;
+    context_tokens = ExtractContextTokensFromTfliteBuffer(*prefix_or);
+    if (context_tokens.has_value()) break;
+  }
+  if (context_tokens.has_value()) {
+    llm_cap.max_context_tokens = *context_tokens;
+    llm_cap.is_dynamic_context = IsMagicNumber(*context_tokens);
+    return absl::OkStatus();
+  }
   auto buffer_or = ReadStreamSection(stream, total_stream_size, main_tflite_sec,
                                      kMaxVisionSectionSize, "Main TFLite");
   if (!buffer_or.ok()) {
     return absl::OkStatus();
   }
 
-  auto context_tokens = ExtractContextTokensFromTfliteBuffer(*buffer_or);
+  context_tokens = ExtractContextTokensFromTfliteBuffer(*buffer_or);
   if (context_tokens.has_value()) {
     llm_cap.max_context_tokens = *context_tokens;
     llm_cap.is_dynamic_context = IsMagicNumber(*context_tokens);

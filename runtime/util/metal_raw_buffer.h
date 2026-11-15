@@ -79,7 +79,7 @@ void* CreateSparseMetalBuffer(void* mtl_device, size_t length);
 // Releases an object a Create function above retained.
 void ReleaseMetalObject(void* object);
 
-// A tile-aligned byte range of a placement sparse buffer.
+// A byte range of a placement sparse buffer (mapped as the 16 KB tiles it touches).
 struct SparseRange {
   void* buffer = nullptr;  // id<MTLBuffer>
   size_t offset = 0;
@@ -98,7 +98,7 @@ class SparseKvMapper {
   SparseKvMapper& operator=(const SparseKvMapper&) = delete;
 
   bool ok() const;
-  // A new heap holding exactly the ranges' tiles, mapped into them in order.
+  // A new heap holding the tiles the ranges touch that no earlier step mapped, mapped into them.
   bool MapStep(const std::vector<SparseRange>& ranges);
   // Unmaps the last step's ranges, once the queue's work is done, and frees its heap.
   bool UnmapLastStep();

@@ -377,10 +377,7 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
     entry.slices = (dims[3] + 3) / 4;
     entry.vec = 4 * *width;
     entry.slots = entry.is_k ? dims[2] : dims[3];
-    if (entry.slices * entry.heads * entry.w * entry.vec != packed ||
-        entry.slots % kSparseStepPositions != 0) {
-      continue;
-    }
+    if (entry.slices * entry.heads * entry.w * entry.vec != packed) continue;
     if (!sparse->mapper) {
       sparse->mapper = std::make_unique<SparseKvMapper>(device, command_queue);
       if (!sparse->mapper->ok()) {
@@ -405,10 +402,6 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
     sparse->buffers.push_back(std::move(entry));
   }
   if (sparse->buffers.empty()) return absl::OkStatus();
-  for (const SparseRange& range : sparse->StepRanges(0, kSparseStepPositions)) {
-    RET_CHECK(range.offset % tile == 0 && range.length % tile == 0)
-        << "Sparse KV: a step's ranges aren't on 16 KB tiles";
-  }
   sparse_kv_ = std::move(sparse);
   if (LogSparseKv()) {
     fprintf(stderr, "Agello sparse KV: %zu caches of %d slots are sparse (%s)\n",
@@ -422,7 +415,8 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
 absl::Status LitertState::EnsureKvMapped(int last_position) {
   if (sparse_kv_ == nullptr) return absl::OkStatus();
   SparseKvMapper& mapper = *sparse_kv_->mapper;
-  const int total_steps = sparse_kv_->slots / kSparseStepPositions;
+  const int total_steps =
+      (sparse_kv_->slots + kSparseStepPositions - 1) / kSparseStepPositions;
   const int needed = std::min(total_steps, std::max(last_position, 0) / kSparseStepPositions + 1);
   while (mapper.steps() < needed) {
     const int from = mapper.steps() * kSparseStepPositions;
