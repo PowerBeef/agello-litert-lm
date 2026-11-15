@@ -614,6 +614,24 @@ std::string KernelKey(const std::string& name) {
   return arrow == std::string::npos ? name : name.substr(0, arrow) + " +fused";
 }
 
+// AGELLO_KERNEL_SHAPES=1: level-4 kernel times keyed by shape too (the first output, then the
+// inputs, each batch x height x width x channels), so one kernel kind splits by layer type (local
+// attention over the ring's slots against global attention over the window). Span names are
+// limited (512 at run time): use it for one graph's runs at a time.
+bool KernelShapesEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_KERNEL_SHAPES");
+    return value != nullptr && value[0] == '1';
+  }();
+  return enabled;
+}
+
+std::string ShapeString(const GpuSpatialTensor* t) {
+  if (t == nullptr) return "?";
+  return std::to_string(t->Batch()) + "x" + std::to_string(t->Height()) + "x" +
+         std::to_string(t->Width()) + "x" + std::to_string(t->Channels());
+}
+
 int RunIndex(int run) {
   switch (run) {
     case telemetry::kGpuPrefill:
@@ -724,8 +742,16 @@ void InferenceContext::EncodeTimed(id<MTLCommandBuffer> command_buffer, int* nod
       continue;
     }
     if (node.kernel_spans[run] == -2) {
-      const std::string name =
-          std::string("gpu.k.") + kRunNames[run] + ":" + KernelKey(node.name);
+      std::string name = std::string("gpu.k.") + kRunNames[run] + ":" + KernelKey(node.name);
+      if (KernelShapesEnabled()) {
+        // From the context's own tensors by value id: a task's tensor pointers can be stale
+        // once its pool rebinds (only its arguments are current).
+        std::string key;
+        for (ValueId id : node.outputs) key += (key.empty() ? "" : ",") + ShapeString(GetTensor(id));
+        key += " <-";
+        for (ValueId id : node.inputs) key += " " + ShapeString(GetTensor(id));
+        name += " [" + key + "]";
+      }
       node.kernel_spans[run] = telemetry::InternSpan(name.c_str());
     }
     const int k = static_cast<int>(spans.size());
