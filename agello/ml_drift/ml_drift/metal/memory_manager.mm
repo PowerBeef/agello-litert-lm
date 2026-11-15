@@ -161,9 +161,14 @@ absl::StatusOr<MemoryManager::ModelId> MemoryManager::AllocateMemory(
   }
   // Agello: the large prefill gets a pool of its own (private_models_). A graph's positions per
   // run are its positions input's batch ([positions, 1, 1, 1, 1]); the caches and masks have a
-  // batch of 1. AGELLO_PRIVATE_POOLS=all (development) gives every graph one.
+  // batch of 1. Every prefill graph (64 positions or more per run) gets one, released when another
+  // graph runs: the 128-token prefill's window-sized buffers (the global cache's converted copies,
+  // its scores) then live only while a prompt is read (sparse KV, step 4: a short chat at 64K
+  // 1,132 -> 857 MB on the M6); decode, verify and the drafter, a few positions each, share one.
+  // AGELLO_PRIVATE_POOLS=none: only the 1,024-token prefill (window step 2); =all: every graph.
   {
     constexpr int kPrivatePoolRows = 512;
+    constexpr int kPrefillRows = 64;
     static const bool shared = std::getenv("AGELLO_SHARED_POOL") != nullptr;
     int rows = 0;
     for (const auto& [id, _] : gpu_model.input_ids_and_refs) {
@@ -171,11 +176,12 @@ absl::StatusOr<MemoryManager::ModelId> MemoryManager::AllocateMemory(
       if (it == gpu_model.tensors.end()) continue;
       rows = std::max(rows, it->second.GetBHWDCShape().b);
     }
-    static const bool all = [] {
+    static const std::string mode = [] {
       const char* value = std::getenv("AGELLO_PRIVATE_POOLS");
-      return value != nullptr && std::string(value) == "all";
+      return std::string(value != nullptr && value[0] != '\0' ? value : "prefill");
     }();
-    if (!shared && (all || rows >= kPrivatePoolRows)) private_models_.insert(model_id);
+    const int threshold = mode == "none" ? kPrivatePoolRows : kPrefillRows;
+    if (!shared && (mode == "all" || rows >= threshold)) private_models_.insert(model_id);
     if (std::getenv("AGELLO_LOG_POOL") != nullptr) {
       fprintf(stderr, "Agello pool: model %u, %d positions per run%s\n", model_id, rows,
               private_models_.contains(model_id) ? ", a pool of its own" : "");

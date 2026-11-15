@@ -142,10 +142,10 @@ class LitertState : public StateInterface {
   // Writes `copy` back into the ring caches.
   absl::Status RestoreRings(const RingCopy& copy);
 
-  // Agello (sparse KV; PERFORMANCE.md, "The window: a fixed 64K with sparse KV caches"): with
-  // AGELLO_SPARSE_KV, the global KV caches (8,192 slots or more) are Metal 4 placement sparse
-  // buffers that cost only their mapped tiles, mapped in steps of 4,096 positions. `full` maps
-  // every step at creation; `grow` maps ahead of the fill. Before a run that writes positions
+  // Agello (sparse KV; PERFORMANCE.md, "The window: a fixed 64K with sparse KV caches"): the
+  // global KV caches (8,192 slots or more) are Metal 4 placement sparse buffers that cost only
+  // their mapped tiles, mapped in steps of 4,096 positions ahead of the fill (AGELLO_SPARSE_KV=0:
+  // ordinary caches; =full: every step mapped at creation). Before a run that writes positions
   // through `last_position`, EnsureKvMapped maps what it needs; TrimKvMapping unmaps the steps
   // past `last_position` (a new conversation's first run). No-ops without sparse caches.
   absl::Status EnsureKvMapped(int last_position);

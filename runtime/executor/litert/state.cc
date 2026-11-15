@@ -61,13 +61,15 @@ namespace {
 // more: INT8 values, not the scales) with 0x7F after each clear, so any reader that depends on the
 // cache holding zeros past the fill changes the reply. A placement sparse cache's reused tiles
 // keep old data, so the sparse KV needs no reader of zeros.
-// Agello (sparse KV): AGELLO_SPARSE_KV=full maps every step of the sparse caches at creation
-// (step 2), grow (or 1) maps them ahead of the fill (step 3); unset, the caches are ordinary.
+// Agello (sparse KV): by default the global caches are sparse and mapped ahead of the fill
+// (step 3), on a GPU with placement sparse buffers (others keep ordinary caches).
+// AGELLO_SPARSE_KV=0 keeps them ordinary; =full maps every step at creation (step 2).
 enum class SparseKvMode { kOff, kFull, kGrow };
 SparseKvMode GetSparseKvMode() {
   static const SparseKvMode mode = [] {
     const char* value = std::getenv("AGELLO_SPARSE_KV");
-    if (value == nullptr || value[0] == '\0' || value[0] == '0') return SparseKvMode::kOff;
+    if (value == nullptr || value[0] == '\0') return SparseKvMode::kGrow;
+    if (value[0] == '0' || std::string(value) == "off") return SparseKvMode::kOff;
     return std::string(value) == "full" ? SparseKvMode::kFull : SparseKvMode::kGrow;
   }();
   return mode;
