@@ -267,6 +267,12 @@ line is active ([The release script](#the-release-script)).
 
 ### Re-pinning LiteRT or ML Drift
 
+> **Since 2026-11-11 (B2) and 2026-11-15:** LiteRT and ML Drift are folders of this repository
+> (`agello/litert`, `agello/ml_drift`, read as `local_repository`), and the repository has one branch,
+> `main`, checked out at `../LiteRT-LM`. There are no pins, overrides or re-pins: edit the folders
+> and rebuild. `PowerBeef/LiteRT` and `PowerBeef/ml-drift` are archived. This section describes the
+> layout before that, and its cited code is at the commits it links.
+
 1. Develop in the local checkouts with the overrides on; build with `agello/build-xcframework.sh`.
 2. Commit and push the fork (`PowerBeef/LiteRT` or `PowerBeef/ml-drift`, branch `agello-next`).
 3. Set the new commit and `shasum -a 256` of `https://github.com/PowerBeef/<repo>/archive/<commit>.tar.gz`
@@ -374,7 +380,8 @@ release of `PowerBeef/agello-litert-lm` ([`agello/release-xcframework.sh:1-74`](
    uploads the zip, checksum, notices and build info ([`agello/release-xcframework.sh:67-74`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/release-xcframework.sh#L67-L74)).
    Publishing needs the user's OK. <!-- c:LM-BLD-039 -->
 
-On the Agello side, `Vendor/use-release-litert.sh` takes `REF` (the `agello-next` commit) and `TAG`,
+On the Agello side (as of Agello `93122b6`; since 2026-11-15 `REF` is a commit of `main` and
+`use-local-litert.sh` defaults to `../LiteRT-LM`), `Vendor/use-release-litert.sh` takes `REF` (the `agello-next` commit) and `TAG`,
 downloads the release's `checksum.txt`, vendors `Package.swift`, `swift/` and `LICENSE` from `REF`
 with `refresh-litert-lm.sh`, and rewrites the binary target's `path:` to the release URL and checksum
 (Agello `93122b6`, `Vendor/use-release-litert.sh`). <!-- c:LM-BLD-041 --> Before a release,

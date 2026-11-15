@@ -132,6 +132,11 @@ A fact that is only on a page and in no ledger is a gap: either back it with a c
 
 ### After a re-pin or rebase
 
+> **Since 2026-11-15:** nothing is re-pinned (LiteRT and ML Drift are folders of this repository)
+> and nothing is rebased onto upstream (Google's repositories are a read-only source). The steps
+> below still apply when a cited file changes in `main` or Agello vendors a new release: move the
+> pins in `pins.json` to the new commit, then regenerate and re-check.
+
 When any pin in `pins.json` moves (a re-pin of LiteRT or ML Drift, a rebase of `agello-next` on a
 newer upstream, a new shipped wrapper):
 
