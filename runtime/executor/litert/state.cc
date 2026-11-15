@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -25,6 +26,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <variant>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/log/log.h"  // from @com_google_absl
@@ -38,6 +40,7 @@
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/cc/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_ranked_tensor_type.h"  // from @litert
@@ -58,6 +61,36 @@ namespace {
 // more: INT8 values, not the scales) with 0x7F after each clear, so any reader that depends on the
 // cache holding zeros past the fill changes the reply. A placement sparse cache's reused tiles
 // keep old data, so the sparse KV needs no reader of zeros.
+// Agello (sparse KV): AGELLO_SPARSE_KV=full maps every step of the sparse caches at creation
+// (step 2), grow (or 1) maps them ahead of the fill (step 3); unset, the caches are ordinary.
+enum class SparseKvMode { kOff, kFull, kGrow };
+SparseKvMode GetSparseKvMode() {
+  static const SparseKvMode mode = [] {
+    const char* value = std::getenv("AGELLO_SPARSE_KV");
+    if (value == nullptr || value[0] == '\0' || value[0] == '0') return SparseKvMode::kOff;
+    return std::string(value) == "full" ? SparseKvMode::kFull : SparseKvMode::kGrow;
+  }();
+  return mode;
+}
+constexpr int kSparseStepPositions = 4096;
+constexpr int kSparseMinSlots = 8192;
+bool LogSparseKv() { return std::getenv("AGELLO_LOG_SPARSE") != nullptr; }
+
+// A global KV cache (8,192 slots or more) that becomes sparse after creation, so its clear is
+// skipped (no reader needs zeros past the fill: the poison test; unmapped tiles read zero).
+bool SparseKvCandidate(absl::string_view name, const TensorBuffer& buffer) {
+  if (GetSparseKvMode() == SparseKvMode::kOff) return false;
+  const bool is_k = absl::StartsWith(name, "kv_cache_k_");
+  if (!is_k && !absl::StartsWith(name, "kv_cache_v_")) return false;
+  auto tensor_type = buffer.TensorType();
+  if (!tensor_type) return false;
+  auto dims = tensor_type->Layout().Dimensions();
+  if (dims.size() != 4 || dims[0] != 1) return false;
+  return (is_k ? dims[2] : dims[3]) >= kSparseMinSlots;
+}
+
+const void* MetalCommandQueueOf(const Environment& env);
+
 absl::Status PoisonIfAsked(TensorBuffer& buffer) {
   static const bool poison = [] {
     const char* value = std::getenv("AGELLO_KV_POISON");
@@ -244,15 +277,181 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::Create(
     const proto::ExecutorMetadata* executor_metadata,
     AllocationPolicy allocation_policy, int batch_size,
     bool clear_kv_cache_before_prefill) {
+  std::unique_ptr<LitertState> state;
   if (executor_metadata == nullptr) {
-    return HeuristicBasedCreate(env, compiled_model, signature_name,
-                                allocation_policy, batch_size,
-                                clear_kv_cache_before_prefill);
+    ABSL_ASSIGN_OR_RETURN(state, HeuristicBasedCreate(env, compiled_model, signature_name,
+                                                      allocation_policy, batch_size,
+                                                      clear_kv_cache_before_prefill));
+  } else {
+    ABSL_ASSIGN_OR_RETURN(state, MetadataBasedCreate(env, compiled_model, signature_name,
+                                                     *executor_metadata, allocation_policy,
+                                                     batch_size, clear_kv_cache_before_prefill));
+  }
+  ABSL_RETURN_IF_ERROR(state->ConvertToSparseKv(MetalCommandQueueOf(env)));
+  return state;
+}
+
+// Agello (sparse KV).
+struct LitertState::SparseKv {
+  struct Buffer {
+    std::string name;
+    void* mtl_buffer = nullptr;  // retained id<MTLBuffer>
+    bool is_k = false;
+    size_t heads = 0, w = 0, slices = 0, vec = 0;
+    int slots = 0;
+  };
+  std::unique_ptr<SparseKvMapper> mapper;
+  std::vector<Buffer> buffers;
+  int slots = 0;
+
+  ~SparseKv() {
+    mapper.reset();
+    for (const Buffer& buffer : buffers) ReleaseMetalObject(buffer.mtl_buffer);
   }
 
-  return MetadataBasedCreate(env, compiled_model, signature_name,
-                             *executor_metadata, allocation_policy, batch_size,
-                             clear_kv_cache_before_prefill);
+  // The tile ranges of positions [from, to) in each buffer (FilledRuns' layout): a K cache holds
+  // one row of its slots per head and group of four dims, a V cache its slots in groups of four
+  // per head.
+  std::vector<SparseRange> StepRanges(int from, int to) const {
+    std::vector<SparseRange> ranges;
+    for (const Buffer& b : buffers) {
+      const int end = std::min(to, b.slots);
+      if (end <= from) continue;
+      if (b.is_k) {
+        for (size_t y = 0; y < b.heads; ++y) {
+          for (size_t s = 0; s < b.slices; ++s) {
+            ranges.push_back({b.mtl_buffer, (y * b.slices + s) * b.w * b.vec + from * b.vec,
+                              static_cast<size_t>(end - from) * b.vec});
+          }
+        }
+      } else {
+        for (size_t y = 0; y < b.heads; ++y) {
+          ranges.push_back({b.mtl_buffer, y * b.slices * b.w * b.vec + from / 4 * b.w * b.vec,
+                            static_cast<size_t>(end - from) / 4 * b.w * b.vec});
+        }
+      }
+    }
+    return ranges;
+  }
+};
+
+LitertState::~LitertState() {
+  // The tensor buffers wrap the sparse caches without owning them: they go first.
+  bank_1_state_buffers_.clear();
+  bank_2_state_buffers_.reset();
+  sparse_kv_.reset();
+}
+
+absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
+  if (GetSparseKvMode() == SparseKvMode::kOff) return absl::OkStatus();
+  if (bank_2_state_buffers_.has_value() || command_queue == nullptr) {
+    fprintf(stderr, "Agello sparse KV: off (%s)\n",
+            command_queue == nullptr ? "no Metal command queue" : "ping-pong caches");
+    return absl::OkStatus();
+  }
+  auto sparse = std::make_shared<SparseKv>();
+  const size_t tile = SparseKvTileBytes();
+  for (auto& [name, state_buffer] : bank_1_state_buffers_) {
+    TensorBuffer& buffer = state_buffer.buffer;
+    if (!SparseKvCandidate(name, buffer) || !buffer.IsMetalMemory()) continue;
+    LITERT_ASSIGN_OR_RETURN(void* mtl_buffer, buffer.GetMetalBuffer());
+    void* device = MetalDeviceOfBuffer(mtl_buffer);
+    if (!PlacementSparseBuffersSupported(device)) {
+      fprintf(stderr, "Agello sparse KV: this GPU has no placement sparse buffers\n");
+      return absl::OkStatus();
+    }
+    LITERT_ASSIGN_OR_RETURN(auto tensor_type, buffer.TensorType());
+    LITERT_ASSIGN_OR_RETURN(auto buffer_type, buffer.BufferType());
+    LITERT_ASSIGN_OR_RETURN(size_t size, buffer.Size());
+    LITERT_ASSIGN_OR_RETURN(size_t packed, buffer.PackedSize());
+    std::optional<size_t> width = GetByteWidth(tensor_type.ElementType());
+    auto dims = tensor_type.Layout().Dimensions();
+    if (!width.has_value() || dims.size() != 4) continue;
+    SparseKv::Buffer entry;
+    entry.name = name;
+    entry.is_k = absl::StartsWith(name, "kv_cache_k_");
+    entry.heads = dims[1];
+    entry.w = dims[2];
+    entry.slices = (dims[3] + 3) / 4;
+    entry.vec = 4 * *width;
+    entry.slots = entry.is_k ? dims[2] : dims[3];
+    if (entry.slices * entry.heads * entry.w * entry.vec != packed ||
+        entry.slots % kSparseStepPositions != 0) {
+      continue;
+    }
+    if (!sparse->mapper) {
+      sparse->mapper = std::make_unique<SparseKvMapper>(device, command_queue);
+      if (!sparse->mapper->ok()) {
+        fprintf(stderr, "Agello sparse KV: no Metal 4 mapping queue\n");
+        return absl::OkStatus();
+      }
+    }
+    entry.mtl_buffer = CreateSparseMetalBuffer(device, (size + tile - 1) / tile * tile);
+    if (entry.mtl_buffer == nullptr) {
+      fprintf(stderr, "Agello sparse KV: no sparse buffer of %zu bytes for %s\n", size,
+              name.c_str());
+      continue;
+    }
+    auto created = TensorBuffer::CreateFromMetalBuffer(env_, tensor_type, buffer_type,
+                                                       entry.mtl_buffer, size);
+    if (!created) {
+      ReleaseMetalObject(entry.mtl_buffer);
+      return absl::InternalError(absl::StrCat("Sparse KV: can't wrap a buffer for ", name));
+    }
+    buffer = std::move(*created);
+    sparse->slots = std::max(sparse->slots, entry.slots);
+    sparse->buffers.push_back(std::move(entry));
+  }
+  if (sparse->buffers.empty()) return absl::OkStatus();
+  for (const SparseRange& range : sparse->StepRanges(0, kSparseStepPositions)) {
+    RET_CHECK(range.offset % tile == 0 && range.length % tile == 0)
+        << "Sparse KV: a step's ranges aren't on 16 KB tiles";
+  }
+  sparse_kv_ = std::move(sparse);
+  if (LogSparseKv()) {
+    fprintf(stderr, "Agello sparse KV: %zu caches of %d slots are sparse (%s)\n",
+            sparse_kv_->buffers.size(), sparse_kv_->slots,
+            GetSparseKvMode() == SparseKvMode::kFull ? "fully mapped" : "mapped as they fill");
+  }
+  if (GetSparseKvMode() == SparseKvMode::kFull) return EnsureKvMapped(sparse_kv_->slots - 1);
+  return absl::OkStatus();
+}
+
+absl::Status LitertState::EnsureKvMapped(int last_position) {
+  if (sparse_kv_ == nullptr) return absl::OkStatus();
+  SparseKvMapper& mapper = *sparse_kv_->mapper;
+  const int total_steps = sparse_kv_->slots / kSparseStepPositions;
+  const int needed = std::min(total_steps, std::max(last_position, 0) / kSparseStepPositions + 1);
+  while (mapper.steps() < needed) {
+    const int from = mapper.steps() * kSparseStepPositions;
+    RET_CHECK(mapper.MapStep(sparse_kv_->StepRanges(from, from + kSparseStepPositions)))
+        << "Sparse KV: mapping positions " << from << " failed";
+    if (LogSparseKv()) {
+      fprintf(stderr, "Agello sparse KV: mapped through position %d, %.0f MB\n",
+              from + kSparseStepPositions - 1, mapper.mapped_bytes() / 1048576.0);
+    }
+  }
+  return absl::OkStatus();
+}
+
+absl::Status LitertState::TrimKvMapping(int last_position) {
+  if (sparse_kv_ == nullptr || GetSparseKvMode() != SparseKvMode::kGrow) {
+    return absl::OkStatus();
+  }
+  SparseKvMapper& mapper = *sparse_kv_->mapper;
+  const int keep = std::max(last_position, 0) / kSparseStepPositions + 1;
+  while (mapper.steps() > keep) {
+    RET_CHECK(mapper.UnmapLastStep()) << "Sparse KV: unmapping failed";
+    if (LogSparseKv()) {
+      fprintf(stderr, "Agello sparse KV: trimmed to %d steps, %.0f MB\n", mapper.steps(),
+              mapper.mapped_bytes() / 1048576.0);
+    }
+  }
+  return absl::OkStatus();
+}
+
+int64_t LitertState::SparseKvMappedBytes() const {
+  return sparse_kv_ == nullptr ? 0 : static_cast<int64_t>(sparse_kv_->mapper->mapped_bytes());
 }
 
 absl::Status LitertState::SelectAndCopyFrom(StateInterface& other,
@@ -411,7 +610,106 @@ void VerifyFilledRuns(absl::string_view name, const TensorBuffer& buffer, const 
                  << " % zero), nonzero past the margin " << outside_nonzero << " of " << length;
 }
 
+// Agello (sparse KV, step 1): the environment's Metal command queue, the one the GPU's runs use,
+// or nullptr.
+const void* MetalCommandQueueOf(const Environment& env) {
+  auto options = env.GetOptions();
+  if (!options) return nullptr;
+  auto queue = options->GetOption(EnvironmentOptions::Tag::kMetalCommandQueue);
+  if (!queue) return nullptr;
+  // The environment hands pointers back as void* (ToStdAny), set as const void*.
+  if (const auto* pointer = std::get_if<void*>(&queue.Value())) return *pointer;
+  if (const auto* pointer = std::get_if<const void*>(&queue.Value())) return *pointer;
+  return nullptr;
+}
+
+// AGELLO_KV_BLIT=0 keeps the CPU snapshots (T3, E4), for comparison.
+bool KvBlitsEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_KV_BLIT");
+    return value == nullptr || value[0] != '0';
+  }();
+  return enabled;
+}
+
+// A buffer's filled runs (FilledRuns, or the whole buffer) packed back to back in host memory.
+struct CompactCopy {
+  std::vector<MetalBlitRange> ranges;
+  size_t bytes = 0;
+};
+
+CompactCopy CompactRanges(absl::string_view name, const TensorBuffer& buffer, size_t length,
+                          int positions) {
+  CompactCopy copy;
+  std::optional<std::vector<ByteRun>> runs = FilledRuns(name, buffer, length, positions);
+  if (!runs.has_value()) runs = std::vector<ByteRun>{{0, length}};
+  copy.ranges.reserve(runs->size());
+  for (const ByteRun& run : *runs) {
+    copy.ranges.push_back({run.offset, copy.bytes, run.length});
+    copy.bytes += run.length;
+  }
+  return copy;
+}
+
 }  // namespace
+
+absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::BlitSnapshot(
+    int positions, const void* command_queue) const {
+  int64_t copied_bytes = 0;
+  auto snapshot = [&](absl::string_view name,
+                      const TensorBuffer& buffer) -> absl::StatusOr<TensorBuffer> {
+    LITERT_ASSIGN_OR_RETURN(void* mtl_buffer, buffer.GetMetalBuffer());
+    LITERT_ASSIGN_OR_RETURN(size_t length, buffer.PackedSize());
+    const CompactCopy copy = CompactRanges(name, buffer, length, positions);
+    const size_t bytes = std::max<size_t>(copy.bytes, 1);
+    void* memory = AllocateSnapshotMemory(bytes);
+    RET_CHECK(memory != nullptr) << "No memory for a KV snapshot of " << bytes << " bytes";
+    if (!BlitMetalRanges(command_queue, mtl_buffer, memory, copy.bytes, copy.ranges,
+                         /*to_host=*/true)) {
+      FreeSnapshotMemory(memory);
+      return absl::InternalError(absl::StrCat("KV snapshot blit failed: ", name));
+    }
+    copied_bytes += static_cast<int64_t>(copy.bytes);
+    const int32_t held[] = {static_cast<int32_t>(bytes)};
+    auto litert_type = static_cast<LiteRtRankedTensorType>(
+        RankedTensorType(ElementType::UInt8, Layout(Dimensions(held, held + 1))));
+    auto holder = env_.GetHolder();
+    LiteRtTensorBuffer handle;
+    if (holder.runtime->CreateTensorBufferFromHostMemory(&litert_type, memory, bytes,
+                                                         FreeSnapshotMemory,
+                                                         &handle) != kLiteRtStatusOk) {
+      FreeSnapshotMemory(memory);
+      return absl::InternalError("Failed to wrap a KV snapshot's host memory");
+    }
+    return TensorBuffer::WrapCObject(holder, handle, OwnHandle::kYes);
+  };
+  auto snapshot_bank = [&](const absl::flat_hash_map<std::string, StateBuffer>& bank)
+      -> absl::StatusOr<absl::flat_hash_map<std::string, StateBuffer>> {
+    absl::flat_hash_map<std::string, StateBuffer> copy;
+    for (const auto& [name, state_buffer] : bank) {
+      ABSL_ASSIGN_OR_RETURN(auto buffer, snapshot(name, state_buffer.buffer));
+      copy[name] = StateBuffer{
+          .buffer = std::move(buffer),
+          .type = state_buffer.type,
+          .dynamic_dim = state_buffer.dynamic_dim,
+      };
+    }
+    return copy;
+  };
+  ABSL_ASSIGN_OR_RETURN(auto bank_1, snapshot_bank(bank_1_state_buffers_));
+  std::optional<absl::flat_hash_map<std::string, StateBuffer>> bank_2;
+  if (bank_2_state_buffers_.has_value()) {
+    ABSL_ASSIGN_OR_RETURN(bank_2, snapshot_bank(*bank_2_state_buffers_));
+  }
+  auto copy = absl::WrapUnique(new LitertState(batch_size_, num_entries_, env_,
+                                               std::move(bank_1), std::move(bank_2),
+                                               allocation_policy_));
+  copy->bank_1_is_input_ = bank_1_is_input_;
+  copy->blit_snapshot_ = true;
+  copy->snapshot_positions_ = positions;
+  copy->copied_bytes_ = copied_bytes;
+  return copy;
+}
 
 absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopy() const {
   return DeepCopyImpl(std::nullopt);
@@ -428,6 +726,26 @@ int64_t LitertState::CopiedBytes() const {
 
 absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopyImpl(
     std::optional<int> positions) const {
+  // Agello (sparse KV, step 1): the filled slots by GPU blits when every buffer is a Metal one.
+  if (positions.has_value() && KvBlitsEnabled() && !bank_1_state_buffers_.empty()) {
+    auto all_metal = [](const absl::flat_hash_map<std::string, StateBuffer>& bank) {
+      for (const auto& [_, state_buffer] : bank) {
+        if (!state_buffer.buffer.IsMetalMemory()) return false;
+      }
+      return true;
+    };
+    const void* command_queue = MetalCommandQueueOf(env_);
+    if (command_queue != nullptr && all_metal(bank_1_state_buffers_) &&
+        (!bank_2_state_buffers_.has_value() || all_metal(*bank_2_state_buffers_))) {
+      return BlitSnapshot(*positions, command_queue);
+    }
+    static bool reported = [&] {
+      fprintf(stderr, "Agello KV snapshot: no blit (%s); CPU copies instead\n",
+              command_queue == nullptr ? "no Metal command queue" : "a buffer isn't a Metal one");
+      return true;
+    }();
+    (void)reported;
+  }
   // Agello (T3): raw snapshots when every buffer is a Metal buffer of its own.
   bool raw = !bank_1_state_buffers_.empty();
   auto all_raw = [](const absl::flat_hash_map<std::string, StateBuffer>& bank) {
@@ -539,6 +857,45 @@ absl::Status LitertState::CopyContentsFrom(const LitertState& other) {
   RET_CHECK_EQ(num_entries_, other.num_entries_);
   RET_CHECK_EQ(bank_2_state_buffers_.has_value(),
                other.bank_2_state_buffers_.has_value());
+
+  if (other.blit_snapshot_) {
+    // Agello (sparse KV, step 1): a blit snapshot goes back by blits, run by run.
+    const void* command_queue = MetalCommandQueueOf(env_);
+    RET_CHECK(command_queue != nullptr) << "No Metal command queue to restore a KV snapshot";
+    RET_CHECK(other.snapshot_positions_.has_value());
+    const int positions = *other.snapshot_positions_;
+    // A sparse cache may have been trimmed since (a helper's new conversation).
+    ABSL_RETURN_IF_ERROR(EnsureKvMapped(positions - 1));
+    auto restore_bank = [&](absl::flat_hash_map<std::string, StateBuffer>& dst,
+                            const absl::flat_hash_map<std::string, StateBuffer>& src)
+        -> absl::Status {
+      RET_CHECK_EQ(dst.size(), src.size());
+      for (auto& [name, state_buffer] : dst) {
+        auto it = src.find(name);
+        RET_CHECK(it != src.end()) << "Missing state buffer: " << name;
+        LITERT_ASSIGN_OR_RETURN(void* mtl_buffer, state_buffer.buffer.GetMetalBuffer());
+        LITERT_ASSIGN_OR_RETURN(size_t length, state_buffer.buffer.PackedSize());
+        const CompactCopy copy = CompactRanges(name, state_buffer.buffer, length, positions);
+        LITERT_ASSIGN_OR_RETURN(size_t held, it->second.buffer.PackedSize());
+        RET_CHECK_GE(held, copy.bytes) << name;
+        LITERT_ASSIGN_OR_RETURN(auto src_lock_and_addr,
+                                TensorBufferScopedLock::Create(it->second.buffer,
+                                                               TensorBuffer::LockMode::kRead));
+        // The blit only reads the snapshot's memory.
+        RET_CHECK(BlitMetalRanges(command_queue, mtl_buffer,
+                                  const_cast<void*>(src_lock_and_addr.second),
+                                  copy.bytes, copy.ranges, /*to_host=*/false))
+            << "KV restore blit failed: " << name;
+      }
+      return absl::OkStatus();
+    };
+    ABSL_RETURN_IF_ERROR(restore_bank(bank_1_state_buffers_, other.bank_1_state_buffers_));
+    if (bank_2_state_buffers_.has_value()) {
+      ABSL_RETURN_IF_ERROR(restore_bank(*bank_2_state_buffers_, *other.bank_2_state_buffers_));
+    }
+    bank_1_is_input_ = other.bank_1_is_input_;
+    return absl::OkStatus();
+  }
 
   const bool raw = other.raw_metal_snapshot_;
   const std::optional<int> positions = other.snapshot_positions_;
@@ -763,7 +1120,7 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::HeuristicBasedCreate(
           buffer, compiled_model.CreateInputBuffer(signature_name, input_name));
     }
 
-    if (clear_buffer) {
+    if (clear_buffer && !SparseKvCandidate(input_name, *buffer)) {
       LITERT_RETURN_IF_ERROR(buffer->Clear());
       ABSL_RETURN_IF_ERROR(PoisonIfAsked(*buffer));
     }
@@ -961,7 +1318,7 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::MetadataBasedCreate(
       LITERT_ASSIGN_OR_RETURN(
           buffer, compiled_model.CreateInputBuffer(signature_name, input_name));
     }
-    if (clear_buffer) {
+    if (clear_buffer && !SparseKvCandidate(input_name, *buffer)) {
       LITERT_RETURN_IF_ERROR(buffer->Clear());
       ABSL_RETURN_IF_ERROR(PoisonIfAsked(*buffer));
     }

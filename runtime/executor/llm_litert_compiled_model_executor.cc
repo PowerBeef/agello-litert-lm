@@ -673,9 +673,17 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::PrefillInternal(
             .GetNextUnprocessedToken();
     RET_CHECK_LE(pending_input_token.size(), 1);
     const int start_step = internal_start_step;
+    const int last_position =
+        start_step + static_cast<int>(prefill_input_pos_size / sizeof(int32_t)) - 1;
+    // Agello (sparse KV): a conversation's first run gives back the tiles a longer one mapped
+    // (a helper's snapshot maps its own back when it's restored).
+    if (start_step <= 1) {
+      if (auto* state = dynamic_cast<LitertState*>(state_.get())) {
+        ABSL_RETURN_IF_ERROR(state->TrimKvMapping(last_position));
+      }
+    }
     // Agello (ring rewind): the run writes at most its signature's positions from here.
-    ABSL_RETURN_IF_ERROR(KeepRewindWindow(
-        start_step + static_cast<int>(prefill_input_pos_size / sizeof(int32_t)) - 1));
+    ABSL_RETURN_IF_ERROR(KeepRewindWindow(last_position));
     const bool has_pending_input_token = !pending_input_token.empty();
     const bool use_token_as_lookup = !signatures_.input_tokens.empty();
     const bool use_per_layer_embedding =
@@ -2090,6 +2098,11 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SaveRewindPoint() {
 }
 
 absl::Status LlmLiteRtCompiledModelExecutorBase::KeepRewindWindow(int last_position) {
+  // Agello (sparse KV): every run that writes the caches comes through here first with the last
+  // position it writes, so their tiles are mapped before it runs.
+  if (auto* state = dynamic_cast<LitertState*>(state_.get())) {
+    ABSL_RETURN_IF_ERROR(state->EnsureKvMapped(last_position));
+  }
   // AGELLO_VERIFY_RING_REWIND: the first run after the point that changes its window's slots
   // before its last position (which the first decode writes).
   if (VerifyRingRewind() && rewind_point_.has_value() && rewind_point_->at_point.has_value() &&

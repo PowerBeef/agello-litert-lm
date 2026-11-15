@@ -142,6 +142,19 @@ class LitertState : public StateInterface {
   // Writes `copy` back into the ring caches.
   absl::Status RestoreRings(const RingCopy& copy);
 
+  // Agello (sparse KV; PERFORMANCE.md, "The window: a fixed 64K with sparse KV caches"): with
+  // AGELLO_SPARSE_KV, the global KV caches (8,192 slots or more) are Metal 4 placement sparse
+  // buffers that cost only their mapped tiles, mapped in steps of 4,096 positions. `full` maps
+  // every step at creation; `grow` maps ahead of the fill. Before a run that writes positions
+  // through `last_position`, EnsureKvMapped maps what it needs; TrimKvMapping unmaps the steps
+  // past `last_position` (a new conversation's first run). No-ops without sparse caches.
+  absl::Status EnsureKvMapped(int last_position);
+  absl::Status TrimKvMapping(int last_position);
+  // The bytes mapped into the sparse caches, 0 without them.
+  int64_t SparseKvMappedBytes() const;
+
+  ~LitertState() override;
+
   // Resizes the KV cache to the given number of entries (sequence length).
   // Note: Resize is a no-op if the requested size is smaller than the current
   // size.
@@ -221,7 +234,21 @@ class LitertState : public StateInterface {
   absl::StatusOr<std::unique_ptr<StateInterface>> DeepCopyImpl(
       std::optional<int> positions) const;
 
+  // Agello (sparse KV, step 1): a snapshot of the first `positions` slots of every state buffer
+  // by GPU blits on `command_queue` into compact host memory (the filled runs back to back), so
+  // the snapshot holds only those bytes and the buffers need no CPU view.
+  absl::StatusOr<std::unique_ptr<StateInterface>> BlitSnapshot(
+      int positions, const void* command_queue) const;
+  // Agello (sparse KV, step 1): this state is such a snapshot.
+  bool blit_snapshot_ = false;
+
   AllocationPolicy allocation_policy_;
+
+  // Agello (sparse KV): replaces the global KV caches with placement sparse buffers when asked
+  // and supported; called once, after creation.
+  absl::Status ConvertToSparseKv(const void* command_queue);
+  struct SparseKv;
+  std::shared_ptr<SparseKv> sparse_kv_;
 };
 
 }  // namespace litert::lm

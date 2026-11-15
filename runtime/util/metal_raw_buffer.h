@@ -19,7 +19,9 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_UTIL_METAL_RAW_BUFFER_H_
 
 #include <cstddef>
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace litert::lm {
 
@@ -38,6 +40,75 @@ std::optional<MetalRawBuffer> GetMetalRawBuffer(void* mtl_buffer);
 // failure and on platforms without Metal.
 void* AllocateSnapshotMemory(size_t length);
 void FreeSnapshotMemory(void* addr);
+
+// Agello (sparse KV, step 1): a byte range copied between a Metal buffer and host memory.
+struct MetalBlitRange {
+  size_t buffer_offset = 0;
+  size_t host_offset = 0;
+  size_t length = 0;
+};
+
+// Copies `ranges` between `mtl_buffer` (an id<MTLBuffer>, shared or private) and `host` (from
+// AllocateSnapshotMemory, `host_length` bytes) with one blit on `command_queue` (an
+// id<MTLCommandQueue>: the queue the GPU's runs use, so the copy is ordered after them), and
+// waits for it. `to_host` copies the buffer's ranges into the host memory, otherwise back. False
+// on failure, and on platforms without Metal.
+bool BlitMetalRanges(const void* command_queue, void* mtl_buffer, void* host, size_t host_length,
+                     const std::vector<MetalBlitRange>& ranges, bool to_host);
+
+// The length of `mtl_buffer` (an id<MTLBuffer>), 0 without one.
+size_t MetalBufferLength(void* mtl_buffer);
+
+// Agello (sparse KV, steps 2-3): KV caches as Metal 4 placement sparse buffers, which cost only
+// their mapped tiles (an ordinary buffer that any kernel uses is wholly resident). Reads of an
+// unmapped tile return zero and writes there are dropped (tier 1).
+
+// The device of `mtl_buffer` (an id<MTLBuffer>), unretained; nullptr without one.
+void* MetalDeviceOfBuffer(void* mtl_buffer);
+
+// Whether `mtl_device` (an id<MTLDevice>) has placement sparse buffers (tier 1).
+bool PlacementSparseBuffersSupported(void* mtl_device);
+
+// The sparse tile the KV caches use (16 KB).
+size_t SparseKvTileBytes();
+
+// A private, hazard-tracked placement sparse buffer of `length` bytes with 16 KB tiles, none
+// mapped; retained (ReleaseMetalObject). nullptr on failure.
+void* CreateSparseMetalBuffer(void* mtl_device, size_t length);
+
+// Releases an object a Create function above retained.
+void ReleaseMetalObject(void* object);
+
+// A tile-aligned byte range of a placement sparse buffer.
+struct SparseRange {
+  void* buffer = nullptr;  // id<MTLBuffer>
+  size_t offset = 0;
+  size_t length = 0;
+};
+
+// Maps tiles of placement sparse buffers from placement heaps, one heap per step, through a
+// Metal 4 queue of its own, and waits for each update. Steps unmap last in, first out.
+class SparseKvMapper {
+ public:
+  // `command_queue` (an id<MTLCommandQueue>) runs the kernels that use the buffers: an unmap
+  // waits for its work first.
+  SparseKvMapper(void* mtl_device, const void* command_queue);
+  ~SparseKvMapper();
+  SparseKvMapper(const SparseKvMapper&) = delete;
+  SparseKvMapper& operator=(const SparseKvMapper&) = delete;
+
+  bool ok() const;
+  // A new heap holding exactly the ranges' tiles, mapped into them in order.
+  bool MapStep(const std::vector<SparseRange>& ranges);
+  // Unmaps the last step's ranges, once the queue's work is done, and frees its heap.
+  bool UnmapLastStep();
+  int steps() const;
+  size_t mapped_bytes() const;
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
 
 }  // namespace litert::lm
 
