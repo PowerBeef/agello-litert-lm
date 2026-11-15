@@ -698,11 +698,14 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
     ++rewritten;
     // Agello (engine review, step 4): a global layer's mask as per-row bounds. Only global
     // layers, whose mask is the runtime's own input (a prefix per row); a ring file's local
-    // masks come out of floor_mod in the graph and wrap, so they aren't prefixes.
+    // masks come out of floor_mod in the graph and wrap, so they aren't prefixes. And only a
+    // prefill's (64 score rows or more): decode's and verify's few rows gain nothing, and their
+    // bounds kernel, a thread a row scanning the whole window, cost decode 5 % (M6, 2026-11-15).
+    constexpr int kMaskBoundsMinRows = 64;
     const auto* qk_attr =
         std::any_cast<RuntimeBatchedMatMulAttributes>(&tail->qk->operation.attributes);
     const bool global = qk_attr != nullptr && qk_attr->is_global.value_or(false);
-    if (MaskBoundsEnabled() && global) {
+    if (MaskBoundsEnabled() && global && tail->selected->tensor.shape.w >= kMaskBoundsMinRows) {
       Value* condition = MatchRowMask(*graph, tail->mask, tail->selected->tensor.shape.c);
       if (condition != nullptr && graph->FindProducer(condition->id) != nullptr) {
         condition = nullptr;  // not an input: built in the graph
