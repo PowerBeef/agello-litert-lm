@@ -1,7 +1,10 @@
 # Building, releasing and vendoring our LiteRT-LM
 
-The source build lives on `agello-next` (worktree `../agello-arms/next/LiteRT-LM`), with LiteRT
-and ML Drift from our forks (`PowerBeef/LiteRT`, `PowerBeef/ml-drift`, branch `agello-next`).
+The source build is this repository's one branch, `main` (checkout `../LiteRT-LM` beside Agello),
+with LiteRT in `agello/litert` and ML Drift in `agello/ml_drift`. Until 2026-11-15 it lived on
+`agello-next` and then `agello-one`, with LiteRT and ML Drift pinned from `PowerBeef/LiteRT` and
+`PowerBeef/ml-drift` (now archived, our changes on their `main`); the reference pages under
+`reference/` still describe that three-repository layout where they cover pins and overrides.
 
 ## Build
 
@@ -9,15 +12,11 @@ and ML Drift from our forks (`PowerBeef/LiteRT`, `PowerBeef/ml-drift`, branch `a
 agello/build-xcframework.sh          # dist/CLiteRTLM.xcframework (iPhone and Mac slices) + dist/BUILD-INFO.txt
 ```
 
-- `WORKSPACE` pins LiteRT and ML Drift by commit and archive sha256. To change them, uncomment
-  the `--override_repository` lines in `.bazelrc.user` (local checkouts), then push, re-pin (the
-  commit and `shasum -a 256` of `https://github.com/PowerBeef/<repo>/archive/<commit>.tar.gz`),
-  comment the overrides out and rebuild. The binary isn't byte-identical (the build info compiled
-  into it names the build), so check behavior: agello-bench `suites/short.json` at 8K must give
-  the override build's replies (2026-10-15, LiteRT `97e06d36`, ML Drift `2184a7f`: 15/15 identical,
-  build `2e54fbdb9ca9`; no results file records that run).
-- Push `agello-next` from the main checkout (`../LiteRT-LM`); from the worktree, Git LFS's
-  pre-push lock check fails.
+- `WORKSPACE` reads LiteRT and ML Drift from `agello/litert` and `agello/ml_drift`
+  (`local_repository`): edit them in place and rebuild, with no override and no re-pin. The binary
+  isn't byte-identical between builds (the build info compiled into it names the build), so check
+  behavior by comparing replies, not bytes.
+- Push with `git push origin main`.
 
 ## Build provenance (P1.1)
 
@@ -38,7 +37,7 @@ agello/release-xcframework.sh <tag> --publish    # creates the GitHub release (n
 It refuses local overrides and uncommitted changes, builds, and writes the zip, its SwiftPM
 checksum (`checksum.txt`), a release `Package.swift`, `BUILD-INFO.txt`, `THIRD_PARTY_NOTICES.md`
 and `NOTES.md`. Agello then vendors it with
-`REF=<agello-next commit> TAG=<tag> Vendor/use-release-litert.sh` (its header lists the follow-up:
+`REF=<commit> TAG=<tag> Vendor/use-release-litert.sh` (its header lists the follow-up:
 `Vendor/README.md`, `NOTICE`, the README section, the iPhone suites).
 
 Dry run on 2026-10-15 (commit `57376f53`, build id `3b702497f7d5`): a 26 MB zip; its slices hash
