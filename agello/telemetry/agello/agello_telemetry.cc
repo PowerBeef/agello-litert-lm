@@ -650,6 +650,32 @@ void WaitForDeferredGpuWork() {
   if (auto* hook = deferred_wait_hook.load(std::memory_order_acquire)) hook();
 }
 
+namespace {
+std::atomic<void (*)()> mark_hook{nullptr};
+std::atomic<void (*)()> wait_marked_hook{nullptr};
+std::atomic<bool> hold_next_run{false};
+std::atomic<void (*)()> hold_release_hook{nullptr};
+}  // namespace
+
+void SetMarkHooks(void (*mark)(), void (*wait_marked)()) {
+  mark_hook.store(mark, std::memory_order_release);
+  wait_marked_hook.store(wait_marked, std::memory_order_release);
+}
+void MarkDeferredGpuWork() {
+  if (auto* hook = mark_hook.load(std::memory_order_acquire)) hook();
+}
+void WaitForMarkedGpuWork() {
+  if (auto* hook = wait_marked_hook.load(std::memory_order_acquire)) hook();
+}
+void HoldNextGpuRun() { hold_next_run.store(true, std::memory_order_release); }
+bool TakeGpuRunHold() { return hold_next_run.exchange(false, std::memory_order_acq_rel); }
+void SetHoldReleaseHook(void (*release)()) {
+  hold_release_hook.store(release, std::memory_order_release);
+}
+void ReleaseHeldGpuRun() {
+  if (auto* hook = hold_release_hook.load(std::memory_order_acquire)) hook();
+}
+
 void ReportAnomaly(Anomaly code, Severity severity, int64_t a, int64_t b, const char* message) {
   if (GetLevel() < kCounters) return;
   counters[kAnomalies].fetch_add(1, std::memory_order_relaxed);

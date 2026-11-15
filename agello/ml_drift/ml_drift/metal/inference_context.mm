@@ -823,6 +823,7 @@ void InferenceContext::EncodeWithCommandQueue(id<MTLCommandQueue> command_queue,
   for (int i = 0; i < cb_count; ++i) {
     @autoreleasepool {
       id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
+      if (i == 0) ::agello::telemetry::EncodeHoldIfTaken(command_buffer);
       if (level >= telemetry::kDeep) {
         EncodeTimed(command_buffer, &node_index, flush_period);
         ::agello::telemetry::AttachGpuTiming(command_buffer);

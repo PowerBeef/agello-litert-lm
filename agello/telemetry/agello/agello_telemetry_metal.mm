@@ -17,6 +17,7 @@
 #import <Foundation/Foundation.h>
 
 #include <atomic>
+#include <mutex>
 
 #include "agello/agello_telemetry.h"
 
@@ -44,6 +45,26 @@ void AttachGpuTiming(id<MTLCommandBuffer> command_buffer) {
     // Submit to start: includes waiting behind earlier command buffers of the same run.
     RecordGpuSeconds(kGpuQueueDelay, buffer.kernelStartTime, buffer.GPUStartTime);
   }];
+}
+
+namespace {
+std::mutex hold_mutex;
+id<MTLSharedEvent> hold_event = nil;
+uint64_t hold_value = 0;
+
+void ReleaseHold() {
+  std::lock_guard<std::mutex> lock(hold_mutex);
+  if (hold_event != nil) hold_event.signaledValue = hold_value;
+}
+}  // namespace
+
+void EncodeHoldIfTaken(id<MTLCommandBuffer> command_buffer) {
+  if (!TakeGpuRunHold()) return;
+  std::lock_guard<std::mutex> lock(hold_mutex);
+  if (hold_event == nil) hold_event = [command_buffer.device newSharedEvent];
+  ++hold_value;
+  [command_buffer encodeWaitForEvent:hold_event value:hold_value];
+  SetHoldReleaseHook(&ReleaseHold);
 }
 
 }  // namespace agello::telemetry

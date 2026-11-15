@@ -322,6 +322,17 @@ void DeferGpuWaits(bool deferred);
 bool GpuWaitsDeferred();
 void SetDeferredWaitHook(void (*hook)());
 void WaitForDeferredGpuWork();
+// The replay's held verify (mode e): MarkDeferredGpuWork remembers the last command buffer
+// committed so far, WaitForMarkedGpuWork waits for it; HoldNextGpuRun makes the next graph's first
+// command buffer wait on an event (encoded, committed, not started) until ReleaseHeldGpuRun. The
+// Metal side registers the hooks.
+void SetMarkHooks(void (*mark)(), void (*wait_marked)());
+void MarkDeferredGpuWork();
+void WaitForMarkedGpuWork();
+void HoldNextGpuRun();
+bool TakeGpuRunHold();
+void SetHoldReleaseHook(void (*release)());
+void ReleaseHeldGpuRun();
 
 // Anomalies: counted from level 1, kept in a bounded ring, mirrored to os_log.
 // `message` must be a string literal (stored by pointer).

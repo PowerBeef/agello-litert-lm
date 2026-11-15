@@ -54,6 +54,28 @@ namespace litert::lm {
 
 namespace {
 
+// Agello (sparse KV, step 0, a test): AGELLO_KV_POISON=1 fills the KV data buffers (a megabyte or
+// more: INT8 values, not the scales) with 0x7F after each clear, so any reader that depends on the
+// cache holding zeros past the fill changes the reply. A placement sparse cache's reused tiles
+// keep old data, so the sparse KV needs no reader of zeros.
+absl::Status PoisonIfAsked(TensorBuffer& buffer) {
+  static const bool poison = [] {
+    const char* value = std::getenv("AGELLO_KV_POISON");
+    return value != nullptr && value[0] == '1';
+  }();
+  if (!poison) return absl::OkStatus();
+  LITERT_ASSIGN_OR_RETURN(size_t size, buffer.PackedSize());
+  if (size < (size_t{1} << 20)) return absl::OkStatus();
+  LITERT_ASSIGN_OR_RETURN(auto lock, TensorBufferScopedLock::Create(
+                                         buffer, TensorBuffer::LockMode::kWrite));
+  std::memset(lock.second, 0x7F, size);
+  return absl::OkStatus();
+}
+
+}  // namespace
+
+namespace {
+
 constexpr int kDynamicDimValue = -1;
 
 absl::StatusOr<std::optional<int>> GetDynamicDimIndex(
@@ -569,6 +591,7 @@ bool LitertState::Contains(absl::string_view tensor_name) const {
 absl::Status LitertState::Clear() {
   for (auto& [_, state_buffer] : bank_1_state_buffers_) {
     LITERT_RETURN_IF_ERROR(state_buffer.buffer.Clear());
+    ABSL_RETURN_IF_ERROR(PoisonIfAsked(state_buffer.buffer));
   }
   if (bank_2_state_buffers_.has_value()) {
     for (auto& [_, state_buffer] : *bank_2_state_buffers_) {
@@ -742,6 +765,7 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::HeuristicBasedCreate(
 
     if (clear_buffer) {
       LITERT_RETURN_IF_ERROR(buffer->Clear());
+      ABSL_RETURN_IF_ERROR(PoisonIfAsked(*buffer));
     }
     return StateBuffer{
         .buffer = std::move(buffer.value()),
@@ -939,6 +963,7 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::MetadataBasedCreate(
     }
     if (clear_buffer) {
       LITERT_RETURN_IF_ERROR(buffer->Clear());
+      ABSL_RETURN_IF_ERROR(PoisonIfAsked(*buffer));
     }
     return StateBuffer{
         .buffer = std::move(buffer.value()),

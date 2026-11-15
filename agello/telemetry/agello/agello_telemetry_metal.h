@@ -26,6 +26,10 @@ namespace agello::telemetry {
 // (kernelStartTime to GPUStartTime) to gpu.schedule_latency, and reports command-buffer errors.
 void AttachGpuTiming(id<MTLCommandBuffer> command_buffer);
 
+// The replay's held run (HoldNextGpuRun): call on a graph's first command buffer before encoding;
+// when a hold is pending it encodes a wait on an event that ReleaseHeldGpuRun signals.
+void EncodeHoldIfTaken(id<MTLCommandBuffer> command_buffer);
+
 }  // namespace agello::telemetry
 
 #endif  // __OBJC__

@@ -78,12 +78,20 @@ constexpr bool kEnableMtpDrafterLogs = false;
 // That is the ceiling of a GPU-resident round, which would still pay that host preparation. The
 // replay writes what the real round wrote (same inputs, same positions), so replies are unchanged.
 // Telemetry: mtp.round (the real round) against mtp.replay; gpu.replay is the replay's GPU time.
-bool MtpReplayEnabled() {
-  static const bool enabled = [] {
+// Where the replay waits (the resident round's versions): 1, once at the end (the whole round
+// chained); a, also before verify (a drafter chain); b, as a with verify's inputs written in that
+// gap (the drafter chain's ceiling: the host reads the drafts, looks up verify's embeddings,
+// commits); c, after each drafter run, verify chained; e, the drafter chain with verify encoded
+// and committed behind an event, released once the drafts are back and verify's inputs written
+// (the per-layer tables stay on the CPU).
+char MtpReplayMode() {
+  static const char mode = [] {
     const char* value = std::getenv("AGELLO_MTP_REPLAY");
-    return value != nullptr && value[0] != '\0' && value[0] != '0';
+    if (value == nullptr || value[0] == '\0' || value[0] == '0') return '\0';
+    return value[0] == 'a' || value[0] == 'b' || value[0] == 'c' || value[0] == 'e' ? value[0]
+                                                                                     : '1';
   }();
-  return enabled;
+  return mode;
 }
 
 // Restores waiting even when a replayed run fails, then waits for what was committed.
@@ -818,16 +826,18 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   }
 
   round_span.End();
-  if (MtpReplayEnabled() && constraint_ == nullptr) {
+  if (const char mode = MtpReplayMode(); mode != '\0' && constraint_ == nullptr) {
     AGELLO_SPAN(kMtpReplay);
     AGELLO_COUNT(kMtpReplayRounds);
     ABSL_RETURN_IF_ERROR(
         PrepareDrafterInputBuffers(position - 1, state_buffers.output_buffers));
-    ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
-        position, token_id, drafting_result.drafted_tokens,
-        state_buffers.input_buffers));
-    ABSL_RETURN_IF_ERROR(
-        PrepareVerifierOutputBuffers(state_buffers.output_buffers));
+    auto prepare_verify = [&]() -> absl::Status {
+      ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
+          position, token_id, drafting_result.drafted_tokens,
+          state_buffers.input_buffers));
+      return PrepareVerifierOutputBuffers(state_buffers.output_buffers);
+    };
+    if (mode != 'b' && mode != 'e') ABSL_RETURN_IF_ERROR(prepare_verify());
     DeferredGpuWaits deferred;
     for (int i = 0; i < num_draft_steps_; ++i) {
       LITERT_RETURN_IF_ERROR(PrepareDrafterOutputBuffers());
@@ -836,12 +846,36 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
       LITERT_RETURN_IF_ERROR(mtp_drafter_model_.RunAsync(
           drafter_signature_.Key(), active_drafter_input_buffers_,
           active_drafter_output_buffers_, async));
+      if (mode == 'c') ::agello::telemetry::WaitForDeferredGpuWork();
+    }
+    if (mode == 'a' || mode == 'b') ::agello::telemetry::WaitForDeferredGpuWork();
+    if (mode == 'b') ABSL_RETURN_IF_ERROR(prepare_verify());
+    // Mode e: on every way out, a hold still pending is dropped and a held run released, so
+    // the queue never waits on an event nobody signals (declared after `deferred`, so it runs
+    // before the final wait).
+    struct ReleaseHeld {
+      bool armed = false;
+      ~ReleaseHeld() {
+        if (!armed) return;
+        ::agello::telemetry::TakeGpuRunHold();
+        ::agello::telemetry::ReleaseHeldGpuRun();
+      }
+    } release_held;
+    if (mode == 'e') {
+      ::agello::telemetry::MarkDeferredGpuWork();
+      ::agello::telemetry::HoldNextGpuRun();
+      release_held.armed = true;
     }
     ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuReplay);
     bool async = true;
     LITERT_RETURN_IF_ERROR(base_model_.RunAsync(
         verify_signature_.Key(), active_verifier_input_buffers_,
         active_verifier_output_buffers_, async));
+    if (mode == 'e') {
+      ::agello::telemetry::WaitForMarkedGpuWork();
+      ABSL_RETURN_IF_ERROR(prepare_verify());
+      ::agello::telemetry::ReleaseHeldGpuRun();
+    }
   }
 
   MTP_DRAFTER_LOG() << "drafted_tokens: "

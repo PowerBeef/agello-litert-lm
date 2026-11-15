@@ -59,6 +59,23 @@ constexpr int kFlushPeriodDuringDispatch = 256;
 absl::Mutex g_deferred_mutex;
 id<MTLCommandBuffer> g_last_deferred ABSL_GUARDED_BY(g_deferred_mutex) = nil;
 
+id<MTLCommandBuffer> g_marked ABSL_GUARDED_BY(g_deferred_mutex) = nil;
+
+void MarkLastDeferred() {
+  absl::MutexLock lock(&g_deferred_mutex);
+  g_marked = g_last_deferred;
+}
+
+void WaitForMarked() {
+  id<MTLCommandBuffer> marked = nil;
+  {
+    absl::MutexLock lock(&g_deferred_mutex);
+    marked = g_marked;
+    g_marked = nil;
+  }
+  if (marked != nil) [marked waitUntilCompleted];
+}
+
 void WaitForLastDeferred() {
   id<MTLCommandBuffer> last = nil;
   {
@@ -228,6 +245,7 @@ absl::Status GpuBackendMetal::WaitForCompletion() {
 
   if (::agello::telemetry::GpuWaitsDeferred()) {
     ::agello::telemetry::SetDeferredWaitHook(&WaitForLastDeferred);
+    ::agello::telemetry::SetMarkHooks(&MarkLastDeferred, &WaitForMarked);
     ::agello::telemetry::AttachGpuTiming(command_buffer_);
     [command_buffer_ commit];
     {
