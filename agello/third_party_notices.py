@@ -22,8 +22,8 @@ TOOLING = {"bazel_tools", "build_bazel_apple_support", "rules_rust", "platforms"
 
 # C/C++ repositories: (name, SPDX license, file with the text, relative to the repository).
 KNOWN = {
-    "litert": ("LiteRT (PowerBeef/LiteRT, branch agello-next)", "Apache-2.0", "LICENSE"),
-    "ml_drift": ("ML Drift (PowerBeef/ml-drift, branch agello-next)", "Apache-2.0", "LICENSE"),
+    "litert": ("LiteRT (in this repository, agello/litert)", "Apache-2.0", "LICENSE"),
+    "ml_drift": ("ML Drift (in this repository, agello/ml_drift)", "Apache-2.0", "LICENSE"),
     "agello_telemetry": ("Agello telemetry (this repository, agello/telemetry)", "Apache-2.0", None),
     "com_google_absl": ("Abseil C++", "Apache-2.0", "LICENSE"),
     "com_google_protobuf": ("Protocol Buffers", "BSD-3-Clause", "LICENSE"),
@@ -98,7 +98,7 @@ def main():
 
     out = sys.stdout
     out.write("# Third-party notices: CLiteRTLM.xcframework\n\n")
-    out.write("Built from PowerBeef/agello-litert-lm (branch agello-next), a fork of LiteRT-LM\n"
+    out.write("Built from PowerBeef/agello-litert-lm (branch main), a fork of LiteRT-LM\n"
               "(Copyright Google LLC, Apache-2.0), with LiteRT and ML Drift (Apache-2.0) linked\n"
               "statically. It also contains the components below, listed from the framework's link\n"
               "inputs by agello/third_party_notices.py.\n\n")
