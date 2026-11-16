@@ -20,7 +20,8 @@
 // deadlocked (see StreamContext); and streams are found by ID instead of a
 // retained pointer, end once however many final chunks LiteRT-LM sends,
 // stop their native work when cancelled (between tool rounds too), and cap
-// their tool rounds (see ConversationStream.swift).
+// their tool rounds (see ConversationStream.swift); the native handle is
+// declared for Swift 6 language mode.
 
 import Foundation
 import OSLog
@@ -70,7 +71,9 @@ public final class Conversation: Sendable {
     category: "Conversation"
   )
 
-  private let handle: CConversationHandle?
+  /// Set once and never changed; the native conversation takes calls from any thread (Agello:
+  /// declared for Swift 6 language mode, 2026-11-16).
+  nonisolated(unsafe) private let handle: CConversationHandle?
   private let toolManager: ToolManager
   private let automaticToolCalling: Bool
   private let engine: Engine

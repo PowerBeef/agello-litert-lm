@@ -158,7 +158,7 @@ final class StreamContext: @unchecked Sendable {
     return true
   }
 
-  func yield(_ message: Message) {
+  func yield(_ message: sending Message) {
     guard !isFinished else { return }
     continuation.yield(message)
   }
