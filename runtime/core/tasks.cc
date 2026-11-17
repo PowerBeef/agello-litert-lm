@@ -362,12 +362,16 @@ class DecodeOneStep {
       is_first_step_ = false;
       ABSL_ASSIGN_OR_RETURN(bool all_done, stop_token_detector_.AllDone());
       if (all_done) {
-        if (step != sequence_length - 1) {
-          // we are done before all the tokens are processed, so we need to
-          // rollback the processed tokens in executor.
-          int diff = sequence_length - step;
+        // Agello: a speculative round can emit tokens after the one that ends the stop sequence.
+        // Only those are rolled back, so the stop token stays the pending input token, as after
+        // single-token steps (upstream's bcd7532b, 2026-10-27). Rolling back one more, as
+        // before, re-pended the token before the stop as an id without its embedding: the next
+        // prefill rewrote that position from an id-and-zeros row, and a reply streamed as "400"
+        // was "40" to the next turn (Agello's probe 35, 2026-11-17).
+        const int tokens_after_stop = static_cast<int>(sequence_length - 1 - step);
+        if (tokens_after_stop > 0) {
           ABSL_ASSIGN_OR_RETURN(int current_step, executor_.GetCurrentStep());
-          ABSL_RETURN_IF_ERROR(executor_.SetCurrentStep(current_step - diff));
+          ABSL_RETURN_IF_ERROR(executor_.SetCurrentStep(current_step - tokens_after_stop));
         }
         return true;
       }

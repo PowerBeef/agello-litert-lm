@@ -535,6 +535,11 @@ last token of its step or round
 [`runtime/core/tasks.cc:801-806`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L801-L806),
 [`runtime/engine/engine_settings.h:277-280`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.h#L277-L280);
 v0.18.0: [`runtime/executor/llm_litert_compiled_model_executor.cc:1320-1341`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L1320-L1341)). <!-- c:X-GAP-001 -->
+When the stop token falls inside an MTP round, `Tasks` rolls back only the tokens after it, so it
+is left pending too (Agello's fix of 2026-11-17 in `runtime/core/tasks.cc`, upstream's `bcd7532b`;
+`runtime/core:tasks_rounds_test`). Before it, the rollback went one token further and re-pended
+the reply's last token as an id without its embedding, so the next prefill rewrote that position
+from an id-and-zeros row: a reply streamed as "400" read as "40" to the next turn (Agello's probe 35).
 The next prefill writes the pending token first, at its own position, then the new difference. When
 `<turn|>` is pending (the last token of its decode step or MTP round), a user message's difference starts with `<|turn>user\n`, because the old render already ended with
 `<turn|>\n` (claim LM-CNV-021), so the `\n` (107) that the template puts after `<turn|>` is never

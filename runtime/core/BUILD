@@ -522,6 +522,32 @@ cc_library(
 )
 
 cc_test(
+    # Agello: rounds of several tokens (speculative decoding) end like single-token steps.
+    name = "tasks_rounds_test",
+    srcs = ["tasks_rounds_test.cc"],
+    deps = [
+        ":tasks",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "//runtime/components:stop_token_detector",
+        "//runtime/components/constrained_decoding:no_repeat_ngram_config",
+        "//runtime/components/constrained_decoding:repetition_penalty_config",
+        "//runtime/components/constrained_decoding:suppress_tokens_config",
+        "//runtime/engine:io_types",
+        "//runtime/executor:fake_llm_executor",
+        "//runtime/executor:llm_executor_io_types",
+        "//runtime/util:test_utils",
+        "//support/tokenizer",
+    ],
+)
+
+cc_test(
     name = "tasks_test",
     srcs = ["tasks_test.cc"],
     data = ["//runtime/components/testdata"],
