@@ -87,8 +87,11 @@ class ResidentRound {
   virtual bool Finish(int count, int* ids) = 0;
 };
 
-// AGELLO_RESIDENT_ROUND=1 turns the round on (off by default until the iPhone measures it).
+// AGELLO_RESIDENT_ROUND=1 turns the round on, verify's inputs included (stage 3); =2 runs only
+// the drafter chain on the GPU (stage 2), which maps no per-layer tables. Off by default until
+// the iPhone measures it.
 bool ResidentRoundEnabled();
+bool ResidentRoundGathersVerifyInputs();
 
 }  // namespace litert::lm
 

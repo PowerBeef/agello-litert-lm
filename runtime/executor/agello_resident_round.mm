@@ -353,13 +353,19 @@ class MetalResidentRound : public ResidentRound {
 
 }  // namespace
 
-bool ResidentRoundEnabled() {
-  static const bool enabled = [] {
+namespace {
+char ResidentRoundMode() {
+  static const char mode = [] {
     const char* value = std::getenv("AGELLO_RESIDENT_ROUND");
-    return value != nullptr && value[0] == '1';
+    return value != nullptr && (value[0] == '1' || value[0] == '2') ? value[0] : '0';
   }();
-  return enabled;
+  return mode;
 }
+}  // namespace
+
+bool ResidentRoundEnabled() { return ResidentRoundMode() != '0'; }
+
+bool ResidentRoundGathersVerifyInputs() { return ResidentRoundMode() == '1'; }
 
 std::unique_ptr<ResidentRound> ResidentRound::Create(const void* command_queue, const Table& table,
                                                      int max_steps) {

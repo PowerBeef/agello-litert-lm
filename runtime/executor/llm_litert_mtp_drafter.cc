@@ -477,7 +477,7 @@ LlmLiteRtMtpDrafter::Create(
   if (ResidentRoundEnabled() && executor_settings.GetBackend() == Backend::GPU) {
     drafter->resident_ = CreateResidentRound(env, resources, drafter->num_draft_steps_);
     ResidentRound::TableSet embedder, per_layer;
-    if (drafter->resident_ != nullptr &&
+    if (drafter->resident_ != nullptr && ResidentRoundGathersVerifyInputs() &&
         ReadTableSet(resources, ModelType::kTfLiteEmbedder, &embedder) &&
         ReadTableSet(resources, ModelType::kTfLitePerLayerEmbedder, &per_layer) &&
         embedder.tables.size() == 1) {

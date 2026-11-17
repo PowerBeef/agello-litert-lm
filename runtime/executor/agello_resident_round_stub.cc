@@ -21,6 +21,8 @@ namespace litert::lm {
 // Without Metal the host drafts.
 bool ResidentRoundEnabled() { return false; }
 
+bool ResidentRoundGathersVerifyInputs() { return false; }
+
 std::unique_ptr<ResidentRound> ResidentRound::Create(const void*, const Table&, int) {
   return nullptr;
 }
