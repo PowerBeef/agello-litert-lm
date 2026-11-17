@@ -646,6 +646,11 @@ def write(path, out_path, n):
     main = clone_subgraph(mt, graph, signature.subgraphIndex, name,
                           lambda t: a["dims"].get(t), n, a["edits"])
     solved = {c["decomposition"]: c for c in a["solved"]}
+    # The new signature's subgraph goes before its decompositions: the interpreter offers
+    # subgraphs to the delegate in index order, and a decomposition is skipped only once the
+    # delegate has taken its composite, which it does while building the subgraph that holds it.
+    main_index = len(mt.subgraphs)
+    mt.subgraphs.append(main)
     copies = 0
     for op in main.operators:
         if graph.code(op) != "STABLEHLO_COMPOSITE":
@@ -666,11 +671,10 @@ def write(path, out_path, n):
         mt.subgraphs.append(copy)
         op.builtinOptions2.decompositionSubgraphIndex = len(mt.subgraphs) - 1
         copies += 1
-    mt.subgraphs.append(main)
     import copy as copy_module
     new_signature = copy_module.deepcopy(signature)
     new_signature.signatureKey = name.encode()
-    new_signature.subgraphIndex = len(mt.subgraphs) - 1
+    new_signature.subgraphIndex = main_index
     mt.signatureDefs.append(new_signature)
     print(f"{name}: {len(main.operators)} ops, {copies} decompositions copied", flush=True)
 

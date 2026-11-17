@@ -47,6 +47,7 @@ enum Level : int { kOff = 0, kCounters = 1, kSpans = 2, kTrace = 3, kDeep = 4 };
   X(kRunsPrefill, "runs_prefill")                           \
   X(kRunsDecode, "runs_decode")                             \
   X(kRunsVerify, "runs_verify")                             \
+  X(kRunsVerify8, "runs_verify8")                           \
   X(kRunsDrafter, "runs_drafter")                           \
   X(kRunsOther, "runs_other")                               \
   X(kHostLocks, "host_locks")                               \
@@ -127,6 +128,7 @@ enum Counter : int {
   X(kRunPrefill, "run.prefill")                       \
   X(kRunDecode, "run.decode")                         \
   X(kRunVerify, "run.verify")                         \
+  X(kRunVerify8, "run.verify8")                       \
   X(kRunDrafter, "run.drafter")                       \
   X(kDecodeStep, "decode.step")                       \
   X(kSample, "sample")                                \
@@ -153,6 +155,7 @@ enum Counter : int {
   X(kGpuPrefill, "gpu.prefill")                       \
   X(kGpuDecode, "gpu.decode")                         \
   X(kGpuVerify, "gpu.verify")                         \
+  X(kGpuVerify8, "gpu.verify8")                       \
   X(kGpuDrafter, "gpu.drafter")                       \
   X(kGpuReplay, "gpu.replay")                         \
   X(kGpuOther, "gpu.other")                           \

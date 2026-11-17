@@ -694,7 +694,101 @@ LlmLiteRtMtpDrafter::Create(
   if (const int min_ngram = ContextDraftsMinNgram(); min_ngram > 0) {
     drafter->context_drafts_ = std::make_unique<ContextDrafts>(min_ngram);
   }
+  // Agello (B5, phase 2): the longer verify, when the file has one.
+  if (auto verify8 = base_model.FindSignature("verify_8"); verify8) {
+    for (absl::string_view input_name : verify8->InputNames()) {
+      if (absl::StrContains(input_name, "kv")) continue;
+      LITERT_ASSIGN_OR_RETURN(auto buffer, base_model.CreateInputBuffer(verify8->Key(), input_name));
+      drafter->verify8_input_buffers_[input_name] = std::move(buffer);
+    }
+    LITERT_ASSIGN_OR_RETURN(size_t verify8_index, base_model.GetSignatureIndex("verify_8"));
+    for (size_t i = 0; i < verify8->OutputNames().size(); ++i) {
+      absl::string_view output_name = verify8->OutputNames()[i];
+      if (absl::StrContains(output_name, "kv")) continue;
+      if (output_name == "logits" && use_fp16_precision) {
+        LITERT_ASSIGN_OR_RETURN(auto buffer, CreateFP16OutputBuffer(env, base_model, verify8_index,
+                                                                    output_name, i));
+        drafter->verify8_output_buffers_[output_name] = std::move(buffer);
+      } else {
+        LITERT_ASSIGN_OR_RETURN(auto buffer, base_model.CreateOutputBuffer(verify8->Key(), output_name));
+        drafter->verify8_output_buffers_[output_name] = std::move(buffer);
+      }
+    }
+    LITERT_ASSIGN_OR_RETURN(auto positions_type, verify8->InputTensorType("input_pos"));
+    drafter->verify8_positions_ = positions_type.Layout().Dimensions()[0];
+    drafter->verify8_signature_ = std::move(*verify8);
+    const char* probe = std::getenv("AGELLO_VERIFY8_PROBE");
+    drafter->verify8_probe_ = probe != nullptr && probe[0] == '1';
+    ABSL_LOG(INFO) << "Agello: verify_8 found (" << drafter->verify8_positions_ << " positions)"
+                   << (drafter->verify8_probe_ ? ", probed each round" : "");
+  }
   return drafter;
+}
+
+absl::Status LlmLiteRtMtpDrafter::RunVerify8Probe(
+    int position, int token_id,
+    absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
+    absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers) {
+  const int count = verify8_positions_;
+  {
+    LITERT_ASSIGN_OR_RETURN(auto lock, TensorBufferScopedLock::Create(
+                                           verify8_input_buffers_["input_pos"],
+                                           TensorBuffer::LockMode::kWrite));
+    auto* positions = static_cast<int32_t*>(lock.second);
+    for (int i = 0; i < count; ++i) positions[i] = position + i;
+  }
+  // The input token, repeated: the probe times the run; what it computes is overwritten.
+  const std::vector<int> tokens(count, token_id);
+  if (verifier_signatures_.input_attn_mask.has_value()) {
+    auto& mask = verify8_input_buffers_[*verifier_signatures_.input_attn_mask];
+    ABSL_RETURN_IF_ERROR(InitializeAttentionMask(mask, /*use_fp16_precision=*/false));
+    ABSL_RETURN_IF_ERROR(FillAttentionMask(mask, position, count, attn_params_.global_type));
+  }
+  if (verifier_signatures_.input_attn_mask_local.has_value()) {
+    auto& mask = verify8_input_buffers_[*verifier_signatures_.input_attn_mask_local];
+    ABSL_RETURN_IF_ERROR(InitializeAttentionMask(mask, /*use_fp16_precision=*/false));
+    ABSL_RETURN_IF_ERROR(FillAttentionMask(mask, position, count, attn_params_.local_type,
+                                           /*token_ids=*/std::nullopt,
+                                           attn_params_.sliding_window_size,
+                                           RingBufferAttentionMaskMode::kVerify));
+  }
+  if (verifier_signatures_.input_embeddings.has_value()) {
+    ABSL_RETURN_IF_ERROR(embedding_manager_.LookupPrefill(
+        tokens, &verify8_input_buffers_[*verifier_signatures_.input_embeddings], /*offset=*/0));
+  }
+  if (ple_manager_.has_value() && verifier_signatures_.input_per_layer_embeddings.has_value()) {
+    ABSL_RETURN_IF_ERROR(ple_manager_->get().LookupPrefill(
+        tokens, &verify8_input_buffers_[*verifier_signatures_.input_per_layer_embeddings],
+        /*offset=*/0));
+  }
+  for (const auto& [name, buffer] : input_kv_cache_buffers) {
+    LITERT_ASSIGN_OR_RETURN(auto dup, buffer.Duplicate());
+    verify8_input_buffers_[name] = std::move(dup);
+  }
+  if (verifier_signatures_.input_int32_param.has_value()) {
+    ABSL_RETURN_IF_ERROR(FillSingleBufferCacheParamTensor(
+        verify8_input_buffers_[*verifier_signatures_.input_int32_param], position, count));
+  }
+  for (const auto& [name, buffer] : output_kv_cache_buffers) {
+    LITERT_ASSIGN_OR_RETURN(auto dup, buffer.Duplicate());
+    verify8_output_buffers_[name] = std::move(dup);
+  }
+  for (auto& [name, buffer] : verify8_output_buffers_) {
+    LITERT_RETURN_IF_ERROR(buffer.ClearEvent());
+  }
+  {
+    AGELLO_SPAN(kRunVerify8);
+    AGELLO_COUNT(kRunsVerify8);
+    ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuVerify8);
+    bool async = true;
+    LITERT_RETURN_IF_ERROR(base_model_.RunAsync(verify8_signature_->Key(), verify8_input_buffers_,
+                                                verify8_output_buffers_, async));
+  }
+  // Wait for it, so the round after it starts on an idle GPU.
+  LITERT_ASSIGN_OR_RETURN(auto lock, TensorBufferScopedLock::Create(
+                                         verify8_output_buffers_["logits"],
+                                         TensorBuffer::LockMode::kRead));
+  return absl::OkStatus();
 }
 
 absl::Status LlmLiteRtMtpDrafter::PrepareDrafterInputBuffers(
@@ -1164,6 +1258,10 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     }
   }
 
+  if (verify8_probe_ && verify8_signature_.has_value()) {
+    ABSL_RETURN_IF_ERROR(RunVerify8Probe(position, token_id, state_buffers.input_buffers,
+                                         state_buffers.output_buffers));
+  }
   const absl::Time draft_start = absl::Now();
   DraftingResult drafting_result;
   std::vector<int> verifier_id_vector;

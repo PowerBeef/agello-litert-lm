@@ -339,6 +339,19 @@ class LlmLiteRtMtpDrafter {
   double drafter_rate_ = -1;
   int offered_rounds_ = 0;
 
+  // Agello (B5, phase 2): a longer verify (`verify_8`, tools/model-surgery/verify_n.py) when the
+  // file has one, with buffers of its own. AGELLO_VERIFY8_PROBE=1 runs it at the start of each
+  // round, before the real verify rewrites its first positions, to time it; its output is unused.
+  std::optional<SimpleSignature> verify8_signature_;
+  absl::flat_hash_map<absl::string_view, TensorBuffer> verify8_input_buffers_;
+  absl::flat_hash_map<absl::string_view, TensorBuffer> verify8_output_buffers_;
+  int verify8_positions_ = 0;
+  bool verify8_probe_ = false;
+  absl::Status RunVerify8Probe(
+      int position, int token_id,
+      absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
+      absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers);
+
   // Attention mask params.
   AttentionMaskParams attn_params_;
 
