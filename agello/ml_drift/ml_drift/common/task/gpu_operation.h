@@ -442,6 +442,12 @@ struct SoftmaxRuntimeCheckDesc {
   // hold masked values (a bounded QK product writes them).
   std::optional<int> window_pos_index = std::nullopt;
   int window_size = 0;
+  // Agello (2026-11-16): the rows (batch x height x width) the reduction's threading is chosen
+  // for, when this tensor is one slice of a larger one: a prefill's attention runs in slices of
+  // query rows whose size follows the window. Choosing for the whole tensor keeps each row's sum
+  // in one order at every window (on the M6, four-way at 64K and serial at 32K before this).
+  // 0: the tensor's own rows.
+  int decision_rows = 0;
 };
 
 // Agello (T4): the first slice of a sliding attention window, as kernel code

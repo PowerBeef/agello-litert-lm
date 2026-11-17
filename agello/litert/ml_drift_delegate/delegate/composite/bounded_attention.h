@@ -68,6 +68,11 @@ struct BoundedSoftmaxReduceAttributes {
   int end_ch_index = 2;
   std::optional<int> window_pos_index;
   int window_size = 0;
+  // The rows (batch x height x width) of the whole score tensor, set before the prefill's row
+  // slices copy these attributes: the reduction's threading is chosen for it, so every window,
+  // whatever its slices, sums a row in the same order (ml_drift::SoftmaxRuntimeCheckDesc's
+  // decision_rows; 2026-11-16).
+  int whole_rows = 0;
 };
 
 // Whether the rewrite runs: yes unless AGELLO_BOUNDED_ATTENTION=0 (for A/B

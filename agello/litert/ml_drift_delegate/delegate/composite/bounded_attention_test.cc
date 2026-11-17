@@ -212,6 +212,14 @@ TEST(BoundedAttentionTest, SlicesALargeTailByRows) {
     ASSERT_EQ(qk_inputs.size(), 3u);
     EXPECT_EQ(qk_inputs[0]->tensor.shape, BHWC(1, 2, 2048, 256));
     EXPECT_EQ(qk_inputs[2]->id, a.params->id);
+    // The slice's reduction is threaded for the whole tail's 2 x 4,096 rows, so a row sums in
+    // the same order however many slices the window makes.
+    const Node* reduce = a.graph.FindProducer(pv_inputs[2]->id);
+    ASSERT_NE(reduce, nullptr);
+    ASSERT_EQ(reduce->operation.type, kBoundedSoftmaxReduceType);
+    EXPECT_EQ(std::any_cast<const BoundedSoftmaxReduceAttributes&>(reduce->operation.attributes)
+                  .whole_rows,
+              2 * 4096);
   }
   EXPECT_EQ(pv_nodes, 2);
 }

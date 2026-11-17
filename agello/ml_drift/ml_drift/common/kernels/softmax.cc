@@ -217,8 +217,16 @@ Softmax::Softmax(const OperationDef& definition, const GpuInfo& gpu_info,
   AddSrcTensor("src_tensor", definition.src_tensors[0]);
   AddDstTensor("dst_tensor", definition.dst_tensors[0]);
 
+  // Agello (2026-11-16): the choice below is made for runtime_check.decision_rows rows when set
+  // (SoftmaxRuntimeCheckDesc): a slice of rows reduces as the whole tensor would, so a row's sum
+  // doesn't change order with the slice's size. The work group's spatial part stays the slice's.
+  BHWC choice_shape = shape;
+  if (runtime_check.decision_rows > 0 && shape.b * shape.h > 0 &&
+      runtime_check.decision_rows % (shape.b * shape.h) == 0) {
+    choice_shape.w = runtime_check.decision_rows / (shape.b * shape.h);
+  }
   const int reduction_size = DivideRoundUp(shape.c, 4);
-  const int total_spatial_size = shape.b * shape.h * shape.w;
+  const int total_spatial_size = choice_shape.b * choice_shape.h * choice_shape.w;
   const float spatial_per_cu =
       static_cast<float>(total_spatial_size) / gpu_info.GetComputeUnitsCount();
   const float threshold_per_cu = gpu_info.IsPowerVR() ? 1024.0f : 256.0f;
@@ -226,6 +234,8 @@ Softmax::Softmax(const OperationDef& definition, const GpuInfo& gpu_info,
       (reduction_size >= 16 && spatial_per_cu < threshold_per_cu * 0.25f)) {
     use_wg_reduction_ = true;
     work_group_size_ = GetWorkGroupSize(gpu_info, shape);
+    // Agello: how many threads share a row, which sets the sum's order, is the whole tensor's.
+    work_group_size_.z = GetWorkGroupSize(gpu_info, choice_shape).z;
   }
   std::string c = GetSoftmaxReducedExp(definition, use_wg_reduction_,
                                        work_group_size_);

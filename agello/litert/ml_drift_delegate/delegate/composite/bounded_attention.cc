@@ -278,6 +278,10 @@ absl::Status Rewrite(GraphFloat32* graph, const Tail& tail, std::optional<int> w
   tail.softmax->operation.type = kBoundedSoftmaxReduceType;
   BoundedSoftmaxReduceAttributes reduce_attr{.end_ch_index =
                                                  *pv_attr->runtime_check.src_end_ch_index};
+  {
+    const ::ml_drift::BHWC& scores = tail.selected->tensor.shape;
+    reduce_attr.whole_rows = scores.b * scores.h * scores.w;
+  }
 
   // A sliding-window layer (not global) also starts at its window: the QK product
   // skips the keys below it (its fused mask masks them), the reduction and the PV
