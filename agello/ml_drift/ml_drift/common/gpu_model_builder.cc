@@ -1545,9 +1545,15 @@ GpuModelBuilder::FullyConnectedInt8ExternalWeights(
   const bool ringed_weights = runtime_check.ring_o_offset_index.has_value() ||
                               runtime_check.ring_i_offset_index.has_value();
 
-  if (total_spatial_size <=
-          GetRecommendedMaxTotalSpatialSize(gpu_info_, conv_precision) ||
-      ringed_weights) {
+  // Agello (B5): on Apple GPUs an attention product (the INT8 KV cache read as
+  // weights, batched by height) keeps this kernel up to 64 rows, its rows tiled
+  // 16 to a work group (CreateFullyConnectedExternalWeights): the convolution
+  // path converts the whole cache to FP16 on every run.
+  int max_rows = GetRecommendedMaxTotalSpatialSize(gpu_info_, conv_precision);
+  if (gpu_info_.IsApple() && different_weights_for_height) {
+    max_rows = std::max(max_rows, 64);
+  }
+  if (total_spatial_size <= max_rows || ringed_weights) {
     gpu_model_.nodes.push_back({});
     auto& gpu_node = gpu_model_.nodes.back();
     gpu_node.name = "fc1x1_int8_weights";

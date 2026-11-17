@@ -75,7 +75,7 @@ std::string GetReductionCode(int first, int last, int local_batch_size,
                              const std::string& reduction_size,
                              const std::string& mem_name);
 
-std::string GenerateDstWrite(const BHWC& block_size,
+std::string GenerateDstWrite(int row_tile, const BHWC& block_size,
                              const ConvRuntimeCheckDesc& runtime_check,
                              bool has_bias, bool batched_weights,
                              int runtime_batch_ids);

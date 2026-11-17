@@ -346,9 +346,12 @@ class LlmLiteRtMtpDrafter {
   absl::flat_hash_map<absl::string_view, TensorBuffer> verify8_input_buffers_;
   absl::flat_hash_map<absl::string_view, TensorBuffer> verify8_output_buffers_;
   int verify8_positions_ = 0;
-  bool verify8_probe_ = false;
+  // 1: before drafting, on the input token repeated (its cost); 2: after drafting, on the round's
+  // tokens, its greedy picks compared with verify's (verify8_rows_compared, verify8_rows_agreed).
+  char verify8_probe_ = '0';
+  std::vector<int> verify8_picks_;
   absl::Status RunVerify8Probe(
-      int position, int token_id,
+      int position, int token_id, const std::vector<int>* drafts,
       absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
       absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers);
 

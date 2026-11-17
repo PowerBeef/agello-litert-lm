@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -69,6 +70,7 @@
 #include "litert/c/litert_op_code.h"  // from @litert
 #include "litert/cc/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer_types.h"  // from @litert
+#include "tflite/types/half.h"  // from @litert
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/status_macros.h"
 #include "agello/agello_telemetry.h"  // from @agello_telemetry
@@ -718,15 +720,16 @@ LlmLiteRtMtpDrafter::Create(
     drafter->verify8_positions_ = positions_type.Layout().Dimensions()[0];
     drafter->verify8_signature_ = std::move(*verify8);
     const char* probe = std::getenv("AGELLO_VERIFY8_PROBE");
-    drafter->verify8_probe_ = probe != nullptr && probe[0] == '1';
+    drafter->verify8_probe_ =
+        probe != nullptr && (probe[0] == '1' || probe[0] == '2') ? probe[0] : '0';
     ABSL_LOG(INFO) << "Agello: verify_8 found (" << drafter->verify8_positions_ << " positions)"
-                   << (drafter->verify8_probe_ ? ", probed each round" : "");
+                   << (drafter->verify8_probe_ != '0' ? ", probed each round" : "");
   }
   return drafter;
 }
 
 absl::Status LlmLiteRtMtpDrafter::RunVerify8Probe(
-    int position, int token_id,
+    int position, int token_id, const std::vector<int>* drafts,
     absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
     absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers) {
   const int count = verify8_positions_;
@@ -737,8 +740,15 @@ absl::Status LlmLiteRtMtpDrafter::RunVerify8Probe(
     auto* positions = static_cast<int32_t*>(lock.second);
     for (int i = 0; i < count; ++i) positions[i] = position + i;
   }
-  // The input token, repeated: the probe times the run; what it computes is overwritten.
-  const std::vector<int> tokens(count, token_id);
+  // The input token and the drafts, padded with the last; or the input token repeated. The real
+  // verify runs after and rewrites the positions both write.
+  std::vector<int> tokens(count, token_id);
+  if (drafts != nullptr) {
+    for (int i = 0; i < count; ++i) {
+      tokens[i] = i == 0 ? token_id
+                         : (*drafts)[std::min<int>(i - 1, static_cast<int>(drafts->size()) - 1)];
+    }
+  }
   if (verifier_signatures_.input_attn_mask.has_value()) {
     auto& mask = verify8_input_buffers_[*verifier_signatures_.input_attn_mask];
     ABSL_RETURN_IF_ERROR(InitializeAttentionMask(mask, /*use_fp16_precision=*/false));
@@ -784,10 +794,31 @@ absl::Status LlmLiteRtMtpDrafter::RunVerify8Probe(
     LITERT_RETURN_IF_ERROR(base_model_.RunAsync(verify8_signature_->Key(), verify8_input_buffers_,
                                                 verify8_output_buffers_, async));
   }
-  // Wait for it, so the round after it starts on an idle GPU.
+  // Wait for it, so the round after it starts on an idle GPU; with drafts, its greedy picks.
+  LITERT_ASSIGN_OR_RETURN(auto logits_type, verify8_output_buffers_["logits"].TensorType());
   LITERT_ASSIGN_OR_RETURN(auto lock, TensorBufferScopedLock::Create(
                                          verify8_output_buffers_["logits"],
                                          TensorBuffer::LockMode::kRead));
+  verify8_picks_.clear();
+  if (drafts != nullptr) {
+    const auto dims = logits_type.Layout().Dimensions();
+    const int vocab = static_cast<int>(dims[dims.size() - 1]);
+    const bool half = logits_type.ElementType() == ElementType::Float16;
+    for (int row = 0; row < count; ++row) {
+      int best = 0;
+      float best_value = -std::numeric_limits<float>::infinity();
+      for (int v = 0; v < vocab; ++v) {
+        const size_t at = static_cast<size_t>(row) * vocab + v;
+        const float x = half ? static_cast<float>(static_cast<const tflite::half*>(lock.second)[at])
+                             : static_cast<const float*>(lock.second)[at];
+        if (x > best_value) {
+          best_value = x;
+          best = v;
+        }
+      }
+      verify8_picks_.push_back(best);
+    }
+  }
   return absl::OkStatus();
 }
 
@@ -1258,8 +1289,9 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     }
   }
 
-  if (verify8_probe_ && verify8_signature_.has_value()) {
-    ABSL_RETURN_IF_ERROR(RunVerify8Probe(position, token_id, state_buffers.input_buffers,
+  if (verify8_probe_ == '1' && verify8_signature_.has_value()) {
+    ABSL_RETURN_IF_ERROR(RunVerify8Probe(position, token_id, /*drafts=*/nullptr,
+                                         state_buffers.input_buffers,
                                          state_buffers.output_buffers));
   }
   const absl::Time draft_start = absl::Now();
@@ -1324,6 +1356,11 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
                                             constraint_state_.get()));
     }
     drafting_time = absl::Now() - draft_start;
+    if (verify8_probe_ == '2' && verify8_signature_.has_value()) {
+      ABSL_RETURN_IF_ERROR(RunVerify8Probe(position, token_id, &drafting_result.drafted_tokens,
+                                           state_buffers.input_buffers,
+                                           state_buffers.output_buffers));
+    }
 
     const absl::Time verify_start = absl::Now();
     ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
@@ -1347,6 +1384,15 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   if (!context_proposal.empty()) {
     AGELLO_COUNT(kMtpContextRounds);
     AGELLO_COUNT(kMtpContextAccepted, num_correct_tokens);
+  }
+  if (!verify8_picks_.empty()) {
+    // verify_8 saw the same input token and drafts in its first rows.
+    const int rows = std::min<int>(verify8_picks_.size(), verifier_id_vector.size());
+    int agreed = 0;
+    for (int row = 0; row < rows; ++row) agreed += verify8_picks_[row] == verifier_id_vector[row];
+    AGELLO_COUNT(kVerify8RowsCompared, rows);
+    AGELLO_COUNT(kVerify8RowsAgreed, agreed);
+    verify8_picks_.clear();
   }
   if (offered) {
     const double milliseconds = absl::ToDoubleMilliseconds(absl::Now() - draft_start);

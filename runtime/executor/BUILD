@@ -1336,6 +1336,7 @@ cc_library(
         ":agello_context_drafts",
         ":agello_resident_round",
         "@agello_telemetry//:telemetry",
+        "@litert//tflite/types:half",
         "@litert//litert/c:litert_model",
         "@litert//litert/c:litert_op_code",
         "@litert//litert/cc:litert_environment_options",

@@ -48,6 +48,8 @@ enum Level : int { kOff = 0, kCounters = 1, kSpans = 2, kTrace = 3, kDeep = 4 };
   X(kRunsDecode, "runs_decode")                             \
   X(kRunsVerify, "runs_verify")                             \
   X(kRunsVerify8, "runs_verify8")                           \
+  X(kVerify8RowsCompared, "verify8_rows_compared")          \
+  X(kVerify8RowsAgreed, "verify8_rows_agreed")              \
   X(kRunsDrafter, "runs_drafter")                           \
   X(kRunsOther, "runs_other")                               \
   X(kHostLocks, "host_locks")                               \

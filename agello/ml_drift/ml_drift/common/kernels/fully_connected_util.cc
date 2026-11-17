@@ -344,7 +344,7 @@ std::string GetReductionCode(int first, int last, int local_batch_size,
                                  {"R_ID", reduction_local_id}});
 }
 
-std::string GenerateDstWrite(const BHWC& block_size,
+std::string GenerateDstWrite(int row_tile, const BHWC& block_size,
                              const ConvRuntimeCheckDesc& runtime_check,
                              bool has_bias, bool batched_weights,
                              int runtime_batch_ids) {
@@ -367,6 +367,9 @@ std::string GenerateDstWrite(const BHWC& block_size,
       x_coord = "dst_w + " + x_coord;
       y_coord = "0";
       c += "  if (" + x_coord + " < w_group_offset + w_group_size) {\n";
+    } else if (row_tile > 0) {
+      x_coord = "dst_w + " + x_coord;
+      c += "  if (" + x_coord + " < args.dst_tensor.Width()) {\n";
     } else if (block_spatial != 1) {
       // without this fake if causing(Adreno 830, OpenCL):
       // Failed to clEnqueueNDRangeKernel - Invalid work group size: {64, 4, 1}
@@ -382,7 +385,7 @@ std::string GenerateDstWrite(const BHWC& block_size,
     }
     c += "  args.dst_tensor.Write(res_value, " + x_coord + ", " + y_coord +
          ", dst_s, " + std::to_string(bhw.x) + ");\n";
-    if (runtime_check.packed_groups.has_value() || block_spatial != 1) {
+    if (runtime_check.packed_groups.has_value() || row_tile > 0 || block_spatial != 1) {
       c += "  }\n";
     }
   }

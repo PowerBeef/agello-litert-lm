@@ -55,6 +55,9 @@ class FullyConnected : public GPUOperation {
     ConvRuntimeCheckDesc runtime_check;
     BHWC block_size = BHWC(1, 1, 1, 1);
     int3 wg_size = int3(0, 0, 0);
+    // Agello (B5): rows per work group along the grid's second dimension; 0 keeps every row in
+    // each thread. Set for attention products with more rows than one thread holds well.
+    int row_tile = 0;
   };
 
   // Move only

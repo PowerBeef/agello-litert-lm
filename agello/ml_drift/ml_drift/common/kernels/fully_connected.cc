@@ -639,6 +639,13 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
     c += fc::GetPackedGroupsParams(conv_params_.runtime_check, /*dim_id=*/1,
                                    conv_params_.block_size.w);
   }
+  if (conv_params_.row_tile > 0) {
+    // Agello (B5): this work group's rows. Uniform across the group, so the
+    // return can't split a reduction's barrier.
+    c += "  int dst_w = ucl::GetGroupId<1>() * " +
+         std::to_string(conv_params_.row_tile) + ";\n";
+    c += "  if (dst_w >= args.dst_tensor.Width()) return;\n";
+  }
   DataType acc_type = precision == CalculationsPrecision::kF16
                           ? DataType::kFloat16
                           : DataType::kFloat32;
@@ -663,9 +670,13 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
           y_coord = "0";
         }
       }
+      std::string x_coord = std::to_string(bhw.z);
+      if (conv_params_.row_tile > 0) {
+        x_coord = "min(dst_w + " + x_coord + ", args.src_exp.Width() - 1)";
+      }
       c += "  SType2 exp_val" + std::to_string(i) + " = args.src_exp.Read(" +
-           std::to_string(bhw.z) + ", " + y_coord + ", 0, " +
-           std::to_string(bhw.x) + ").xy;\n";
+           x_coord + ", " + y_coord + ", 0, " + std::to_string(bhw.x) +
+           ").xy;\n";
     }
   }
   std::string src_end_slices = "args.src_tensor.Slices()";
@@ -756,6 +767,8 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
         x_coord = "min(" + x_coord + ", args.src_tensor.Width() - 1)";
       }
       y_coord = "0";
+    } else if (conv_params_.row_tile > 0) {
+      x_coord = "min(dst_w + " + x_coord + ", args.src_tensor.Width() - 1)";
     }
     const std::string read_expression = "args.src_tensor.Read(" + x_coord +
                                         ", " + y_coord + ", src_s, " +
@@ -860,7 +873,8 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
     c += "  if (dst_s >= dst_end_slice) return;\n";
     c += "  if (tid.y != 0) return;\n";
   }
-  c += fc::GenerateDstWrite(conv_params_.block_size, conv_params_.runtime_check,
+  c += fc::GenerateDstWrite(conv_params_.row_tile, conv_params_.block_size,
+                            conv_params_.runtime_check,
                             conv_params_.has_bias, conv_params_.batched_weights,
                             conv_params_.runtime_batch_ids);
   c += "}\n";
@@ -883,6 +897,9 @@ int3 FullyConnected::GetGridSize() const {
         DivideRoundUp(conv_params_.runtime_check.packed_groups->max_group_size,
                       conv_params_.block_size.w);
     w_batch_size = conv_params_.runtime_check.packed_groups->num_groups;
+  }
+  if (conv_params_.row_tile > 0) {
+    w_groups = DivideRoundUp(dst_[0]->Width(), conv_params_.row_tile);
   }
   return int3(dst_[0]->Slices(), work_group_size_.y * w_groups, w_batch_size);
 }
@@ -1015,6 +1032,16 @@ absl::StatusOr<FullyConnected> CreateFullyConnectedExternalWeights(
   conv_params.runtime_check = runtime_check;
   conv_params.block_size =
       fc::GetBlockSize(dst_shape_ptr, conv_params.batched_weights);
+  // Agello (B5): an attention product with more rows than one thread holds well
+  // (a verify of 8 positions makes 32) gets work groups of that many rows each.
+  const int max_rows = GetRecommendedMaxTotalSpatialSize(gpu_info, precision);
+  if (gpu_info.IsApple() && conv_params.batched_weights && dst_shape_ptr &&
+      !runtime_check.packed_groups.has_value() &&
+      conv_params.block_size.b == 1 && conv_params.block_size.h == 1 &&
+      conv_params.block_size.w > max_rows) {
+    conv_params.row_tile = max_rows;
+    conv_params.block_size.w = max_rows;
+  }
   if (runtime_check.packed_groups.has_value()) {
     conv_params.block_size = BHWC(1, 1, 1, 1);
     conv_params.block_size.w = 4;
