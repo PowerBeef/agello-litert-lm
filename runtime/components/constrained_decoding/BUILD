@@ -316,7 +316,8 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
-        "@crate_index__llguidance-1.3.0//:llguidance_cc"
+        "@crate_index__llguidance-1.3.0//:llguidance_cc",
+        "@com_google_absl//absl/status:status_macros",
     ] + select({
         "@platforms//os:windows": [
             "//rust:alloc_defs",

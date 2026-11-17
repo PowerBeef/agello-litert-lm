@@ -229,6 +229,54 @@ TEST_F(LlgConstraintTest, RegexSequenceTest) {
   EXPECT_TRUE(constraint->IsEnded(*state));
 }
 
+// Agello (B4): a speculative round derives several states from one and may
+// go back to an earlier one after a rejected draft. Each state keeps its own
+// position.
+TEST_F(LlgConstraintTest, StatesStayIndependentAcrossARound) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ConstraintProvider> provider,
+                       CreateProvider());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Constraint> constraint,
+                       provider->CreateConstraint(LlGuidanceConstraintArg{
+                           .constraint_type = LlgConstraintType::kRegex,
+                           .constraint_string = "a(a|b)"}));
+  // As the drafter does: a state's mask, then a token committed from it.
+  std::unique_ptr<Constraint::State> start = constraint->Start();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Bitmap> bitmap,
+                       constraint->ComputeBitmap(*start));
+  EXPECT_TRUE(bitmap->Get(2));
+  EXPECT_FALSE(bitmap->Get(3));
+  // Drafts: 'a', then 'b'.
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Constraint::State> after_a,
+                       constraint->ComputeNext(*start, 2));
+  ASSERT_OK_AND_ASSIGN(bitmap, constraint->ComputeBitmap(*after_a));
+  EXPECT_TRUE(bitmap->Get(2));
+  EXPECT_TRUE(bitmap->Get(3));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Constraint::State> after_ab,
+                       constraint->ComputeNext(*after_a, 3));
+  EXPECT_OK(constraint->ComputeBitmap(*after_ab));  // An end shows once its mask is computed.
+  EXPECT_TRUE(constraint->IsEnded(*after_ab));
+  // Verify reads the end's mask again: kept, so no "called after stop".
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<LogitMask> end_mask,
+                       constraint->ComputeMask(*after_ab));
+  ASSERT_OK_AND_ASSIGN(bitmap, constraint->ComputeBitmap(*after_ab));
+  EXPECT_TRUE(bitmap->Get(1));   // <eos>
+  EXPECT_FALSE(bitmap->Get(2));
+  // Verify reads every state's mask again: the start still expects 'a'
+  // alone, the state after 'a' still 'a' or 'b'.
+  ASSERT_OK_AND_ASSIGN(bitmap, constraint->ComputeBitmap(*start));
+  EXPECT_TRUE(bitmap->Get(2));
+  EXPECT_FALSE(bitmap->Get(3));
+  EXPECT_FALSE(constraint->IsEnded(*after_a));
+  ASSERT_OK_AND_ASSIGN(bitmap, constraint->ComputeBitmap(*after_a));
+  EXPECT_TRUE(bitmap->Get(2));
+  EXPECT_TRUE(bitmap->Get(3));
+  // 'b' rejected: the bonus 'a' commits from the state after 'a'.
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Constraint::State> after_aa,
+                       constraint->ComputeNext(*after_a, 2));
+  EXPECT_OK(constraint->ComputeBitmap(*after_aa));
+  EXPECT_TRUE(constraint->IsEnded(*after_aa));
+}
+
 TEST_F(LlgConstraintTest, LarkSequenceTest) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<ConstraintProvider> provider,
                        CreateProvider());

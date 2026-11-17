@@ -47,6 +47,14 @@ class LlgConstraintOwner {
 
   ::LlgConstraint* llg_constraint() const { return llg_constraint_; }
 
+  // Agello (B4): the mask llguidance computed for this matcher's position,
+  // kept. llguidance computes a position's mask once (asked again after a stop,
+  // it fails), and a speculative round reads a state's mask while drafting and
+  // again in verify. Empty words with `is_stop` false: every token allowed.
+  bool has_mask = false;
+  bool is_stop = false;
+  std::vector<uint32_t> mask_words;
+
  private:
   ::LlgConstraint* llg_constraint_;  // Owned.
 };
@@ -65,6 +73,8 @@ class LlgConstraint : public Constraint {
     ::LlgConstraint* llg_constraint() const {
       return llg_constraint_owner_->llg_constraint();
     }
+
+    LlgConstraintOwner& owner() const { return *llg_constraint_owner_; }
 
    private:
     // The shared_ptr is needed because Constraint::State must be copyable.
@@ -101,6 +111,9 @@ class LlgConstraint : public Constraint {
       const State& state) const override;
 
  private:
+  // Computes the state's mask the first time; returns the kept one after.
+  absl::StatusOr<const LlgConstraintOwner*> Mask(const LlgState& state) const;
+
   LlgConstraintOwner llg_constraint_owner_;
   int vocab_size_;
   int eos_token_id_;
