@@ -87,9 +87,10 @@ class ResidentRound {
   virtual bool Finish(int count, int* ids) = 0;
 };
 
-// AGELLO_RESIDENT_ROUND=1 turns the round on, verify's inputs included (stage 3); =2 runs only
-// the drafter chain on the GPU (stage 2), which maps no per-layer tables. Off by default until
-// the iPhone measures it.
+// The drafter chain on the GPU (stage 2, which maps no per-layer tables) is the default since
+// 2026-11-17: the same speed on the iPhone 17 Pro and +1.8 % decode on the M6, replies
+// identical. AGELLO_RESIDENT_ROUND=0 turns the round off; =1 also gathers verify's inputs on the
+// GPU (stage 3), which costs the iPhone prefill time and memory.
 bool ResidentRoundEnabled();
 bool ResidentRoundGathersVerifyInputs();
 

@@ -354,10 +354,11 @@ class MetalResidentRound : public ResidentRound {
 }  // namespace
 
 namespace {
+// The drafter chain (2) unless AGELLO_RESIDENT_ROUND says 0 (off) or 1 (verify's inputs too).
 char ResidentRoundMode() {
   static const char mode = [] {
     const char* value = std::getenv("AGELLO_RESIDENT_ROUND");
-    return value != nullptr && (value[0] == '1' || value[0] == '2') ? value[0] : '0';
+    return value != nullptr && (value[0] == '0' || value[0] == '1') ? value[0] : '2';
   }();
   return mode;
 }
