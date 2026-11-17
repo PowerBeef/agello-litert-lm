@@ -62,6 +62,12 @@
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/llm_executor_settings_utils.h"
 #include "runtime/executor/state_interface.h"
+#include <cstring>
+#include <variant>
+
+#include "litert/c/litert_model.h"  // from @litert
+#include "litert/c/litert_op_code.h"  // from @litert
+#include "litert/cc/litert_environment_options.h"  // from @litert
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/status_macros.h"
 #include "agello/agello_telemetry.h"  // from @agello_telemetry
@@ -95,6 +101,94 @@ char MtpReplayMode() {
 }
 
 // Restores waiting even when a replayed run fails, then waits for what was committed.
+// Agello (the GPU-resident round): the environment's Metal command queue, the one the GPU's runs
+// use, or nullptr (as state.cc's MetalCommandQueueOf).
+const void* EnvironmentMetalQueue(const Environment& env) {
+  auto options = env.GetOptions();
+  if (!options) return nullptr;
+  auto queue = options->GetOption(EnvironmentOptions::Tag::kMetalCommandQueue);
+  if (!queue) return nullptr;
+  if (const auto* pointer = std::get_if<void*>(&queue.Value())) return *pointer;
+  if (const auto* pointer = std::get_if<const void*>(&queue.Value())) return *pointer;
+  return nullptr;
+}
+
+// Agello (the GPU-resident round): the embedder's INT2 table, scales and multiplier, read from its
+// graph (one EMBEDDING_LOOKUP, per-row scales, zero points 0, then a MUL by a constant), and the
+// GPU side built over the mapped section. nullptr when anything differs: the host drafts.
+std::unique_ptr<ResidentRound> CreateResidentRound(Environment& env, ModelResources& resources,
+                                                   int steps) {
+  const void* queue = EnvironmentMetalQueue(env);
+  auto buffer = resources.GetTFLiteModelBuffer(ModelType::kTfLiteEmbedder);
+  auto model = resources.GetTFLiteModel(ModelType::kTfLiteEmbedder);
+  if (queue == nullptr || !buffer.ok() || !model.ok() || *model == nullptr) {
+    ABSL_LOG(INFO) << "Agello resident round: no Metal queue or embedder; the host drafts.";
+    return nullptr;
+  }
+  ResidentRound::Table table;
+  table.section = buffer->data();
+  table.section_bytes = buffer->size();
+  LiteRtModel handle = (*model)->Get();
+  LiteRtParamIndex main_index = 0;
+  LiteRtSubgraph subgraph = nullptr;
+  LiteRtParamIndex num_ops = 0;
+  if (LiteRtGetMainModelSubgraphIndex(handle, &main_index) != kLiteRtStatusOk ||
+      LiteRtGetModelSubgraph(handle, main_index, &subgraph) != kLiteRtStatusOk ||
+      LiteRtGetNumSubgraphOps(subgraph, &num_ops) != kLiteRtStatusOk) {
+    return nullptr;
+  }
+  int lookups = 0;
+  auto weights_of = [](LiteRtOp op, LiteRtParamIndex input, const void** addr,
+                       size_t* size) -> bool {
+    LiteRtTensor tensor = nullptr;
+    LiteRtWeights weights = nullptr;
+    return LiteRtGetOpInput(op, input, &tensor) == kLiteRtStatusOk &&
+           LiteRtGetTensorWeights(tensor, &weights) == kLiteRtStatusOk &&
+           LiteRtGetWeightsBytes(weights, addr, size) == kLiteRtStatusOk;
+  };
+  for (LiteRtParamIndex i = 0; i < num_ops; ++i) {
+    LiteRtOp op = nullptr;
+    LiteRtOpCode code;
+    if (LiteRtGetSubgraphOp(subgraph, i, &op) != kLiteRtStatusOk ||
+        LiteRtGetOpCode(op, &code) != kLiteRtStatusOk) {
+      return nullptr;
+    }
+    if (code == kLiteRtOpCodeTflEmbeddingLookup) {
+      ++lookups;
+      const void* addr = nullptr;
+      size_t size = 0;
+      LiteRtTensor tensor = nullptr;
+      LiteRtQuantizationPerChannel quantization;
+      if (!weights_of(op, 1, &addr, &size) || LiteRtGetOpInput(op, 1, &tensor) != kLiteRtStatusOk ||
+          LiteRtGetPerChannelQuantization(tensor, &quantization) != kLiteRtStatusOk ||
+          quantization.num_channels <= 0 || quantization.scales == nullptr) {
+        return nullptr;
+      }
+      for (int64_t row = 0; row < quantization.num_channels; ++row) {
+        if (quantization.zero_points != nullptr && quantization.zero_points[row] != 0) return nullptr;
+      }
+      const auto* section = static_cast<const char*>(table.section);
+      const auto* rows = static_cast<const char*>(addr);
+      if (rows < section || rows + size > section + table.section_bytes ||
+          (size * 4) % quantization.num_channels != 0) {
+        ABSL_LOG(INFO) << "Agello resident round: the table isn't in the mapped section.";
+        return nullptr;
+      }
+      table.rows_offset = static_cast<size_t>(rows - section);
+      table.rows = static_cast<int>(quantization.num_channels);
+      table.cols = static_cast<int>(size * 4 / quantization.num_channels);
+      table.scales = quantization.scales;
+    } else if (code == kLiteRtOpCodeTflMul) {
+      const void* addr = nullptr;
+      size_t size = 0;
+      if (!weights_of(op, 1, &addr, &size) || size != sizeof(float)) return nullptr;
+      std::memcpy(&table.mul, addr, sizeof(float));
+    }
+  }
+  if (lookups != 1) return nullptr;
+  return ResidentRound::Create(queue, table, steps);
+}
+
 struct DeferredGpuWaits {
   DeferredGpuWaits() { ::agello::telemetry::DeferGpuWaits(true); }
   ~DeferredGpuWaits() {
@@ -285,9 +379,15 @@ LlmLiteRtMtpDrafter::Create(
       auto base_model_desc,
       resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
 
-  return Create(env, std::move(compiled_model), executor_settings, base_model,
-                *base_model_desc, embedding_manager, ple_manager,
-                executor_metadata);
+  ABSL_ASSIGN_OR_RETURN(
+      auto drafter,
+      Create(env, std::move(compiled_model), executor_settings, base_model,
+             *base_model_desc, embedding_manager, ple_manager,
+             executor_metadata));
+  if (ResidentRoundEnabled() && executor_settings.GetBackend() == Backend::GPU) {
+    drafter->resident_ = CreateResidentRound(env, resources, drafter->num_draft_steps_);
+  }
+  return drafter;
 }
 
 absl::StatusOr<std::unique_ptr<LlmLiteRtMtpDrafter>>
@@ -542,6 +642,11 @@ LlmLiteRtMtpDrafter::RunDraftingLoop(
     const Constraint* constraint,
     const Constraint::State* verified_constraint_state) {
   AGELLO_SPAN(kMtpDraft);
+  if (resident_ != nullptr && constraint == nullptr) {
+    auto resident = RunResidentDraftingLoop(token_id, activations);
+    if (resident.ok()) return resident;
+    MTP_DRAFTER_LOG() << "resident round fell back to the host: " << resident.status();
+  }
   DraftingResult result;
   result.drafted_tokens.reserve(num_draft_steps_);
   result.draft_constraint_states.reserve(num_draft_steps_);
@@ -610,6 +715,65 @@ LlmLiteRtMtpDrafter::RunDraftingLoop(
     last_drafted_token_id = sampled_draft_id;
     activations_ptr = &active_drafter_output_buffers_["projected_activations"];
   }
+  return result;
+}
+
+absl::StatusOr<LlmLiteRtMtpDrafter::DraftingResult>
+LlmLiteRtMtpDrafter::RunResidentDraftingLoop(int token_id,
+                                             std::optional<TensorBuffer>& activations) {
+  if (num_draft_steps_ > 8) return absl::FailedPreconditionError("more than 8 draft steps");
+  TensorBuffer& input = active_drafter_input_buffers_["activations"];
+  TensorBuffer& logits = active_drafter_output_buffers_["logits"];
+  TensorBuffer& projected = active_drafter_output_buffers_["projected_activations"];
+  LITERT_ASSIGN_OR_RETURN(void* input_mtl, input.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(void* logits_mtl, logits.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(void* projected_mtl, projected.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(auto logits_type, logits.TensorType());
+  if (logits_type.ElementType() != ElementType::Float16) {
+    return absl::FailedPreconditionError("drafter logits aren't FP16");
+  }
+  // Step 0 continues from decode's activations, or from verify's row of the last accepted token.
+  void* previous_mtl = nullptr;
+  size_t previous_offset = 0;
+  if (activations.has_value()) {
+    LITERT_ASSIGN_OR_RETURN(previous_mtl, activations->GetMetalBuffer());
+  } else {
+    if (last_verified_token_id_idx_ < 0) return absl::FailedPreconditionError("no activations");
+    LITERT_ASSIGN_OR_RETURN(previous_mtl, verifier_output_buffers_["activations"].GetMetalBuffer());
+    LITERT_ASSIGN_OR_RETURN(auto projected_type, projected.TensorType());
+    LITERT_ASSIGN_OR_RETURN(size_t row_bytes, projected_type.Bytes());
+    previous_offset = static_cast<size_t>(last_verified_token_id_idx_) * row_bytes;
+  }
+  resident_->SetFirstId(token_id);
+  int drafted[8] = {0};
+  bool encoded = true;
+  {
+    // The three runs and the kernels between them committed back to back on one queue.
+    DeferredGpuWaits deferred;
+    for (int i = 0; i < num_draft_steps_ && encoded; ++i) {
+      LITERT_RETURN_IF_ERROR(PrepareDrafterOutputBuffers());
+      encoded = resident_->EncodeInput(i, input_mtl, i == 0 ? previous_mtl : projected_mtl,
+                                       i == 0 ? previous_offset : 0);
+      if (!encoded) break;
+      bool async = true;
+      {
+        AGELLO_SPAN(kRunDrafter);
+        AGELLO_COUNT(kRunsDrafter);
+        ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuDrafter);
+        LITERT_RETURN_IF_ERROR(mtp_drafter_model_.RunAsync(
+            drafter_signature_.Key(), active_drafter_input_buffers_,
+            active_drafter_output_buffers_, async));
+      }
+      encoded = resident_->EncodeArgmax(i, logits_mtl, vocab_size_);
+    }
+  }
+  // Waits for the last kernel in every case, so the host path never races it.
+  const bool finished = resident_->Finish(num_draft_steps_, drafted);
+  if (!encoded || !finished) {
+    return absl::InternalError("the GPU round didn't finish (or met a NaN maximum)");
+  }
+  DraftingResult result;
+  result.drafted_tokens.assign(drafted, drafted + num_draft_steps_);
   return result;
 }
 

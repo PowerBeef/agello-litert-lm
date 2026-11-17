@@ -41,6 +41,7 @@
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
+#include "runtime/executor/agello_resident_round.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/state_interface.h"
 
@@ -212,6 +213,11 @@ class LlmLiteRtMtpDrafter {
 
   absl::Status PrepareDrafterOutputBuffers();
 
+  // Agello (the GPU-resident round, stage 2): the three drafter runs chained on the GPU with one
+  // wait (AGELLO_RESIDENT_ROUND=1, unconstrained rounds). An error means "draft on the host".
+  absl::StatusOr<DraftingResult> RunResidentDraftingLoop(int token_id,
+                                                        std::optional<TensorBuffer>& activations);
+
   absl::StatusOr<DraftingResult> RunDraftingLoop(
       int token_id, std::optional<TensorBuffer>& activations,
       const Constraint* constraint,
@@ -306,6 +312,9 @@ class LlmLiteRtMtpDrafter {
 
   // The vocabulary size for logits masking.
   int vocab_size_ = 0;
+
+  // Agello: the GPU side of the resident round, or nullptr (the host drafts).
+  std::unique_ptr<ResidentRound> resident_;
 
   // Attention mask params.
   AttentionMaskParams attn_params_;

@@ -1284,12 +1284,40 @@ cc_test(
     ],
 )
 
+# Agello (the GPU-resident round, stage 2): the drafter's steps chained on the GPU.
+cc_library(
+    name = "agello_resident_round",
+    hdrs = ["agello_resident_round.h"],
+    deps = select({
+        "@platforms//os:ios": [":agello_resident_round_apple"],
+        "@platforms//os:macos": [":agello_resident_round_apple"],
+        "//conditions:default": [":agello_resident_round_stub"],
+    }),
+)
+
+objc_library(
+    name = "agello_resident_round_apple",
+    srcs = ["agello_resident_round.mm"],
+    hdrs = ["agello_resident_round.h"],
+    sdk_frameworks = ["Foundation", "Metal"],
+)
+
+cc_library(
+    name = "agello_resident_round_stub",
+    srcs = ["agello_resident_round_stub.cc"],
+    hdrs = ["agello_resident_round.h"],
+)
+
 cc_library(
     name = "llm_litert_mtp_drafter",
     srcs = ["llm_litert_mtp_drafter.cc"],
     hdrs = ["llm_litert_mtp_drafter.h"],
     deps = [
+        ":agello_resident_round",
         "@agello_telemetry//:telemetry",
+        "@litert//litert/c:litert_model",
+        "@litert//litert/c:litert_op_code",
+        "@litert//litert/cc:litert_environment_options",
         ":executor_settings_base",
         ":litert_compiled_model_executor_utils",
         ":llm_executor_settings",
