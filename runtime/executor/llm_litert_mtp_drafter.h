@@ -223,10 +223,19 @@ class LlmLiteRtMtpDrafter {
       const Constraint* constraint,
       const Constraint::State* verified_constraint_state);
 
+  // `embeddings_on_gpu` leaves verify's token and per-layer embeddings to the resident round.
   absl::Status PrepareVerifierInputBuffers(
       int position, int token_id, const std::vector<int>& drafted_tokens,
       absl::flat_hash_map<absl::string_view, TensorBuffer>&
-          input_kv_cache_buffers);
+          input_kv_cache_buffers, bool embeddings_on_gpu = false);
+
+  // Agello (the GPU-resident round, stage 3): the whole round with one wait: the drafter chain,
+  // verify's inputs gathered from the GPU's own drafts, and verify. Returns the drafts and
+  // verify's ids; an error means "run the round on the host".
+  absl::StatusOr<std::pair<std::vector<int>, std::vector<int>>> RunResidentRound(
+      int position, int token_id, std::optional<TensorBuffer>& activations,
+      absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
+      absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers);
 
   absl::Status PrepareVerifierOutputBuffers(
       absl::flat_hash_map<absl::string_view, TensorBuffer>&

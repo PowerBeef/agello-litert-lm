@@ -68,6 +68,7 @@
 #include "litert/c/litert_model.h"  // from @litert
 #include "litert/c/litert_op_code.h"  // from @litert
 #include "litert/cc/litert_environment_options.h"  // from @litert
+#include "litert/cc/litert_tensor_buffer_types.h"  // from @litert
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/status_macros.h"
 #include "agello/agello_telemetry.h"  // from @agello_telemetry
@@ -187,6 +188,73 @@ std::unique_ptr<ResidentRound> CreateResidentRound(Environment& env, ModelResour
   }
   if (lookups != 1) return nullptr;
   return ResidentRound::Create(queue, table, steps);
+}
+
+// Agello (the GPU-resident round, stage 3): an embedder section's tables with their scales found
+// in the mapped section (every EMBEDDING_LOOKUP in op order, which is the concatenation's), and
+// its MUL constant. False when a table or its scales lie outside the section.
+bool ReadTableSet(ModelResources& resources, ModelType type, ResidentRound::TableSet* set) {
+  auto buffer = resources.GetTFLiteModelBuffer(type);
+  auto model = resources.GetTFLiteModel(type);
+  if (!buffer.ok() || !model.ok() || *model == nullptr) return false;
+  set->section = buffer->data();
+  set->section_bytes = buffer->size();
+  const auto* section = static_cast<const char*>(set->section);
+  LiteRtModel handle = (*model)->Get();
+  LiteRtParamIndex main_index = 0;
+  LiteRtSubgraph subgraph = nullptr;
+  LiteRtParamIndex num_ops = 0;
+  if (LiteRtGetMainModelSubgraphIndex(handle, &main_index) != kLiteRtStatusOk ||
+      LiteRtGetModelSubgraph(handle, main_index, &subgraph) != kLiteRtStatusOk ||
+      LiteRtGetNumSubgraphOps(subgraph, &num_ops) != kLiteRtStatusOk) {
+    return false;
+  }
+  for (LiteRtParamIndex i = 0; i < num_ops; ++i) {
+    LiteRtOp op = nullptr;
+    LiteRtOpCode code;
+    LiteRtTensor tensor = nullptr;
+    LiteRtWeights weights = nullptr;
+    const void* addr = nullptr;
+    size_t size = 0;
+    if (LiteRtGetSubgraphOp(subgraph, i, &op) != kLiteRtStatusOk ||
+        LiteRtGetOpCode(op, &code) != kLiteRtStatusOk) {
+      return false;
+    }
+    if (code != kLiteRtOpCodeTflEmbeddingLookup && code != kLiteRtOpCodeTflMul) continue;
+    if (LiteRtGetOpInput(op, 1, &tensor) != kLiteRtStatusOk ||
+        LiteRtGetTensorWeights(tensor, &weights) != kLiteRtStatusOk ||
+        LiteRtGetWeightsBytes(weights, &addr, &size) != kLiteRtStatusOk) {
+      return false;
+    }
+    if (code == kLiteRtOpCodeTflMul) {
+      if (size != sizeof(float)) return false;
+      std::memcpy(&set->mul, addr, sizeof(float));
+      continue;
+    }
+    LiteRtQuantizationPerChannel quantization;
+    if (LiteRtGetPerChannelQuantization(tensor, &quantization) != kLiteRtStatusOk ||
+        quantization.num_channels <= 0 || quantization.scales == nullptr) {
+      return false;
+    }
+    const auto* rows = static_cast<const char*>(addr);
+    const auto* scales = reinterpret_cast<const char*>(quantization.scales);
+    const size_t scale_bytes = static_cast<size_t>(quantization.num_channels) * sizeof(float);
+    if (rows < section || rows + size > section + set->section_bytes || scales < section ||
+        scales + scale_bytes > section + set->section_bytes ||
+        (size * 4) % quantization.num_channels != 0) {
+      return false;
+    }
+    for (int64_t row = 0; row < quantization.num_channels; ++row) {
+      if (quantization.zero_points != nullptr && quantization.zero_points[row] != 0) return false;
+    }
+    const int rows_count = static_cast<int>(quantization.num_channels);
+    const int cols = static_cast<int>(size * 4 / quantization.num_channels);
+    if (!set->tables.empty() && (rows_count != set->rows || cols != set->cols)) return false;
+    set->rows = rows_count;
+    set->cols = cols;
+    set->tables.emplace_back(static_cast<size_t>(rows - section), static_cast<size_t>(scales - section));
+  }
+  return !set->tables.empty();
 }
 
 struct DeferredGpuWaits {
@@ -386,6 +454,13 @@ LlmLiteRtMtpDrafter::Create(
              executor_metadata));
   if (ResidentRoundEnabled() && executor_settings.GetBackend() == Backend::GPU) {
     drafter->resident_ = CreateResidentRound(env, resources, drafter->num_draft_steps_);
+    ResidentRound::TableSet embedder, per_layer;
+    if (drafter->resident_ != nullptr &&
+        ReadTableSet(resources, ModelType::kTfLiteEmbedder, &embedder) &&
+        ReadTableSet(resources, ModelType::kTfLitePerLayerEmbedder, &per_layer) &&
+        embedder.tables.size() == 1) {
+      drafter->resident_->AddVerifyTables(embedder, per_layer);
+    }
   }
   return drafter;
 }
@@ -777,10 +852,109 @@ LlmLiteRtMtpDrafter::RunResidentDraftingLoop(int token_id,
   return result;
 }
 
+absl::StatusOr<std::pair<std::vector<int>, std::vector<int>>>
+LlmLiteRtMtpDrafter::RunResidentRound(
+    int position, int token_id, std::optional<TensorBuffer>& activations,
+    absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
+    absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers) {
+  if (num_draft_steps_ > 7) return absl::FailedPreconditionError("more than 7 draft steps");
+  if (!verifier_signatures_.input_embeddings.has_value() ||
+      !verifier_signatures_.input_per_layer_embeddings.has_value() || !ple_manager_.has_value()) {
+    return absl::FailedPreconditionError("verify takes no per-layer embeddings");
+  }
+  TensorBuffer& embeddings = active_verifier_input_buffers_[*verifier_signatures_.input_embeddings];
+  TensorBuffer& per_layer =
+      active_verifier_input_buffers_[*verifier_signatures_.input_per_layer_embeddings];
+  // Packed buffers hold plain rows, which the run's input conversion rearranges; another layout
+  // would need the kernels to write ML Drift's.
+  for (TensorBuffer* buffer : {&embeddings, &per_layer}) {
+    LITERT_ASSIGN_OR_RETURN(auto type, buffer->BufferType());
+    if (type != TensorBufferType::kMetalBufferPacked) {
+      return absl::FailedPreconditionError("verify's embeddings aren't packed Metal buffers");
+    }
+  }
+  LITERT_ASSIGN_OR_RETURN(void* embeddings_mtl, embeddings.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(void* per_layer_mtl, per_layer.GetMetalBuffer());
+  TensorBuffer& input = active_drafter_input_buffers_["activations"];
+  TensorBuffer& logits = active_drafter_output_buffers_["logits"];
+  TensorBuffer& projected = active_drafter_output_buffers_["projected_activations"];
+  LITERT_ASSIGN_OR_RETURN(void* input_mtl, input.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(void* logits_mtl, logits.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(void* projected_mtl, projected.GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(auto logits_type, logits.TensorType());
+  if (logits_type.ElementType() != ElementType::Float16) {
+    return absl::FailedPreconditionError("drafter logits aren't FP16");
+  }
+  void* previous_mtl = nullptr;
+  size_t previous_offset = 0;
+  if (activations.has_value()) {
+    LITERT_ASSIGN_OR_RETURN(previous_mtl, activations->GetMetalBuffer());
+  } else {
+    if (last_verified_token_id_idx_ < 0) return absl::FailedPreconditionError("no activations");
+    LITERT_ASSIGN_OR_RETURN(previous_mtl, verifier_output_buffers_["activations"].GetMetalBuffer());
+    LITERT_ASSIGN_OR_RETURN(auto projected_type, projected.TensorType());
+    LITERT_ASSIGN_OR_RETURN(size_t row_bytes, projected_type.Bytes());
+    previous_offset = static_cast<size_t>(last_verified_token_id_idx_) * row_bytes;
+  }
+  // Verify's inputs that don't depend on the drafts, written before the chain.
+  ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(position, token_id,
+                                                   std::vector<int>(num_draft_steps_, 0),
+                                                   input_kv_cache_buffers,
+                                                   /*embeddings_on_gpu=*/true));
+  ABSL_RETURN_IF_ERROR(PrepareVerifierOutputBuffers(output_kv_cache_buffers));
+  resident_->SetFirstId(token_id);
+  bool encoded = true;
+  {
+    // The drafter's runs, the kernels between them, verify's inputs and verify, back to back.
+    DeferredGpuWaits deferred;
+    for (int i = 0; i < num_draft_steps_ && encoded; ++i) {
+      LITERT_RETURN_IF_ERROR(PrepareDrafterOutputBuffers());
+      encoded = resident_->EncodeInput(i, input_mtl, i == 0 ? previous_mtl : projected_mtl,
+                                       i == 0 ? previous_offset : 0);
+      if (!encoded) break;
+      bool async = true;
+      {
+        AGELLO_SPAN(kRunDrafter);
+        AGELLO_COUNT(kRunsDrafter);
+        ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuDrafter);
+        LITERT_RETURN_IF_ERROR(mtp_drafter_model_.RunAsync(
+            drafter_signature_.Key(), active_drafter_input_buffers_,
+            active_drafter_output_buffers_, async));
+      }
+      encoded = resident_->EncodeArgmax(i, logits_mtl, vocab_size_);
+    }
+    if (encoded) {
+      encoded = resident_->EncodeVerifyInputs(num_draft_steps_ + 1, embeddings_mtl, per_layer_mtl);
+    }
+    if (encoded) {
+      AGELLO_SPAN(kRunVerify);
+      AGELLO_COUNT(kRunsVerify);
+      ::agello::telemetry::SetCurrentRun(::agello::telemetry::kGpuVerify);
+      bool async = true;
+      LITERT_RETURN_IF_ERROR(base_model_.RunAsync(verify_signature_.Key(),
+                                                  active_verifier_input_buffers_,
+                                                  active_verifier_output_buffers_, async));
+    }
+  }
+  int drafted[8] = {0};
+  const bool finished = resident_->Finish(num_draft_steps_, drafted);
+  if (!encoded || !finished) {
+    return absl::InternalError("the GPU round didn't finish (or met a NaN maximum)");
+  }
+  // Verify's greedy picks, on the host as before.
+  ABSL_RETURN_IF_ERROR(verifier_sampler_->SampleToIdAndScoreBuffer(
+      active_verifier_output_buffers_.at("logits"), verifier_id_tensor_,
+      /*scores_tensor=*/nullptr));
+  LITERT_ASSIGN_OR_RETURN(auto verified, CopyFromTensorBuffer<int32_t>(verifier_id_tensor_));
+  RET_CHECK_EQ(verified.size(), num_draft_steps_ + 1);
+  return std::make_pair(std::vector<int>(drafted, drafted + num_draft_steps_),
+                        std::vector<int>(verified.begin(), verified.end()));
+}
+
 absl::Status LlmLiteRtMtpDrafter::PrepareVerifierInputBuffers(
     int position, int token_id, const std::vector<int>& drafted_tokens,
     absl::flat_hash_map<absl::string_view, TensorBuffer>&
-        input_kv_cache_buffers) {
+        input_kv_cache_buffers, bool embeddings_on_gpu) {
   {
     LITERT_ASSIGN_OR_RETURN(auto verifier_input_pos_lock_and_addr,
                             TensorBufferScopedLock::Create(
@@ -824,13 +998,13 @@ absl::Status LlmLiteRtMtpDrafter::PrepareVerifierInputBuffers(
         RingBufferAttentionMaskMode::kVerify));
   }
 
-  if (verifier_signatures_.input_embeddings.has_value()) {
+  if (verifier_signatures_.input_embeddings.has_value() && !embeddings_on_gpu) {
     ABSL_RETURN_IF_ERROR(embedding_manager_.LookupPrefill(
         drafted_tokens_with_input_token,
         &active_verifier_input_buffers_[*verifier_signatures_.input_embeddings],
         /*offset=*/0));
   }
-  if (ple_manager_.has_value() &&
+  if (ple_manager_.has_value() && !embeddings_on_gpu &&
       verifier_signatures_.input_per_layer_embeddings.has_value()) {
     ABSL_RETURN_IF_ERROR(ple_manager_->get().LookupPrefill(
         drafted_tokens_with_input_token,
@@ -947,22 +1121,43 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   }
 
   const absl::Time draft_start = absl::Now();
-  ABSL_ASSIGN_OR_RETURN(DraftingResult drafting_result,
-                        RunDraftingLoop(token_id, activations, constraint_,
-                                        constraint_state_.get()));
-  const absl::Duration drafting_time = absl::Now() - draft_start;
+  DraftingResult drafting_result;
+  std::vector<int> verifier_id_vector;
+  absl::Duration drafting_time;
+  absl::Duration verify_time;
+  // Agello (the GPU-resident round, stage 3): the whole round on the GPU when it can.
+  std::optional<std::pair<std::vector<int>, std::vector<int>>> resident_round;
+  if (resident_ != nullptr && constraint_ == nullptr && resident_->HasVerifyTables()) {
+    auto round = RunResidentRound(position, token_id, activations, state_buffers.input_buffers,
+                                  state_buffers.output_buffers);
+    if (round.ok()) {
+      resident_round = std::move(*round);
+    } else {
+      MTP_DRAFTER_LOG() << "resident round fell back to the host: " << round.status();
+    }
+  }
+  if (resident_round.has_value()) {
+    drafting_result.drafted_tokens = std::move(resident_round->first);
+    verifier_id_vector = std::move(resident_round->second);
+    drafting_time = absl::Now() - draft_start;
+  } else {
+    ABSL_ASSIGN_OR_RETURN(drafting_result,
+                          RunDraftingLoop(token_id, activations, constraint_,
+                                          constraint_state_.get()));
+    drafting_time = absl::Now() - draft_start;
 
-  const absl::Time verify_start = absl::Now();
-  ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
-      position, token_id, drafting_result.drafted_tokens,
-      state_buffers.input_buffers));
-  ABSL_RETURN_IF_ERROR(
-      PrepareVerifierOutputBuffers(state_buffers.output_buffers));
+    const absl::Time verify_start = absl::Now();
+    ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
+        position, token_id, drafting_result.drafted_tokens,
+        state_buffers.input_buffers));
+    ABSL_RETURN_IF_ERROR(
+        PrepareVerifierOutputBuffers(state_buffers.output_buffers));
 
-  ABSL_ASSIGN_OR_RETURN(
-      std::vector<int> verifier_id_vector,
-      RunVerification(drafting_result.draft_constraint_states));
-  const absl::Duration verify_time = absl::Now() - verify_start;
+    ABSL_ASSIGN_OR_RETURN(
+        verifier_id_vector,
+        RunVerification(drafting_result.draft_constraint_states));
+    verify_time = absl::Now() - verify_start;
+  }
 
   RET_CHECK_EQ(verifier_id_vector.size(),
                drafting_result.drafted_tokens.size() + 1);

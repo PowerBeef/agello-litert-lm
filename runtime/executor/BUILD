@@ -1318,6 +1318,7 @@ cc_library(
         "@litert//litert/c:litert_model",
         "@litert//litert/c:litert_op_code",
         "@litert//litert/cc:litert_environment_options",
+        "@litert//litert/cc:litert_tensor_buffer_types",
         ":executor_settings_base",
         ":litert_compiled_model_executor_utils",
         ":llm_executor_settings",
