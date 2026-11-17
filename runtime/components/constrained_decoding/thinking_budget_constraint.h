@@ -95,6 +95,12 @@ class ThinkingBudgetConstraint : public Constraint {
   absl::StatusOr<std::unique_ptr<Bitmap>> ComputeBitmap(
       const Constraint::State& state) const override;
 
+  // Agello: without a user constraint, every state allows any token except while matching the
+  // start sequence after its first token and while forcing the end, which begins once the budget
+  // is spent. So: in the content phase, always; while thinking, unless forcing or the budget runs
+  // out within `steps` tokens; before the start sequence, only for this state.
+  bool AllowsAnyTokens(const Constraint::State& state, int steps) const override;
+
  private:
   void ProcessForcedEnd(ThinkingState& state, int token) const;
   bool ProcessStartMatching(ThinkingState& state, int token) const;

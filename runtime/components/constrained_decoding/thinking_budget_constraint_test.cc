@@ -14,6 +14,7 @@
 
 #include "runtime/components/constrained_decoding/thinking_budget_constraint.h"
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <string>
@@ -435,6 +436,79 @@ TEST(ThinkingBudgetConstraintTest, TestSkipThinkingWithLlgConstraint) {
   EXPECT_THAT(AllowedTokens(constraint, *state), ElementsAre(kEos));
   ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, kEos));
   EXPECT_TRUE(constraint.IsEnded(*state));
+}
+
+// Agello: whether `state` and every state reachable from it in `steps` of `tokens` allow every
+// token, by the masks.
+bool MasksAllowEveryToken(const ThinkingBudgetConstraint& constraint,
+                          const Constraint::State& state, int steps,
+                          const std::vector<int>& tokens, int vocab_size) {
+  if (static_cast<int>(AllowedTokens(constraint, state).size()) != vocab_size) {
+    return false;
+  }
+  if (steps == 0) return true;
+  for (int token : tokens) {
+    auto next = constraint.ComputeNext(state, token);
+    if (!next.ok() || !MasksAllowEveryToken(constraint, **next, steps - 1, tokens,
+                                            vocab_size)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Agello (the GPU-resident round): AllowsAnyTokens never promises more than the masks give, over
+// every state six tokens deep (start, end and plain tokens, so the start sequence, natural ends,
+// the budget and the forced end all occur), and it says yes where a round runs: thinking far from
+// the budget, and in the content phase.
+TEST(ThinkingBudgetConstraintTest, AllowsAnyTokensNeverPromisesMoreThanTheMasks) {
+  constexpr int kVocab = 32;
+  const std::vector<int> tokens = {0, 10, 11, 20, 21};
+  ThinkingBudgetConstraint constraint(/*user_constraint=*/nullptr, /*budget=*/3, {10, 11},
+                                      {20, 21}, kVocab);
+  std::vector<std::unique_ptr<Constraint::State>> frontier;
+  frontier.push_back(constraint.Start());
+  int promised = 0;
+  for (int depth = 0; depth <= 6; ++depth) {
+    std::vector<std::unique_ptr<Constraint::State>> next_frontier;
+    for (const auto& state : frontier) {
+      for (int steps = 0; steps <= 3; ++steps) {
+        if (!constraint.AllowsAnyTokens(*state, steps)) continue;
+        ++promised;
+        EXPECT_TRUE(MasksAllowEveryToken(constraint, *state, steps, tokens, kVocab))
+            << "depth " << depth << ", steps " << steps;
+      }
+      if (depth == 6) continue;
+      // The tokens the mask allows: a forced token's rivals are errors by design.
+      const std::vector<int> allowed = AllowedTokens(constraint, *state);
+      for (int token : tokens) {
+        if (std::find(allowed.begin(), allowed.end(), token) == allowed.end()) continue;
+        auto next = constraint.ComputeNext(*state, token);
+        ASSERT_TRUE(next.ok()) << next.status();
+        next_frontier.push_back(*std::move(next));
+      }
+    }
+    frontier = std::move(next_frontier);
+  }
+  EXPECT_GT(promised, 0);
+
+  // After the start sequence: zero thinking tokens of three.
+  auto state = constraint.Start();
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 10));
+  EXPECT_FALSE(constraint.AllowsAnyTokens(*state, 0));
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 11));
+  EXPECT_TRUE(constraint.AllowsAnyTokens(*state, 2));
+  EXPECT_FALSE(constraint.AllowsAnyTokens(*state, 3));
+  // Skipped thinking: the content phase allows any token for good.
+  auto content = constraint.Start();
+  ASSERT_OK_AND_ASSIGN(content, constraint.ComputeNext(*content, 0));
+  EXPECT_TRUE(constraint.AllowsAnyTokens(*content, 100));
+}
+
+TEST(ThinkingBudgetConstraintTest, AllowsAnyTokensIsFalseWithAUserConstraint) {
+  FakeConstraint user({1, 2}, 32);
+  ThinkingBudgetConstraint constraint(&user, /*budget=*/100, {}, {20, 21}, 32);
+  EXPECT_FALSE(constraint.AllowsAnyTokens(*constraint.Start(), 0));
 }
 
 }  // namespace

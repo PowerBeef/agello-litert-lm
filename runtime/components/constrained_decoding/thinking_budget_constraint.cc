@@ -272,6 +272,20 @@ absl::StatusOr<std::unique_ptr<Bitmap>> ThinkingBudgetConstraint::ComputeBitmap(
   return std::make_unique<AllAllowedBitmap>();
 }
 
+bool ThinkingBudgetConstraint::AllowsAnyTokens(const Constraint::State& state,
+                                               int steps) const {
+  if (user_constraint_ != nullptr || steps < 0) return false;
+  const auto& s = static_cast<const ThinkingState&>(state);
+  if (s.matching_start_index > 0) return false;
+  // Step 0 allows any token, but the next state may force the start sequence's second token.
+  if (s.matching_start_index == 0) return steps == 0;
+  if (!s.in_thinking) return true;
+  if (s.forced_end_token_index >= 0) return false;
+  // The state after k more tokens has counted thinking_token_count + k (unless thinking ended
+  // naturally, which only allows more), and forces the end from the budget on.
+  return budget_ < 0 || s.thinking_token_count + steps < budget_;
+}
+
 void ThinkingBudgetConstraint::ProcessForcedEnd(ThinkingState& state,
                                                 int token) const {
   // Verify that the model generated the expected forced end token.

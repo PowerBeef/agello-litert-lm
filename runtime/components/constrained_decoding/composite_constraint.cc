@@ -61,6 +61,10 @@ class UnownedConstraint : public Constraint {
     return constraint_.ComputeBitmap(state);
   }
 
+  bool AllowsAnyTokens(const State& state, int steps) const override {
+    return constraint_.AllowsAnyTokens(state, steps);
+  }
+
  private:
   Constraint& constraint_;
 };
@@ -214,6 +218,18 @@ CompositeConstraint::ComputeNext(const State& state, int token) const {
   }
 
   return std::make_unique<CompositeState>(std::move(next_sub_states));
+}
+
+bool CompositeConstraint::AllowsAnyTokens(const State& state, int steps) const {
+  const auto& composite_state = static_cast<const CompositeState&>(state);
+  if (composite_state.sub_states.size() != constraints_.size()) return false;
+  for (size_t i = 0; i < constraints_.size(); ++i) {
+    if (composite_state.sub_states[i] == nullptr ||
+        !constraints_[i]->AllowsAnyTokens(*composite_state.sub_states[i], steps)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 absl::StatusOr<std::unique_ptr<LogitMask>> CompositeConstraint::ComputeMask(

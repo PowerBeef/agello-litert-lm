@@ -257,6 +257,28 @@ bool ReadTableSet(ModelResources& resources, ModelType type, ResidentRound::Tabl
   return !set->tables.empty();
 }
 
+// Agello (the GPU-resident round): whether a round needs no constraint masks: no constraint, no
+// state (the host loop masks nothing then), or a state that allows any token for the round's
+// `steps` drafts.
+bool RoundNeedsNoMasks(const Constraint* constraint, const Constraint::State* state, int steps) {
+  return constraint == nullptr || state == nullptr || constraint->AllowsAnyTokens(*state, steps);
+}
+
+// The drafts' constraint states, as the host's drafting loop builds them, for drafts the GPU
+// picked.
+absl::Status ChainDraftConstraintStates(
+    const Constraint* constraint, const Constraint::State* state, const std::vector<int>& drafts,
+    std::vector<std::unique_ptr<Constraint::State>>& states) {
+  if (constraint == nullptr || state == nullptr) return absl::OkStatus();
+  for (int draft : drafts) {
+    ABSL_ASSIGN_OR_RETURN(auto next, constraint->ComputeNext(*state, draft));
+    if (constraint->IsEnded(*next)) next = constraint->Start();
+    states.push_back(std::move(next));
+    state = states.back().get();
+  }
+  return absl::OkStatus();
+}
+
 struct DeferredGpuWaits {
   DeferredGpuWaits() { ::agello::telemetry::DeferGpuWaits(true); }
   ~DeferredGpuWaits() {
@@ -717,9 +739,15 @@ LlmLiteRtMtpDrafter::RunDraftingLoop(
     const Constraint* constraint,
     const Constraint::State* verified_constraint_state) {
   AGELLO_SPAN(kMtpDraft);
-  if (resident_ != nullptr && constraint == nullptr) {
+  if (resident_ != nullptr &&
+      RoundNeedsNoMasks(constraint, verified_constraint_state, num_draft_steps_)) {
     auto resident = RunResidentDraftingLoop(token_id, activations);
-    if (resident.ok()) return resident;
+    if (resident.ok()) {
+      ABSL_RETURN_IF_ERROR(ChainDraftConstraintStates(constraint, verified_constraint_state,
+                                                      resident->drafted_tokens,
+                                                      resident->draft_constraint_states));
+      return resident;
+    }
     MTP_DRAFTER_LOG() << "resident round fell back to the host: " << resident.status();
   }
   DraftingResult result;
@@ -1127,7 +1155,9 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   absl::Duration verify_time;
   // Agello (the GPU-resident round, stage 3): the whole round on the GPU when it can.
   std::optional<std::pair<std::vector<int>, std::vector<int>>> resident_round;
-  if (resident_ != nullptr && constraint_ == nullptr && resident_->HasVerifyTables()) {
+  // With a constraint (Think's budget), when its masks would allow every token.
+  if (resident_ != nullptr && resident_->HasVerifyTables() &&
+      RoundNeedsNoMasks(constraint_, constraint_state_.get(), num_draft_steps_)) {
     auto round = RunResidentRound(position, token_id, activations, state_buffers.input_buffers,
                                   state_buffers.output_buffers);
     if (round.ok()) {
@@ -1139,6 +1169,9 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   if (resident_round.has_value()) {
     drafting_result.drafted_tokens = std::move(resident_round->first);
     verifier_id_vector = std::move(resident_round->second);
+    ABSL_RETURN_IF_ERROR(ChainDraftConstraintStates(constraint_, constraint_state_.get(),
+                                                    drafting_result.drafted_tokens,
+                                                    drafting_result.draft_constraint_states));
     drafting_time = absl::Now() - draft_start;
   } else {
     ABSL_ASSIGN_OR_RETURN(drafting_result,

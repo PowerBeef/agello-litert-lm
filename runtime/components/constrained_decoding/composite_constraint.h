@@ -86,6 +86,9 @@ class CompositeConstraint : public Constraint {
   absl::StatusOr<std::unique_ptr<Bitmap>> ComputeBitmap(
       const State& state) const override;
 
+  // Every sub-constraint allows any token for the steps.
+  bool AllowsAnyTokens(const State& state, int steps) const override;
+
  private:
   explicit CompositeConstraint(int vocab_size) : vocab_size_(vocab_size) {}
 

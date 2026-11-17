@@ -62,6 +62,13 @@ class Constraint {
   [[deprecated("Use ComputeMask instead.")]]
   virtual absl::StatusOr<std::unique_ptr<Bitmap>> ComputeBitmap(
       const State& state) const;
+
+  // Agello (the GPU-resident round, PERFORMANCE.md): true when `state` and the `steps` states
+  // after it allow every token, whatever tokens are chosen, so a speculative round can skip the
+  // masks for that many steps. False unless a constraint knows better. The slot comes last in the
+  // vtable; a constraint compiled against the old header (a prebuilt provider's) would lack it,
+  // and our build has none (the FST provider is compiled out).
+  virtual bool AllowsAnyTokens(const State& state, int steps) const { return false; }
 };
 
 }  // namespace litert::lm
