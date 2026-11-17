@@ -664,6 +664,26 @@ cc_library(
     ],
 )
 
+# Agello (B2): drafts copied from the context.
+cc_library(
+    name = "agello_context_drafts",
+    srcs = ["agello_context_drafts.cc"],
+    hdrs = ["agello_context_drafts.h"],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "agello_context_drafts_test",
+    srcs = ["agello_context_drafts_test.cc"],
+    deps = [
+        ":agello_context_drafts",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "llm_executor_processed_tokens_test",
     srcs = ["llm_executor_processed_tokens_test.cc"],
@@ -1313,6 +1333,7 @@ cc_library(
     srcs = ["llm_litert_mtp_drafter.cc"],
     hdrs = ["llm_litert_mtp_drafter.h"],
     deps = [
+        ":agello_context_drafts",
         ":agello_resident_round",
         "@agello_telemetry//:telemetry",
         "@litert//litert/c:litert_model",

@@ -41,6 +41,7 @@
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
+#include "runtime/executor/agello_context_drafts.h"
 #include "runtime/executor/agello_resident_round.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/state_interface.h"
@@ -126,12 +127,16 @@ class LlmLiteRtMtpDrafter {
   //   state: The model's runtime KV cache state.
   //   constraint: Optional decoding constraint to apply during drafting and
   //    verification.
+  //   context: Agello (B2): the context's token ids, those before `position`
+  //    at least; with AGELLO_CONTEXT_DRAFTS set, a round whose last tokens
+  //    appeared earlier in it is drafted from what followed them.
   // Outputs:
   //   The drafted tokens from the MTP drafter model with the shape:
   //   [batch_size, num_tokens].
   absl::StatusOr<std::vector<std::vector<int>>> Draft(
       int position, int token_id, std::optional<TensorBuffer> activations,
-      StateInterface& state, const Constraint* constraint = nullptr);
+      StateInterface& state, const Constraint* constraint = nullptr,
+      absl::Span<const int> context = {});
 
   const MtpRoundStats& last_round_stats() const { return last_round_stats_; }
 
@@ -324,6 +329,15 @@ class LlmLiteRtMtpDrafter {
 
   // Agello: the GPU side of the resident round, or nullptr (the host drafts).
   std::unique_ptr<ResidentRound> resident_;
+
+  // Agello (B2): drafts copied from the context, or nullptr (AGELLO_CONTEXT_DRAFTS unset).
+  std::unique_ptr<ContextDrafts> context_drafts_;
+  // Agello (B2): in rounds where the context offers drafts, the tokens a millisecond each source
+  // has earned (a moving average; negative before its first round), and how many such rounds have
+  // run. The round takes the better source and tries the other every eighth time.
+  double context_rate_ = -1;
+  double drafter_rate_ = -1;
+  int offered_rounds_ = 0;
 
   // Attention mask params.
   AttentionMaskParams attn_params_;

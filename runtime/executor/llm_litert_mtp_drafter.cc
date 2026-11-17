@@ -257,6 +257,17 @@ bool ReadTableSet(ModelResources& resources, ModelType type, ResidentRound::Tabl
   return !set->tables.empty();
 }
 
+// Agello (B2): AGELLO_CONTEXT_DRAFTS=3 drafts a round from the context when its last trigram
+// appeared earlier, =2 its last bigram too; unset or anything else, off.
+int ContextDraftsMinNgram() {
+  static const int min_ngram = [] {
+    const char* value = std::getenv("AGELLO_CONTEXT_DRAFTS");
+    if (value == nullptr) return 0;
+    return value[0] == '2' ? 2 : value[0] == '3' ? 3 : 0;
+  }();
+  return min_ngram;
+}
+
 // Agello (the GPU-resident round): whether a round needs no constraint masks: no constraint, no
 // state (the host loop masks nothing then), or a state that allows any token for the round's
 // `steps` drafts.
@@ -669,7 +680,7 @@ LlmLiteRtMtpDrafter::Create(
   ABSL_ASSIGN_OR_RETURN(auto verifier_mask_runner,
                         LiteRtLogitMaskRunner::Create(env, accelerator));
 
-  return absl::WrapUnique(new LlmLiteRtMtpDrafter(
+  auto drafter = absl::WrapUnique(new LlmLiteRtMtpDrafter(
       std::move(mtp_drafter_model), std::move(drafter_signature), base_model,
       std::move(verify_signature), base_model_desc, embedding_manager,
       ple_manager, std::move(drafter_sampler), std::move(verifier_sampler),
@@ -680,6 +691,10 @@ LlmLiteRtMtpDrafter::Create(
       std::move(drafter_model_signatures), std::move(verifier_model_signatures),
       vocab_size, GetAttentionMaskParams(executor_metadata),
       std::move(drafter_mask_runner), std::move(verifier_mask_runner)));
+  if (const int min_ngram = ContextDraftsMinNgram(); min_ngram > 0) {
+    drafter->context_drafts_ = std::make_unique<ContextDrafts>(min_ngram);
+  }
+  return drafter;
 }
 
 absl::Status LlmLiteRtMtpDrafter::PrepareDrafterInputBuffers(
@@ -1117,7 +1132,8 @@ absl::StatusOr<std::vector<int>> LlmLiteRtMtpDrafter::RunVerification(
 
 absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     int position, int token_id, std::optional<TensorBuffer> activations,
-    StateInterface& state, const Constraint* constraint) {
+    StateInterface& state, const Constraint* constraint,
+    absl::Span<const int> context) {
   ::agello::telemetry::ScopedSpan round_span(::agello::telemetry::kMtpRound);
   auto* litert_state = dynamic_cast<LitertState*>(&state);
   RET_CHECK(litert_state != nullptr);
@@ -1153,10 +1169,35 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   std::vector<int> verifier_id_vector;
   absl::Duration drafting_time;
   absl::Duration verify_time;
+  // Agello (B2): drafts copied from the context, when its last tokens appeared earlier in it and
+  // the round needs no masks (the drafts can be any tokens). The drafter doesn't run; verify
+  // keeps its own picks, as for the drafter's drafts.
+  std::vector<int> context_proposal;
+  if (context_drafts_ != nullptr && position > 0 &&
+      static_cast<int>(context.size()) >= position &&
+      RoundNeedsNoMasks(constraint_, constraint_state_.get(), num_draft_steps_)) {
+    context_drafts_->Sync(context.first(position), token_id);
+    context_proposal = context_drafts_->Propose(num_draft_steps_);
+  }
+  // Which source drafts a round the context could draft: the one that has earned more tokens a
+  // millisecond in such rounds (the drafter copies well, and its rounds keep more), each tried
+  // first, and the other tried every eighth time.
+  const bool offered = !context_proposal.empty();
+  if (offered) {
+    bool use_context = true;
+    if (context_rate_ >= 0 && drafter_rate_ < 0) {
+      use_context = false;
+    } else if (context_rate_ >= 0 && drafter_rate_ >= 0) {
+      use_context = context_rate_ >= drafter_rate_;
+      if (offered_rounds_ % 8 == 7) use_context = !use_context;
+    }
+    ++offered_rounds_;
+    if (!use_context) context_proposal.clear();
+  }
   // Agello (the GPU-resident round, stage 3): the whole round on the GPU when it can.
   std::optional<std::pair<std::vector<int>, std::vector<int>>> resident_round;
   // With a constraint (Think's budget), when its masks would allow every token.
-  if (resident_ != nullptr && resident_->HasVerifyTables() &&
+  if (context_proposal.empty() && resident_ != nullptr && resident_->HasVerifyTables() &&
       RoundNeedsNoMasks(constraint_, constraint_state_.get(), num_draft_steps_)) {
     auto round = RunResidentRound(position, token_id, activations, state_buffers.input_buffers,
                                   state_buffers.output_buffers);
@@ -1174,9 +1215,16 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
                                                     drafting_result.draft_constraint_states));
     drafting_time = absl::Now() - draft_start;
   } else {
-    ABSL_ASSIGN_OR_RETURN(drafting_result,
-                          RunDraftingLoop(token_id, activations, constraint_,
-                                          constraint_state_.get()));
+    if (!context_proposal.empty()) {
+      drafting_result.drafted_tokens = context_proposal;
+      ABSL_RETURN_IF_ERROR(ChainDraftConstraintStates(constraint_, constraint_state_.get(),
+                                                      drafting_result.drafted_tokens,
+                                                      drafting_result.draft_constraint_states));
+    } else {
+      ABSL_ASSIGN_OR_RETURN(drafting_result,
+                            RunDraftingLoop(token_id, activations, constraint_,
+                                            constraint_state_.get()));
+    }
     drafting_time = absl::Now() - draft_start;
 
     const absl::Time verify_start = absl::Now();
@@ -1198,6 +1246,18 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
       CountAcceptedPrefix(verifier_id_vector, drafting_result.drafted_tokens);
   int bonus_token = verifier_id_vector[num_correct_tokens];
   last_verified_token_id_idx_ = num_correct_tokens;
+  if (!context_proposal.empty()) {
+    AGELLO_COUNT(kMtpContextRounds);
+    AGELLO_COUNT(kMtpContextAccepted, num_correct_tokens);
+  }
+  if (offered) {
+    const double milliseconds = absl::ToDoubleMilliseconds(absl::Now() - draft_start);
+    if (milliseconds > 0) {
+      const double rate = (num_correct_tokens + 1) / milliseconds;
+      double& average = context_proposal.empty() ? drafter_rate_ : context_rate_;
+      average = average < 0 ? rate : 0.75 * average + 0.25 * rate;
+    }
+  }
 
   // Update verified constraint state according to verified + bonus tokens.
   if (constraint_ != nullptr) {

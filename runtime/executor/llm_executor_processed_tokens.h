@@ -140,6 +140,13 @@ class ProcessedTokens {
   // Invalidates the pending input token, if any.
   void InvalidatePendingInputToken();
 
+  // Agello (B2): the first candidate's processed token ids, without the pending
+  // input token if there is one (unlike GetTokensUnsafe, which checks there
+  // isn't).
+  absl::Span<const int> ProcessedTokenIds() const {
+    return tokens_.empty() ? absl::Span<const int>() : absl::MakeConstSpan(tokens_[0].token_ids);
+  }
+
  private:
   int GetStep() const;
   bool HasPendingInputToken() const;
