@@ -1,0 +1,296 @@
+{
+ "agent": "r4",
+ "pages": [
+  "configuration.md",
+  "facts.md",
+  "litert-lm/build-and-release.md",
+  "maintenance.md",
+  "memory.md",
+  "stack.md",
+  "tools.md",
+  "troubleshooting.md"
+ ],
+ "claims": [],
+ "copies": [
+  {
+   "page": "troubleshooting.md",
+   "line": 632,
+   "id": "APL-015",
+   "verdict": "corrected",
+   "text_now": "Agello's DeviceProfile (a691212) stops a running reply when os_proc_available_memory() is above 0 and below 400,000,000 bytes (checked on each memory warning and at each ~100 ms streaming flush), and keeps the chat's conversation across a helper only when available memory is at least 28,672 x the positions the chat holds in the KV cache (ChatEngine.usedTokens: the conversation's token count, or the seeded count before the first send) + 400,000,000 bytes, or available is 0: 869,762,048 bytes with 16,384 positions held. Until Agello e084e1f (2026-11-14) the rule counted maxNumTokens instead, and until 6db56c6 (2026-11-11, as at 93122b647a) it kept the chat only on a runtime with a build id.",
+   "text_before": "Agello's DeviceProfile (93122b647a) stops a running reply when os_proc_available_memory() is above 0 and below 400,000,000 bytes (checked on each memory warning and at each ~100 ms streaming flush), and keeps the chat's conversation across a helper only on a runtime with a build id (ours, not Google's v0.18.0) and only when available memory is at least 28,672 x maxNumTokens + 400,000,000 bytes, or available is 0: 869,762,048 bytes at 16,384 tokens."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 701,
+   "id": "APL-015",
+   "verdict": "corrected",
+   "text_now": "Agello's DeviceProfile (a691212) stops a running reply when os_proc_available_memory() is above 0 and below 400,000,000 bytes (checked on each memory warning and at each ~100 ms streaming flush), and keeps the chat's conversation across a helper only when available memory is at least 28,672 x the positions the chat holds in the KV cache (ChatEngine.usedTokens: the conversation's token count, or the seeded count before the first send) + 400,000,000 bytes, or available is 0: 869,762,048 bytes with 16,384 positions held. Until Agello e084e1f (2026-11-14) the rule counted maxNumTokens instead, and until 6db56c6 (2026-11-11, as at 93122b647a) it kept the chat only on a runtime with a build id.",
+   "text_before": "Agello's DeviceProfile (93122b647a) stops a running reply when os_proc_available_memory() is above 0 and below 400,000,000 bytes (checked on each memory warning and at each ~100 ms streaming flush), and keeps the chat's conversation across a helper only on a runtime with a build id (ours, not Google's v0.18.0) and only when available memory is at least 28,672 x maxNumTokens + 400,000,000 bytes, or available is 0: 869,762,048 bytes at 16,384 tokens."
+  },
+  {
+   "page": "stack.md",
+   "line": 464,
+   "id": "APL-069",
+   "verdict": "corrected",
+   "text_now": "The rule that Agello never runs in the simulator rests on project policy and on our framework having no simulator slice: //agello:CLiteRTLM builds iOS device arm64 and macOS arm64 only, and the xcframework of the release Agello ships (agello-one-20261115, from the same BUILD target at 6da75396), which Agello's Package.swift pins, has only those two slices; Agello's device tests also skip in the simulator (DeviceTestCase.setUp throws XCTSkip under targetEnvironment(simulator)).",
+   "text_before": "The rule that Agello never runs in the simulator rests on our framework having no simulator slice (//agello:CLiteRTLM builds iOS device arm64 and macOS arm64 only) and on project policy; Google's shipped v0.18.0 framework has a simulator slice containing the Metal accelerator, and whether it runs Gemma 4 E4B in the simulator has not been tested."
+  },
+  {
+   "page": "litert-lm/build-and-release.md",
+   "line": 315,
+   "id": "APL-069",
+   "verdict": "corrected",
+   "text_now": "The rule that Agello never runs in the simulator rests on project policy and on our framework having no simulator slice: //agello:CLiteRTLM builds iOS device arm64 and macOS arm64 only, and the xcframework of the release Agello ships (agello-one-20261115, from the same BUILD target at 6da75396), which Agello's Package.swift pins, has only those two slices; Agello's device tests also skip in the simulator (DeviceTestCase.setUp throws XCTSkip under targetEnvironment(simulator)).",
+   "text_before": "The rule that Agello never runs in the simulator rests on our framework having no simulator slice (//agello:CLiteRTLM builds iOS device arm64 and macOS arm64 only) and on project policy; Google's shipped v0.18.0 framework has a simulator slice containing the Metal accelerator, and whether it runs Gemma 4 E4B in the simulator has not been tested."
+  },
+  {
+   "page": "configuration.md",
+   "line": 537,
+   "id": "APL-005",
+   "verdict": "corrected",
+   "text_now": "No file in docs/agello/results/ measures an app memory limit without the increased-memory-limit entitlement; the '~3.5 GB without, ~6.4 GB with' device finding in Agello's tests of 2026-10-09 (iRTChatTests/DeviceProfileTests.swift at commit 8b3851e) and the '~3.5 GB' that Agello's entitlements comment recalls (at a691212 as 'an earlier note', with 'no recorded measurement'; at 93122b647a as its own figure) have no raw record, so the default (unentitled) limit of the iPhone 17 Pro is unverified.",
+   "text_before": "No file in docs/agello/results/ measures an app memory limit without the increased-memory-limit entitlement; the '~3.5 GB without, ~6.4 GB with' device finding in Agello's tests of 2026-10-09 (iRTChatTests/DeviceProfileTests.swift at commit 8b3851e) and the '~3.5 GB' comment in Agello.entitlements have no raw record, so the default (unentitled) limit of the iPhone 17 Pro is unverified."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 196,
+   "id": "APL-011",
+   "verdict": "corrected",
+   "text_now": "Agello's entitlements (AgelloiOS/Agello.entitlements at a691212; Agello/Agello.entitlements at 93122b647a) declare com.apple.developer.kernel.extended-virtual-addressing = true, com.apple.developer.kernel.increased-memory-limit = true, com.apple.developer.background-tasks.continued-processing.gpu = true, com.apple.developer.weatherkit = true and the application group group.com.patricedery.agello.",
+   "text_before": "Agello's Agello/Agello.entitlements at commit 93122b647a declares com.apple.developer.kernel.extended-virtual-addressing = true, com.apple.developer.kernel.increased-memory-limit = true, com.apple.developer.background-tasks.continued-processing.gpu = true and the application group group.com.patricedery.agello."
+  },
+  {
+   "page": "configuration.md",
+   "line": 540,
+   "id": "APL-041",
+   "verdict": "corrected",
+   "text_now": "The Agello app target (a691212) sets IPHONEOS_DEPLOYMENT_TARGET = 27.0 and TARGETED_DEVICE_FAMILY = 1 (iPhone only), and its Info.plist requires only the arm64 and metal capabilities; since Agello 38df25f (2026-11-12) it no longer requires iphone-performance-gaming-tier, and the hardware floor is a launch check instead: below Platform.minimumMemoryBytes (11,000,000,000 bytes of physical memory) the app shows UnsupportedDeviceView.",
+   "text_before": "The Agello app target at 93122b647a sets INFOPLIST_KEY_UIRequiredDeviceCapabilities = iphone-performance-gaming-tier, IPHONEOS_DEPLOYMENT_TARGET = 27.0 and TARGETED_DEVICE_FAMILY = 1 (iPhone only)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 497,
+   "id": "APL-056",
+   "verdict": "corrected",
+   "text_now": "Agello's scripts/device-harness.sh (a691212) passes AGELLO_SIMULATE_APPLE_GPU, when set, to the app under test by exporting TEST_RUNNER_AGELLO_SIMULATE_APPLE_GPU, the prefix xcodebuild strips when it sets the test runner's environment.",
+   "text_before": "Agello's scripts/device-harness.sh (93122b647a) passes AGELLO_SIMULATE_APPLE_GPU to the app under test by exporting TEST_RUNNER_AGELLO_SIMULATE_APPLE_GPU, the prefix xcodebuild strips when it sets the test runner's environment."
+  },
+  {
+   "page": "tools.md",
+   "line": 400,
+   "id": "APL-056",
+   "verdict": "corrected",
+   "text_now": "Agello's scripts/device-harness.sh (a691212) passes AGELLO_SIMULATE_APPLE_GPU, when set, to the app under test by exporting TEST_RUNNER_AGELLO_SIMULATE_APPLE_GPU, the prefix xcodebuild strips when it sets the test runner's environment.",
+   "text_before": "Agello's scripts/device-harness.sh (93122b647a) passes AGELLO_SIMULATE_APPLE_GPU to the app under test by exporting TEST_RUNNER_AGELLO_SIMULATE_APPLE_GPU, the prefix xcodebuild strips when it sets the test runner's environment."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 68,
+   "id": "LM-CAPI-005",
+   "verdict": "corrected",
+   "text_now": "LiteRtLmStatusCode (c/error_reporter.h, Google's file, unchanged in our build and in the release Agello ships) has 17 enumerators, kLiteRtLmStatusOk = 0 through kLiteRtLmStatusUnauthenticated = 16, numerically identical to absl::StatusCode / google.rpc.Code and documented as frozen; callers should treat unknown values as kLiteRtLmStatusUnknown. The enum dates from C API 0.2.0 and was already in Google's v0.18.0 header (2026-10-06).",
+   "text_before": "LiteRtLmStatusCode (c/error_reporter.h) has 17 enumerators, kLiteRtLmStatusOk = 0 through kLiteRtLmStatusUnauthenticated = 16, numerically identical to absl::StatusCode / google.rpc.Code and documented as frozen; callers should treat unknown values as kLiteRtLmStatusUnknown. The same enum exists in the v0.18.0 header (added in 0.2.0)."
+  },
+  {
+   "page": "facts.md",
+   "line": 91,
+   "id": "LM-BLD-040",
+   "verdict": "corrected",
+   "text_now": "On 2026-10-15 the repository PowerBeef/agello-litert-lm had no GitHub releases; as of 2026-11-18 it has two, each with CLiteRTLM.xcframework.zip, checksum.txt, THIRD_PARTY_NOTICES.md and BUILD-INFO.txt: agello-next-20261024 (published 2026-10-28, target f1b88286) and agello-one-20261115 (published 2026-11-15, target 6da75396).",
+   "text_before": "As of 2026-10-15 the repository PowerBeef/agello-litert-lm has no GitHub releases."
+  },
+  {
+   "page": "facts.md",
+   "line": 81,
+   "id": "LM-VER-013",
+   "verdict": "corrected",
+   "text_now": "On 2026-10-15 v0.18.0 (published 2026-10-06) was the latest release of google-ai-edge/LiteRT-LM and 0.19.0 had none; Google has since published v0.18.1 (2026-10-20, on release/v0.18.0), v0.19.0 (2026-11-02) and v0.19.1 (2026-11-05, both on release/v0.19.0), the latest as of 2026-11-18.",
+   "text_before": "As of 2026-10-15, v0.18.0 (published 2026-10-06) is the latest release of google-ai-edge/LiteRT-LM; 0.19.0 has no release."
+  },
+  {
+   "page": "configuration.md",
+   "line": 206,
+   "id": "LM-CNV-058",
+   "verdict": "corrected",
+   "text_now": "Agello (a69121286e) sets ExperimentalFlags.filterChannelContentFromKvCache = true when it loads a model, after ExperimentalFlags.optIntoExperimentalAPIs(), so reasoning is removed from the KV cache in its conversations.",
+   "text_before": "Agello (93122b6) sets ExperimentalFlags.filterChannelContentFromKvCache = true when it loads a model, so reasoning is removed from the KV cache in its conversations."
+  },
+  {
+   "page": "configuration.md",
+   "line": 548,
+   "id": "LM-CNV-058",
+   "verdict": "corrected",
+   "text_now": "Agello (a69121286e) sets ExperimentalFlags.filterChannelContentFromKvCache = true when it loads a model, after ExperimentalFlags.optIntoExperimentalAPIs(), so reasoning is removed from the KV cache in its conversations.",
+   "text_before": "Agello (93122b6) sets ExperimentalFlags.filterChannelContentFromKvCache = true when it loads a model, so reasoning is removed from the KV cache in its conversations."
+  },
+  {
+   "page": "configuration.md",
+   "line": 555,
+   "id": "LM-CNV-079",
+   "verdict": "corrected",
+   "text_now": "Agello (a69121286e) runs each JSON helper prompt on a new Conversation created with enableResponseFormat true and speculative decoding off unless AGELLO_JSON_MTP=1 (then the plan's setting), and its chat conversations don't enable constrained decoding.",
+   "text_before": "Agello (93122b6) runs each JSON helper prompt on a new Conversation created with enableResponseFormat true and speculative decoding off, and its chat conversations don't enable constrained decoding."
+  },
+  {
+   "page": "memory.md",
+   "line": 359,
+   "id": "LM-ENG-066",
+   "verdict": "corrected",
+   "text_now": "iPhone 17 Pro (A19 Pro) calibration with our runtime on 2026-10-15, E4B, MTP on: peak footprint 4.02 and 4.13 GB at a 16K window and 5.88 and 5.93 GB at 32K before Agello restored the kept conversation right after helpers (calibrate-cooled-ours1/2, runtime build 2e54fbdb9ca9), 3.59 GB and 4.93 GB after (calibrate-restore-after-helper, Agello 6d389e6 on the newer runtime build 11beef01e805, which also moved the LiteRT and ML Drift pins).",
+   "text_before": "iPhone 17 Pro (A19 Pro) calibration with our runtime, E4B, MTP on: peak footprint 4.02 and 4.13 GB at a 16K window and 5.88 and 5.93 GB at 32K before Agello restored the kept conversation right after helpers (calibrate-cooled-ours1/2, runtime build 2e54fbdb9ca9), 3.59 GB and 4.93 GB after (calibrate-restore-after-helper, Agello 6d389e6 on the newer runtime build 11beef01e805, which also moved the LiteRT and ML Drift pins); Google's v0.18.0 binary measured 3.33 and 5.06 GB (calibrate-cooled-google)."
+  },
+  {
+   "page": "facts.md",
+   "line": 201,
+   "id": "LM-ENG-066",
+   "verdict": "corrected",
+   "text_now": "iPhone 17 Pro (A19 Pro) calibration with our runtime on 2026-10-15, E4B, MTP on: peak footprint 4.02 and 4.13 GB at a 16K window and 5.88 and 5.93 GB at 32K before Agello restored the kept conversation right after helpers (calibrate-cooled-ours1/2, runtime build 2e54fbdb9ca9), 3.59 GB and 4.93 GB after (calibrate-restore-after-helper, Agello 6d389e6 on the newer runtime build 11beef01e805, which also moved the LiteRT and ML Drift pins).",
+   "text_before": "iPhone 17 Pro (A19 Pro) calibration with our runtime, E4B, MTP on: peak footprint 4.02 and 4.13 GB at a 16K window and 5.88 and 5.93 GB at 32K before Agello restored the kept conversation right after helpers (calibrate-cooled-ours1/2, runtime build 2e54fbdb9ca9), 3.59 GB and 4.93 GB after (calibrate-restore-after-helper, Agello 6d389e6 on the newer runtime build 11beef01e805, which also moved the LiteRT and ML Drift pins); Google's v0.18.0 binary measured 3.33 and 5.06 GB (calibrate-cooled-google)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 505,
+   "id": "MD-MTL-034",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift (ours: 55196d78, from the PowerBeef/ml-drift fork imported into agello/ml_drift), InferenceContext::DumpGraphForTelemetry writes gpu-graph-<n>-<nodes>-nodes.json into the directory named by AGELLO_TELEMETRY_GRAPH_DIR whenever that variable is set and non-empty, independent of the telemetry level, at the end of InitFromGpuModel ('built') and RestoreDeserialized ('restored'); each node entry has its index, name, work-group size, FLOPs and BHWDC input and output shapes.",
+   "text_before": "In the PowerBeef/ml-drift fork, InferenceContext::DumpGraphForTelemetry writes gpu-graph-<n>-<nodes>-nodes.json into the directory named by AGELLO_TELEMETRY_GRAPH_DIR whenever that variable is set and non-empty, independent of the telemetry level, at the end of InitFromGpuModel ('built') and RestoreDeserialized ('restored'); each node entry has its index, name, work-group size, FLOPs and BHWDC input and output shapes."
+  },
+  {
+   "page": "maintenance.md",
+   "line": 262,
+   "id": "MD-MTL-034",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift (ours: 55196d78, from the PowerBeef/ml-drift fork imported into agello/ml_drift), InferenceContext::DumpGraphForTelemetry writes gpu-graph-<n>-<nodes>-nodes.json into the directory named by AGELLO_TELEMETRY_GRAPH_DIR whenever that variable is set and non-empty, independent of the telemetry level, at the end of InitFromGpuModel ('built') and RestoreDeserialized ('restored'); each node entry has its index, name, work-group size, FLOPs and BHWDC input and output shapes.",
+   "text_before": "In the PowerBeef/ml-drift fork, InferenceContext::DumpGraphForTelemetry writes gpu-graph-<n>-<nodes>-nodes.json into the directory named by AGELLO_TELEMETRY_GRAPH_DIR whenever that variable is set and non-empty, independent of the telemetry level, at the end of InitFromGpuModel ('built') and RestoreDeserialized ('restored'); each node entry has its index, name, work-group size, FLOPs and BHWDC input and output shapes."
+  },
+  {
+   "page": "tools.md",
+   "line": 371,
+   "id": "MD-MTL-034",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift (ours: 55196d78, from the PowerBeef/ml-drift fork imported into agello/ml_drift), InferenceContext::DumpGraphForTelemetry writes gpu-graph-<n>-<nodes>-nodes.json into the directory named by AGELLO_TELEMETRY_GRAPH_DIR whenever that variable is set and non-empty, independent of the telemetry level, at the end of InitFromGpuModel ('built') and RestoreDeserialized ('restored'); each node entry has its index, name, work-group size, FLOPs and BHWDC input and output shapes.",
+   "text_before": "In the PowerBeef/ml-drift fork, InferenceContext::DumpGraphForTelemetry writes gpu-graph-<n>-<nodes>-nodes.json into the directory named by AGELLO_TELEMETRY_GRAPH_DIR whenever that variable is set and non-empty, independent of the telemetry level, at the end of InitFromGpuModel ('built') and RestoreDeserialized ('restored'); each node entry has its index, name, work-group size, FLOPs and BHWDC input and output shapes."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 248,
+   "id": "MOD-E2B-048",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's GetModelInfo copies supports_thinking and supports_function_calling from the LlmMetadata proto (fields 11 and 12); Google's E2B (b3ca0d2f) and E4B files don't set them, so ModelInfo reports both false for these models, as Agello's InferencePlanner comment (a691212) notes for E2B (it ignores both flags).",
+   "text_before": "LiteRT-LM's GetModelInfo copies supports_thinking and supports_function_calling from the LlmMetadata proto (fields 11 and 12); Google's E2B (b3ca0d2f) and E4B files don't set them, so ModelInfo reports both false for these models, as Agello's InferencePlanner comment notes for E2B (it ignores both flags)."
+  },
+  {
+   "page": "tools.md",
+   "line": 100,
+   "id": "MOD-E2B-048",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's GetModelInfo copies supports_thinking and supports_function_calling from the LlmMetadata proto (fields 11 and 12); Google's E2B (b3ca0d2f) and E4B files don't set them, so ModelInfo reports both false for these models, as Agello's InferencePlanner comment (a691212) notes for E2B (it ignores both flags).",
+   "text_before": "LiteRT-LM's GetModelInfo copies supports_thinking and supports_function_calling from the LlmMetadata proto (fields 11 and 12); Google's E2B (b3ca0d2f) and E4B files don't set them, so ModelInfo reports both false for these models, as Agello's InferencePlanner comment notes for E2B (it ignores both flags)."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 248,
+   "id": "MOD-E4B-052",
+   "verdict": "corrected",
+   "text_now": "Agello's engine load log reports the E4B file's capabilities as 'mtp=true thinking=false tools=false vision=true audio=true maxContext=0 maxVisionBudget=280' with our builds of 2026-10-15: fc71d704a349 on an iPhone 17 Pro (each of the four loads of calibrate-host-idle.json) and c5460a024e71 on an Apple M6 Mac. Both runs predate Agello 93122b6, when the app's catalog pointed to the first fp16-rope revision 13d5aa4c (2048-token blocks); the capabilities come from LlmMetadata and section types that are the same in a1693e22 and Google's 2eee7ac3 file. maxContext=0 is the context those builds couldn't read from E4B's main section; since cc97925b (2026-11-14, in our build and the release Agello ships) ModelInfo reports 32,003.",
+   "text_before": "Agello's engine load log reports the E4B file's capabilities as 'mtp=true thinking=false tools=false vision=true audio=true maxContext=0 maxVisionBudget=280', both with Google's v0.18.0 runtime on an iPhone 17 Pro and with our build c5460a024e71 on an Apple M6 Mac. Both runs (2026-10-15) predate Agello 93122b6, when the app's catalog pointed to the first fp16-rope revision 13d5aa4c (2048-token blocks); the capabilities come from LlmMetadata and section types that are the same in a1693e22 and Google's 2eee7ac3 file."
+  },
+  {
+   "page": "configuration.md",
+   "line": 346,
+   "id": "MOD-E4B-075",
+   "verdict": "corrected",
+   "text_now": "Agello's ChatEngine.makeEngine (a691212) creates the engine with the GPU main backend (the app has had no CPU backend since Agello 6db56c6, 2026-11-11), the CPU for vision and audio when enabled, maxNumTokens and a cache directory, and sets no activation data type, so LiteRT-LM applies the E4B file's prefer_activation_type fp16 (the same as its F16 default for the text executor) and the main graph runs with FP16 activations on the GPU.",
+   "text_before": "Agello's ChatEngine.makeEngine (commit 93122b6) creates the engine with the GPU or CPU main backend, the CPU for vision and audio when enabled, maxNumTokens and a cache directory, and sets no activation data type, so LiteRT-LM applies the E4B file's prefer_activation_type fp16 (the same as its F16 default for the text executor) and the main graph runs with FP16 activations on the GPU."
+  },
+  {
+   "page": "configuration.md",
+   "line": 565,
+   "id": "MOD-E4B-075",
+   "verdict": "corrected",
+   "text_now": "Agello's ChatEngine.makeEngine (a691212) creates the engine with the GPU main backend (the app has had no CPU backend since Agello 6db56c6, 2026-11-11), the CPU for vision and audio when enabled, maxNumTokens and a cache directory, and sets no activation data type, so LiteRT-LM applies the E4B file's prefer_activation_type fp16 (the same as its F16 default for the text executor) and the main graph runs with FP16 activations on the GPU.",
+   "text_before": "Agello's ChatEngine.makeEngine (commit 93122b6) creates the engine with the GPU or CPU main backend, the CPU for vision and audio when enabled, maxNumTokens and a cache directory, and sets no activation data type, so LiteRT-LM applies the E4B file's prefer_activation_type fp16 (the same as its F16 default for the text executor) and the main graph runs with FP16 activations on the GPU."
+  },
+  {
+   "page": "configuration.md",
+   "line": 224,
+   "id": "MOD-EMB-004",
+   "verdict": "corrected",
+   "text_now": "embeddinggemma-2-text-270m.litertlm (9be6e8b9) has text encoder signatures from 128 to 8,192 tokens, but its EmbeddingMetadata sets max_input_length 1024; LiteRT-LM copies that into the engine settings when the caller sets none and then loads only the signatures up to the first one of at least 1,024 tokens (128, 256, 512, 1024); Agello's LiteRTEmbedder (a691212) passes no maxInputLength.",
+   "text_before": "embeddinggemma-2-text-270m.litertlm (9be6e8b9) has text encoder signatures from 128 to 8,192 tokens, but its EmbeddingMetadata sets max_input_length 1024; LiteRT-LM copies that into the engine settings when the caller sets none and then loads only the signatures up to the first one of at least 1,024 tokens (128, 256, 512, 1024); Agello's LiteRTEmbedder (93122b647a) passes no maxInputLength."
+  },
+  {
+   "page": "configuration.md",
+   "line": 353,
+   "id": "MOD-EMB-004",
+   "verdict": "corrected",
+   "text_now": "embeddinggemma-2-text-270m.litertlm (9be6e8b9) has text encoder signatures from 128 to 8,192 tokens, but its EmbeddingMetadata sets max_input_length 1024; LiteRT-LM copies that into the engine settings when the caller sets none and then loads only the signatures up to the first one of at least 1,024 tokens (128, 256, 512, 1024); Agello's LiteRTEmbedder (a691212) passes no maxInputLength.",
+   "text_before": "embeddinggemma-2-text-270m.litertlm (9be6e8b9) has text encoder signatures from 128 to 8,192 tokens, but its EmbeddingMetadata sets max_input_length 1024; LiteRT-LM copies that into the engine settings when the caller sets none and then loads only the signatures up to the first one of at least 1,024 tokens (128, 256, 512, 1024); Agello's LiteRTEmbedder (93122b647a) passes no maxInputLength."
+  },
+  {
+   "page": "configuration.md",
+   "line": 565,
+   "id": "MOD-EMB-004",
+   "verdict": "corrected",
+   "text_now": "embeddinggemma-2-text-270m.litertlm (9be6e8b9) has text encoder signatures from 128 to 8,192 tokens, but its EmbeddingMetadata sets max_input_length 1024; LiteRT-LM copies that into the engine settings when the caller sets none and then loads only the signatures up to the first one of at least 1,024 tokens (128, 256, 512, 1024); Agello's LiteRTEmbedder (a691212) passes no maxInputLength.",
+   "text_before": "embeddinggemma-2-text-270m.litertlm (9be6e8b9) has text encoder signatures from 128 to 8,192 tokens, but its EmbeddingMetadata sets max_input_length 1024; LiteRT-LM copies that into the engine settings when the caller sets none and then loads only the signatures up to the first one of at least 1,024 tokens (128, 256, 512, 1024); Agello's LiteRTEmbedder (93122b647a) passes no maxInputLength."
+  },
+  {
+   "page": "configuration.md",
+   "line": 224,
+   "id": "MOD-EMB-065",
+   "verdict": "corrected",
+   "text_now": "Because Agello a691212 sets no maxInputLength, its EmbeddingGemma engine loads signatures up to 1,024 tokens, so a passage or query plus its prompt prefix is read up to 1,022 SentencePiece tokens (1,024 with BOS and EOS); Agello asks LiteRT-LM to truncate a longer input rather than fail (inputOverflowStrategy .truncate), and its chunker sizes passages by estimated quarter tokens (1,600, about 400 tokens), not by the tokenizer.",
+   "text_before": "Because Agello 93122b647a sets no maxInputLength, its EmbeddingGemma engine loads signatures up to 1,024 tokens, so a passage or query plus its prompt prefix must fit in 1,022 SentencePiece tokens (1,024 with BOS and EOS), while Agello's chunker limits characters (1,600), not tokens."
+  },
+  {
+   "page": "facts.md",
+   "line": 106,
+   "id": "OUR-029",
+   "verdict": "corrected",
+   "text_now": "(C17) docs/agello/AUDIT.md cites the E4B model as PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope revision 13d5aa4c with sha256 4a691f03…, and BASELINE.md cites revision 13d5aa4c; both open with a note that they describe that 2048-token-block revision and that Agello now uses a1693e22, the revision tools/agello-docs/pins.json and Agello's ModelCatalog at a691212 use (catalog sizeBytes 3,660,726,272), the 512-token-block file.",
+   "text_before": "(C17) docs/agello/AUDIT.md cites the E4B model as PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope revision 13d5aa4c with sha256 4a691f03…, and BASELINE.md cites revision 13d5aa4c; tools/agello-docs/pins.json and Agello's ModelCatalog at 93122b6 use revision a1693e22 (catalog sizeBytes 3,660,726,272), the 512-token-block file."
+  },
+  {
+   "page": "maintenance.md",
+   "line": 223,
+   "id": "OUR-029",
+   "verdict": "corrected",
+   "text_now": "(C17) docs/agello/AUDIT.md cites the E4B model as PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope revision 13d5aa4c with sha256 4a691f03…, and BASELINE.md cites revision 13d5aa4c; both open with a note that they describe that 2048-token-block revision and that Agello now uses a1693e22, the revision tools/agello-docs/pins.json and Agello's ModelCatalog at a691212 use (catalog sizeBytes 3,660,726,272), the 512-token-block file.",
+   "text_before": "(C17) docs/agello/AUDIT.md cites the E4B model as PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope revision 13d5aa4c with sha256 4a691f03…, and BASELINE.md cites revision 13d5aa4c; tools/agello-docs/pins.json and Agello's ModelCatalog at 93122b6 use revision a1693e22 (catalog sizeBytes 3,660,726,272), the 512-token-block file."
+  },
+  {
+   "page": "tools.md",
+   "line": 352,
+   "id": "RT-RUN-017",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT (ours: 5083cfae, from the PowerBeef/LiteRT fork imported into agello/litert) adds Agello telemetry to LiteRtCompiledModelT::Create: counters for compiled models, total nodes, GPU-delegated nodes, CPU-delegate nodes, undelegated nodes and GPU partitions, and a partial_delegation warning when the GPU is requested and either no node is GPU-delegated or some nodes are off the GPU or GPU partitions exceed the number of active subgraphs.",
+   "text_before": "Our LiteRT fork (commit 5083cfae) adds Agello telemetry to LiteRtCompiledModelT::Create: counters for compiled models, total nodes, GPU-delegated nodes, CPU-delegate nodes, undelegated nodes and GPU partitions, and a partial_delegation warning when the GPU is requested and either no node is GPU-delegated or some nodes are off the GPU or GPU partitions exceed the number of active subgraphs."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 532,
+   "id": "X-CFG-007",
+   "verdict": "corrected",
+   "text_now": "Agello (a691212) passes a SamplerConfig built from its resolved topK, topP and temperature (seeded only when a reply is regenerated with a seed) only to chat conversations and SamplerConfig(topK: 1, topP: 1, temperature: 0) to the transcription helper; its JSON helpers (enableResponseFormat true, speculative decoding off unless AGELLO_JSON_MTP=1), its text helpers (helperTexts, speculative decoding from its plan) and its validation probe (ConversationConfig()) pass no sampler config.",
+   "text_before": "Agello (93122b647a) passes a SamplerConfig built from its resolved topK, topP and temperature only to chat conversations and SamplerConfig(topK: 1, topP: 1, temperature: 0) to the transcription helper; its JSON helpers (enableResponseFormat true, speculative decoding off), its text helpers (helperTexts, speculative decoding from its plan) and its validation probe (ConversationConfig()) pass no sampler config."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 699,
+   "id": "X-MEM-009",
+   "verdict": "corrected",
+   "text_now": "In the first scenario (memory_e4b_5.0GB) of Agello's idle-host memory envelope run on the iPhone 17 Pro with our build fc71d704a349 (memory-host-idle.json, ballast 1.442 GB, no memory warnings), footprint minus the allocated ballast was 1.292 GB loaded at 8K, 1.347 GB after the text turn, 2.639 GB after the image turn (+1.293), 2.650 GB after the audio turn, 2.541 GB after the 8K prompt, and 2.171 GB reloaded at 16K after the 16K prompt.",
+   "text_before": "In the first scenario (memory_e4b_5.0GB) of Agello's idle-host memory envelope runs on the iPhone 17 Pro, footprint minus the allocated ballast was, for our build fc71d704a349 (memory-host-idle.json, ballast 1.442 GB, no memory warnings) and Google's v0.18.0 (memory-google-host-idle.json, ballast 3.590 GB, one memory warning from the text turn on): loaded at 8K 1.292 / 1.356 GB, after the text turn 1.347 / 1.402, after the image turn 2.639 / 2.765 (+1.293 / +1.364), after the audio turn 2.650 / 2.749, after the 8K prompt 2.541 / 2.655, and reloaded at 16K after the 16K prompt 2.171 / 2.551 GB."
+  },
+  {
+   "page": "troubleshooting.md",
+   "line": 726,
+   "id": "X-MEM-011",
+   "verdict": "corrected",
+   "text_now": "Agello at 93122b647a shows nothing while it hosts unit or device tests (AgelloApp.hostsTests, set when XCTestConfigurationFilePath is present; its comment says this keeps the app from warming up a second engine). With our build fc71d704a349 on the iPhone 17 Pro, the leftover breakdowns read after unloading the tests' engine at the start of the 3.5 GB and 4.0 GB envelope scenarios were 1.411 and 1.846 GB of footprint (0.763 and 0.764 GB graphics) in memory-host-engine-breakdown.json, with the host's own engine loaded, against 0.124 and 0.489 GB (0.001 and 0.002 GB graphics) in memory-host-idle.json, with the host idle.",
+   "text_before": "Agello at 93122b647a shows nothing while it hosts unit or device tests (AgelloApp.hostsTests, set when XCTestConfigurationFilePath is present; its comment says this keeps the app from warming up a second engine). With Google's v0.18.0 on the iPhone 17 Pro, the after-load footprints at maxNumTokens 4,096 to 32,768 were 2.252, 2.638, 2.876 and 4.349 GB in calibrate-cooled-google.json (before the change) against 1.095, 0.988, 1.648 and 2.862 GB in calibrate-google-host-idle.json (idle host); with our build fc71d704a349, the leftover breakdowns read after unloading the tests' engine at the start of the 3.5 GB and 4.0 GB envelope scenarios were 1.411 and 1.846 GB of footprint (0.763 and 0.764 GB graphics) in memory-host-engine-breakdown.json against 0.124 and 0.489 GB (0.001 and 0.002 GB graphics) in memory-host-idle.json."
+  }
+ ]
+}

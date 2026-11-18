@@ -1,0 +1,1116 @@
+{
+ "agent": "e",
+ "pages": [
+  "ml-drift/architecture.md",
+  "ml-drift/kernels.md",
+  "troubleshooting.md",
+  "other-platforms.md"
+ ],
+ "claims": [
+  {
+   "group": "lm-build",
+   "id": "LM-OTH-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm kotlin/java/com/google/ai/edge/litertlm/Config.kt:137-161"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-OTH-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm kotlin/java/com/google/ai/edge/litertlm/jni/BUILD:24-45",
+    "our tree no longer has the file: litert-lm kotlin/java/com/google/ai/edge/litertlm/jni/litertlm.cc:39-66"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-OTH-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm python/litert_lm/_ffi.py:155-181"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-OTH-006",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "our tree no longer has the file: litert-lm python/litert_lm/BUILD:127-133",
+    "our tree no longer has the file: litert-lm python/litert_lm/BUILD:232-237",
+    "our tree no longer has the file: litert-lm python/litert_lm/BUILD:266-270",
+    "our tree no longer has the file: litert-lm python/litert_lm/BUILD:369-388",
+    "our tree no longer has the file: litert-lm python/litert_lm/BUILD:397-413",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-OTH-007",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm js/packages/core/package.json:1-5",
+    "our tree no longer has the file: litert-lm js/packages/core/scripts/download-wasm.js:34-36"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-OTH-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm omni/README.md:3-38",
+    "our tree no longer has the file: litert-lm omni/README.md:39-70"
+   ]
+  },
+  {
+   "group": "rt-runtime",
+   "id": "RT-OTH-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert litert/runtime/accelerators/gpu/ml_drift_gpu_accelerator.cc:170-217"
+   ]
+  },
+  {
+   "group": "rt-runtime",
+   "id": "RT-OTH-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "rt-runtime",
+   "id": "RT-OTH-008",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert litert/runtime/accelerators/gpu/ml_drift_webgpu_accelerator.cc:47-52",
+    "our tree no longer has the file: litert litert/runtime/accelerators/gpu/ml_drift_webgpu_accelerator.cc:111-152"
+   ]
+  },
+  {
+   "group": "rt-runtime",
+   "id": "RT-OTH-011",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm WORKSPACE:517-540",
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-002",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1356-1377"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/metal/environment.mm:30-106"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-007",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:889-973"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-016",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1356-1376"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-017",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-018",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-033",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-042",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/litert_op_selector.cc:145-252"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-045",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1535"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-046",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1518-1589"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-048",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-049",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-ARC-053",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/binaries.md, regenerated at the new pin",
+    "cites generated/version-matrix.md, regenerated at the new pin",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: ml-drift README.md:68-74",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: ml-drift README.md:90-96",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-003",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: ml-drift ml_drift/cl/program_cache.h:60-64",
+    "our tree no longer has the file: ml-drift ml_drift/cl/cl_program.cc:194-205"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-004",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: ml-drift ml_drift/cl/cl_operation.cc:182-210",
+    "our tree no longer has the file: ml-drift ml_drift/webgpu/inference_context.cc:283-286"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-005",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: ml-drift ml_drift/gl/gl_operation.cc:103-110"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-006",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-architecture",
+   "id": "MD-OTH-010",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_opencl.cc:664-693",
+    "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_vulkan.cc:356-375"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1536",
+    "cites generated/kernels-by-family.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-004",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-006",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1536",
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-008",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-011",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1518-1532"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-012",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-013",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1536",
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-017",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-019",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1331-1340",
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-022",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-024",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-033",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/kernels/fully_connected.cc:671-676"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-045",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-047",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-049",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-050",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:263-276",
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-052",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:72-108"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-054",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/task/gpu_operation.h:438-452"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-056",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-060",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-061",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-062",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-067",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-069",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-072",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:86-91",
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-073",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-078",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298",
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-080",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1366-1376",
+    "cites generated/patch-log.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-081",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-082",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-083",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-084",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:44-71",
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-085",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-086",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:44-71"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-087",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:86-91",
+    "changed: litert ml_drift_delegate/delegate/composite/litert_op_selector.cc:175-190"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-089",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/metal/inference_context.mm:767-802"
+   ]
+  },
+  {
+   "group": "md-kernels",
+   "id": "MD-KRN-090",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-TRB-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-TRB-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-TRB-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-TRB-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm c/conversation.cc:44-71",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1053-1056"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-010",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1377-1432",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:711-760",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-607",
+    "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:778-850",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-011",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-012",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-607",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-013",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-019",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.cc:66-91",
+    "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.h:41-72",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-020",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:501-572",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:663-709",
+    "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:578-645",
+    "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:735-776",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-021",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:761-783",
+    "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.cc:79-91",
+    "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:826-849",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-022",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1526-1559",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1391-1432",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:711-760",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-gaps",
+   "id": "X-GAP-023",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:663-709",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:761-783",
+    "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.cc:79-91",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:501-572"
+   ]
+  }
+ ],
+ "links": [
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_info.h#L271-L332",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L517-L540",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L106",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1356-L1377",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L863-L975",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1376",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L104",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/litert_op_selector.cc#L145-L252",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1518-L1589",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L863-L975",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1356-L1377",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L106",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/architecture.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1498-L1589",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L678-L697",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/task/gpu_operation.h#L438-L452",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1518-L1532",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1530-L1536",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1331-L1340",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/fully_connected.cc#L671-L676",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L735-L802",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/bounded_attention.cc#L263-L276",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc#L44-L71",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc#L86-L91",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/litert_op_selector.cc#L175-L190",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/bounded_attention.cc#L72-L108",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1366-L1376",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1530-L1536",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1331-L1340",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/bounded_attention.cc#L72-L108",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1366-L1376",
+   "status": "changed"
+  },
+  {
+   "page": "ml-drift/kernels.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L678-L697",
+   "status": "changed"
+  },
+  {
+   "page": "other-platforms.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L560-L576",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1053-L1056",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1377-L1432",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L576-L607",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L711-L760",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/constrained_decoding/llg_constraint.cc#L66-L91",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/constrained_decoding/llg_constraint.h#L41-L72",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L501-L572",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L663-L709",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L761-L783",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1526-L1559",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_mtp_drafter.cc#L578-L645",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_mtp_drafter.cc#L826-L849",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L830-L840",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71",
+   "status": "changed"
+  },
+  {
+   "page": "troubleshooting.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L560-L576",
+   "status": "changed"
+  }
+ ],
+ "batches": [
+  "lm-build.z-repin-e",
+  "md-architecture.z-repin-e",
+  "md-kernels.z-repin-e",
+  "rt-runtime.z-repin-e",
+  "x-gaps.z-repin-e",
+  "x-memory.z-repin-e"
+ ]
+}

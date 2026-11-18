@@ -3,16 +3,18 @@
 > **Scope:** the layers from Agello down to Metal; one chat turn traced hop by hop (function, thread,
 > device, what is copied); the threads (LiteRT-LM's execution and callback threads, Swift actors, the
 > Metal command queue); who owns the engine, sessions, KV state and buffers; the open and closed parts
-> of the binaries; the differences between the documented build and what Agello ships.
+> of the binaries; the differences between the documented build and what Agello ships, and the
+> record of Google's v0.18.0 binary, which Agello shipped until 2026-10-28.
 > **Out of scope:** the depth of each layer, which lives on its page: [Swift API](litert-lm/swift-api.md),
 > [C API](litert-lm/c-api.md), [Conversation](litert-lm/conversation.md),
 > [engine and sessions](litert-lm/engine-and-sessions.md), [executors](litert-lm/executors.md),
 > [components](litert-lm/components.md), [LiteRT runtime](litert/runtime.md),
 > [ML Drift delegate](litert/ml-drift-delegate.md), [ML Drift Metal backend](ml-drift/metal-backend.md);
 > bytes and footprints in [memory.md](memory.md); settings in [configuration.md](configuration.md).
-> **Pinned to:** LiteRT-LM `7b872544`, LiteRT `362759838`, ML Drift `15fa9e2`; shipped: LiteRT-LM
-> `85b1a776` (v0.18.0 wrapper) with Google's prebuilt v0.18.0 `CLiteRTLM`; Agello `93122b647a`.
-> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift`; Agello ships release `agello-one-20261115` (`6da75396`); Agello's own code at
+> `a691212`.
+> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -24,9 +26,10 @@ which runs the decode loop, waits for the GPU and delivers each streamed chunk u
 stream, while `callback_thread` delivers the final chunk and starts the decode after the prefill.
 A plain decode step in our build moves at least 577,536 bytes between the CPU and GPU-visible memory
 (embeddings in, FP16 logits out to the CPU sampler) <!-- c:X-STK-010 -->, and each released piece of
-text becomes a JSON message, a C string and a Swift `Message`. Google's binary, which Agello ships,
-adds a closed Metal sampler, a closed constraint provider and closed GPU-artisan code; none of our
-runtime patches are in it. <!-- c:RT-DLG-083 -->
+text becomes a JSON message, a C string and a Swift `Message`. Agello ships our release
+`agello-one-20261115`, with every runtime patch up to 2026-11-15; Google's v0.18.0 binary, which it
+shipped until 2026-10-28, added a closed Metal sampler, a closed constraint provider and closed
+GPU-artisan code, and had none of our runtime patches. <!-- c:RT-DLG-083 -->
 
 ## Concepts
 
@@ -73,18 +76,18 @@ flowchart TB
 ```
 
 Where each layer starts in the code: the Swift `Engine` actor
-([`swift/Engine.swift:28`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/Engine.swift#L28)) and `Conversation` class
-([`swift/Conversation.swift:64`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L64)); the C handles
+([`swift/Engine.swift:32`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Engine.swift#L32)) and `Conversation` class
+([`swift/Conversation.swift:68`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Conversation.swift#L68)); the C handles
 ([`c/engine_internal.h:68`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine_internal.h#L68)); `Conversation`
-([`runtime/conversation/conversation.h:511`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.h#L511)); `SessionAdvanced`
+([`runtime/conversation/conversation.h:512`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.h#L512)); `SessionAdvanced`
 ([`runtime/core/session_advanced.h:50`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L50)); the engine
-([`runtime/core/engine_advanced_impl.cc:237`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L237)); the execution manager
-([`runtime/framework/resource_management/threaded_execution_manager.h:60`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/framework/resource_management/threaded_execution_manager.h#L60)) and resource manager
-([`runtime/framework/resource_management/resource_manager.h:46`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/framework/resource_management/resource_manager.h#L46)); the executor
-([`runtime/executor/llm_litert_compiled_model_executor.h:498`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.h#L498)); LiteRT's compiled model
+([`runtime/core/engine_advanced_impl.cc:238`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L238)); the execution manager
+([`runtime/framework/resource_management/threaded_execution_manager.h:60`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.h#L60)) and resource manager
+([`runtime/framework/resource_management/resource_manager.h:46`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/resource_manager.h#L46)); the executor
+([`runtime/executor/llm_litert_compiled_model_executor.h:551`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.h#L551)); LiteRT's compiled model
 ([`litert/runtime/compiled_model.h:78`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/litert/runtime/compiled_model.h#L78)); the ML Drift delegate
-([`ml_drift_delegate/delegate/delegate_metal.mm:302`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L302)); and ML Drift's encoder
-([`ml_drift/metal/inference_context.mm:767`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L767)).
+([`ml_drift_delegate/delegate/delegate_metal.mm:307`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L307)); and ML Drift's encoder
+([`ml_drift/metal/inference_context.mm:817`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L817)).
 
 The C API creates every CPU or GPU engine as `EngineAdvancedImpl`; no other engine type is registered
 in the open source. <!-- c:LM-ENG-002 --> That engine creates a `ThreadedExecutionManager` unless
@@ -101,7 +104,7 @@ CPU on every platform but Android. <!-- c:RT-CPU-001 -->
 
 The trace below is a text-only turn on a GPU engine in the documented build, with speculative
 decoding (MTP) on, as Agello configures it, on a `Conversation` that already holds earlier turns.
-Where the shipped binary behaves differently, the last section says so.
+Where the release Agello ships differs, the last section says so.
 
 ```mermaid
 sequenceDiagram
@@ -114,7 +117,7 @@ sequenceDiagram
   participant GPU as Metal queue / GPU
   participant CB as callback_thread
   UI->>CE: send(text:) → AsyncThrowingStream<ChatEvent>
-  CE->>SW: sendMessageStream(message, maxOutputTokens:)
+  CE->>SW: sendMessageStream(message, output caps, thinking budget, maxToolRounds)
   SW->>CV: litert_lm_conversation_send_message_stream(json, streamCallback)
   CV->>CV: render template diff, append history, tokenize
   CV->>EX: AddPrefillTask (queued); C call returns OK
@@ -143,8 +146,8 @@ sequenceDiagram
 | # | Hop | Function | Thread | Device | What is copied |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Agello UI → engine | `AppState.generate` calls `engine.send(text:imageData:audioFileURL:)` and hands the stream to `consume` | main actor | CPU | the prompt `String` |
-| 2 | engine → Swift wrapper | `LiteRTChatEngine.runSend` builds a `LiteRTLM.Message` and calls `sendMessageStream(_:maxOutputTokens:)` | `LiteRTChatEngine` actor | CPU | the text into `Content` |
-| 3 | Swift → C | `sendToStream` serializes the message and calls `litert_lm_conversation_send_message_stream` with a retained `StreamContext` | same | CPU | message → JSON string |
+| 2 | engine → Swift wrapper | `LiteRTChatEngine.runSend` builds a `LiteRTLM.Message` and calls `sendMessageStream(_:maxOutputTokens:thinkingConfig:followUpMaxOutputTokens:maxToolRounds:)` | `LiteRTChatEngine` actor | CPU | the text into `Content` |
+| 3 | Swift → C | `sendToStream` serializes the message and calls `litert_lm_conversation_send_message_stream` with the stream's ID in `StreamTable` | same | CPU | message → JSON string |
 | 4 | C → `Conversation` | parses the JSON and calls `Conversation::SendMessageAsync` | same | CPU | JSON string → a parsed `nlohmann` JSON object |
 | 5 | `Conversation` | renders the turn (two full renders and their difference for a later turn), appends to history, builds input data, wires the prefill callback to start the decode | same | CPU | rendered prompt text |
 | 6 | `SessionAdvanced` → manager | `RunPrefillAsync` tokenizes and calls `AddPrefillTask`; the C call then returns | same | CPU | text → token IDs |
@@ -167,65 +170,74 @@ The evidence for each hop:
 
 1. `AppState` is a `@MainActor` class; its generation path passes the stream from
    `engine.send(...)` to `consume`, which accumulates chunks and publishes the text to the reply's
-   `ChatTurn` only when at least 100 ms passed since the last write, plus once at the end (Agello
-   `AppState.swift:24-26`, `:656-660`, `:1016-1063`). <!-- c:X-STK-001 -->
+   `ChatTurn` only when at least 100 ms passed since the last write, plus once when the stream ends
+   or fails (Agello `AppState.swift:8-10`, `:716-721`, `AppState+Reply.swift:127-227`).
+   <!-- c:X-STK-001 -->
 2. `LiteRTChatEngine` is an `actor`. Its `nonisolated send(...)` returns an `AsyncThrowingStream`
    whose build closure starts a `Task` running the actor-isolated `runSend` and cancels it when the
-   stream terminates; `runSend` calls `conversation.sendMessageStream(message, maxOutputTokens:)` and,
-   for each `Message`, yields a `ChatChunk` with `chunk.toString` as the text delta and the `thought`
-   channel as the thought delta, so its loop body runs on the actor (Agello `ChatEngine.swift:68`,
-   `:572-582`, `:684-704`). <!-- c:X-STK-002 --> It checks `Task.isCancelled` on every chunk and
-   cancels the native conversation when the reply would overflow the room left in the KV cache.
-   <!-- c:LM-SWIFT-060 -->
-3. The wrapper's build closure starts the native stream at once and registers no `onTermination`
-   handler. <!-- c:LM-SWIFT-013 --> `sendToStream` retains a `StreamContext` with
-   `Unmanaged.passRetained` and passes it as `callback_data`. <!-- c:LM-SWIFT-014 -->
+   stream terminates; `runSend` calls `conversation.sendMessageStream` with the message, the output
+   caps for the first round and the rounds after a tool response, the thinking budget and
+   `maxToolRounds` (the planned tool calls plus one) from `ToolBudget.plan`, and, for each `Message`, yields a `ChatChunk` with
+   `chunk.toString` as the text delta, the `thought` channel as the thought delta and the tools'
+   names, so its loop body runs on the actor (Agello `ChatEngine.swift:75`, `:747-758`,
+   `:873-924`). <!-- c:X-STK-002 --> It checks `Task.isCancelled` on every
+   chunk and cancels the native conversation when the task is cancelled, when the reply would
+   overflow the room left in the KV cache, or after a stream error. <!-- c:LM-SWIFT-060 -->
+3. The wrapper's build closure starts the native stream at once and installs an `onTermination`
+   handler that cancels the native work when the iterating task is cancelled before the stream ends
+   (ours: `4ca2cf33`). <!-- c:LM-SWIFT-013 --> `sendToStream` registers the stream's `StreamContext`
+   in `StreamTable` under a new integer ID and passes that ID as `callback_data` (ours: `4ca2cf33`).
+   <!-- c:LM-SWIFT-014 -->
 4. `litert_lm_conversation_send_message_stream` parses the message JSON, builds the optional
    arguments, calls `SendMessageAsync` with a callback from `CreateConversationCallback`, and returns
-   `kLiteRtLmStatusOk` as soon as `SendMessageAsync` returns: it doesn't wait for the reply
-   ([`c/conversation.cc:640-672`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L640-L672)). <!-- c:X-STK-003 -->
+   `kLiteRtLmStatusOk` as soon as `SendMessageAsync` returns: it doesn't wait for the reply; the
+   callback passes on only a send's first final chunk (ours, `8acc748c`)
+   ([`c/conversation.cc:658-690`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L658-L690)). <!-- c:X-STK-003 -->
 5. `SendMessageAsync`, on the calling thread, renders the turn's prompt text, appends the message to
    the history and converts it to input data with the model data processor. Unless the turn is being
    appended (a message sent with `has_pending_message` in its optional arguments, which the C API
    never sets; that path only queues a prefill and returns), it then builds the internal callback and
    calls `RunPrefillAsync` with a callback that, once the prefill reports `kDone`,
    saves the channel checkpoint (when filtering is on) and calls `RunDecodeAsync` with that internal
-   callback ([`runtime/conversation/conversation.cc:556-575`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L556-L575),
-   [`runtime/conversation/conversation.cc:650-654`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L650-L654),
-   [`runtime/conversation/conversation.cc:655-686`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L655-L686),
-   [`runtime/conversation/conversation.cc:787-797`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L787-L797),
-   [`runtime/conversation/conversation.cc:799-856`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L799-L856)). <!-- c:X-STK-004 -->
+   callback ([`runtime/conversation/conversation.cc:593-612`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L593-L612),
+   [`runtime/conversation/conversation.cc:687-691`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L687-L691),
+   [`runtime/conversation/conversation.cc:692-723`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L692-L723),
+   [`runtime/conversation/conversation.cc:834-844`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L834-L844),
+   [`runtime/conversation/conversation.cc:846-903`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L846-L903)). <!-- c:X-STK-004 -->
    With the Gemma 4 file template, a later turn's prefill text is the difference between two full
    renders of the conversation, so only the new turn is prefilled. <!-- c:LM-CNV-018 --> <!-- c:LM-CNV-021 -->
 6. `RunPrefillAsync` templates and tokenizes on the calling thread before it queues the task
    <!-- c:LM-ENG-024 -->, then queues it with `AddPrefillTask`; `RunDecodeAsync` queues the decode with
    `AddDecodeTask`
-   ([`runtime/core/session_advanced.cc:139-147`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L139-L147),
-   [`runtime/core/session_advanced.cc:301-314`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L301-L314)).
+   ([`runtime/core/session_advanced.cc:139-147`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/session_advanced.cc#L139-L147),
+   [`runtime/core/session_advanced.cc:301-314`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/session_advanced.cc#L301-L314)).
    Each new task depends on the session's last one. <!-- c:LM-ENG-023 -->
 7. The prefill task runs on the execution thread: it starts, checks the cancel flag, acquires the
    executor with the session's context handler, encodes any images or audio, runs `Tasks::Prefill`
-   with `wait_for_completion = true`, records the last prefilled token, releases the executor and
-   finishes the task
-   ([`runtime/framework/resource_management/threaded_execution_manager.cc:866-895`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L866-L895),
-   [`runtime/framework/resource_management/threaded_execution_manager.cc:963-1001`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L963-L1001)).
+   with `wait_for_completion = true` and the cancel flag (a prefill stopped between its runs ends as
+   cancelled, ours), records the last prefilled token, releases the executor and finishes the task
+   ([`runtime/framework/resource_management/threaded_execution_manager.cc:876-905`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L876-L905),
+   [`runtime/framework/resource_management/threaded_execution_manager.cc:974-1016`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L974-L1016)).
    <!-- c:X-STK-006 --> The executor's mutex is held from acquisition to just before `FinishTask`, so
    all executor use is serialized across sessions. <!-- c:LM-ENG-047 --> If another session used the
    executor last, acquisition snapshots its KV state and restores this session's
    ([engine-and-sessions.md](litert-lm/engine-and-sessions.md#context-switches-what-is-copied-and-where)). <!-- c:LM-ENG-048 -->
 8. `Tasks::Prefill` rejects an input of `max_num_tokens` tokens or more and calls `executor.Prefill`
-   ([`runtime/core/tasks.cc:560-593`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L560-L593)), through the locked
-   executor, which first drops input tokens the executor already holds. <!-- c:LM-ENG-067 --> The
+   with the cancel flag in its parameters
+   ([`runtime/core/tasks.cc:575-610`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L575-L610)), through the locked
+   executor, which first drops input tokens the executor already holds (not with ring KV caches,
+   ours: `6cfd1a28`). <!-- c:LM-ENG-067 --> The
    executor splits the prompt across `prefill_1024` and `prefill_128` (2,049 tokens: 1024 + 1024 + 1)
    <!-- c:LM-EXE-010 -->, and each text-token lookup is a CPU model run of the embedder and of the
    per-layer embedder. <!-- c:LM-EXE-015 -->
 9. On Metal the executor runs every prefill work group synchronously with `CompiledModel::Run`.
    <!-- c:LM-EXE-012 --> `Run` invokes the TFLite interpreter, and the ML Drift delegate replaced its
    partition with one kernel registered as `LITERT_METAL`, whose `Invoke`, inside an
-   `@autoreleasepool`, binds external buffers, converts inputs, dispatches and converts outputs
-   ([`litert/runtime/compiled_model.cc:2343-2356`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/litert/runtime/compiled_model.cc#L2343-L2356),
-   [`ml_drift_delegate/delegate/delegate_metal.mm:157-168`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L157-L168),
-   [`ml_drift_delegate/delegate/delegate_metal.mm:252-258`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L252-L258)).
+   `@autoreleasepool`, first calls our `BeforeInvoke` (`b96dedea`), then binds external buffers,
+   converts inputs, dispatches and converts outputs
+   ([`litert/runtime/compiled_model.cc:2343-2356`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/litert/runtime/compiled_model.cc#L2343-L2356),
+   [`ml_drift_delegate/delegate/delegate_metal.mm:158-171`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L158-L171),
+   [`ml_drift_delegate/delegate/delegate_metal.mm:257-264`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L257-L264)).
    <!-- c:X-STK-007 --> The full step list is in
    [ml-drift-delegate.md](litert/ml-drift-delegate.md#one-run-step-by-step). <!-- c:RT-DLG-081 -->
 10. `Dispatch` commits the pending command buffer and encodes the graph with
@@ -233,8 +245,9 @@ The evidence for each hop:
     <!-- c:MD-MTL-020 --> Every kernel is re-encoded on every dispatch. <!-- c:MD-KRN-089 --> One
     E4B decode dispatch is 7 command buffers, an MTP drafter dispatch 1. <!-- c:MD-MTL-021 --> The
     run then waits: with an active wait, the execution thread spins until a completion handler sets a
-    flag. <!-- c:RT-DLG-065 --> Agello always gets the active wait, because it turns on LiteRT-LM's
-    benchmark mode. <!-- c:OUR-034 -->
+    flag; with a passive one it sleeps in `waitUntilCompleted`. <!-- c:RT-DLG-065 --> LiteRT-LM asks
+    for the active wait only in benchmark mode, which Agello turned on until 2026-11-11 and has left
+    off since, so the app gets the passive wait (ours: `645aaf65`). <!-- c:OUR-034 -->
 11. `FinishTask` schedules the prefill's final callback on the callback thread and then waits up to
     10 s for it. <!-- c:LM-ENG-038 --> `Conversation` calls `RunDecodeAsync` from inside that
     callback, so the decode task is added on the callback thread. <!-- c:LM-ENG-040 --> With the
@@ -249,7 +262,8 @@ The evidence for each hop:
     <!-- c:LM-EXE-062 -->, but the ML Drift delegate never attaches an event, so `Invoke` waits for the
     GPU before returning. <!-- c:RT-DLG-066 --> <!-- c:RT-DLG-068 --> Our build has no Metal sampler
     and samples on the CPU. <!-- c:LM-EXE-019 --> With MTP, a round drafts 3 tokens and emits 1 to 4
-    <!-- c:LM-EXE-022 -->, every emitted token being the verifier's greedy pick. <!-- c:LM-EXE-024 -->
+    (the opt-in long rounds on `verify_8`, ours: `4fa592c5`, check 7 drafts) <!-- c:LM-EXE-022 -->,
+    every emitted token being the verifier's greedy pick. <!-- c:LM-EXE-024 -->
 14. Per executor step, `Tasks::Decode` passes the host token IDs through the stop filter and the
     streaming detokenizer and calls the callback once with that step's text and IDs (moved), only if
     some text was released; with MTP one callback can carry several tokens. <!-- c:LM-ENG-085 -->
@@ -270,23 +284,25 @@ The evidence for each hop:
     the chunk on its stack around that temporary string, so a reader must copy it before returning.
     <!-- c:LM-CAPI-027 -->
 17. Swift's `streamCallback` is that C callback, so it runs on the execution thread for streamed
-    chunks and on the callback thread for the final one. <!-- c:LM-SWIFT-015 --> It copies the C string
-    into a Swift `String`, converts it to `Data`, parses it with `JSONSerialization`, and for an object
-    with `content` or `channels` calls `jsonToMessage` on the same string, which converts and parses it
-    again, then yields the `Message`; both wrappers do this
-    ([`swift/Conversation.swift:906-922`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L906-L922),
-    [`swift/Conversation.swift:744-750`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L744-L750),
-    shipped: [`swift/Conversation.swift:850-866`](https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/swift/Conversation.swift#L850-L866)). <!-- c:X-STK-009 -->
+    chunks and on the callback thread for the final one. <!-- c:LM-SWIFT-015 --> It reads the chunk
+    into a `StreamChunk`, copying the C string into a Swift `String`; `handleStreamChunk` converts it
+    to `Data`, parses it with `JSONSerialization`, and for an object with `content` or `channels`
+    yields `jsonToMessage` of the same string, which converts and parses it again; the release Agello
+    ships does the same
+    ([`swift/ConversationStream.swift:50-64`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/ConversationStream.swift#L50-L64),
+    [`swift/ConversationStream.swift:284-297`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/ConversationStream.swift#L284-L297),
+    [`swift/Conversation.swift:800-806`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Conversation.swift#L800-L806)). <!-- c:X-STK-009 -->
     A chunk with only tool calls is collected, not yielded. <!-- c:LM-SWIFT-016 -->
 18. See hop 2: the `for try await` loop in `runSend` resumes on the `LiteRTChatEngine` actor.
 19. See hop 1: `consume` writes to SwiftData at most about ten times a second.
-20. On the final chunk with pending tool calls, the wrapper starts a Swift `Task` that runs the tools
-    and sends their responses as a new stream round. <!-- c:LM-SWIFT-017 --> When the reply carried
+20. On the final chunk with pending tool calls and fewer tool rounds than `maxToolRounds` (25 unless
+    the caller passes another), the wrapper starts a Swift `Task` that runs the tools and sends their
+    responses as a new stream round under a new ID. <!-- c:LM-SWIFT-017 --> When the reply carried
     channel content, `Conversation` rewinds to the checkpoint and prefills the reply without it before
     sending the final sentinel. <!-- c:LM-CNV-052 -->
 
 The one engine run in [generated/engine-run.md](generated/engine-run.md) shows the shape: a 2,049-token
-prompt and 17 generated tokens made 2 scheduled tasks, 1 context switch, 4 MTP rounds and 4 stream
+prompt and 17 generated tokens made 2 scheduled tasks, 1 context switch, 4 MTP rounds and 5 stream
 chunks. <!-- c:LM-ENG-086 --> The 17 tokens came from 1 plain priming step and 4 rounds of 3 accepted
 drafts plus a bonus token. <!-- c:LM-EXE-025 -->
 
@@ -307,17 +323,18 @@ Together, the two fixed host-GPU transfers of a plain E4B decode step in our bui
 53,248 bytes of embeddings written and 524,288 bytes of logits read, before the mask and the 32 bytes
 of position and parameters. <!-- c:X-STK-010 --> On Apple's unified memory these are memory copies in
 shared storage, not bus transfers: ML Drift allocates every `MTLBuffer` in shared storage.
-<!-- c:MD-MTL-015 --> The read of a GPU tensor goes through LiteRT's Metal buffer handler, whose host
-shadow and direct copies are described in
+<!-- c:MD-MTL-015 --> The read of a GPU tensor goes through LiteRT's Metal buffer handler, which
+locks a packed buffer in shared storage in place, without a copy (ours: `89137792`), and reads
+other buffers into a host shadow, as described in
 [ml-drift-delegate.md](litert/ml-drift-delegate.md#the-metal-buffer-handler). <!-- c:RT-DLG-074 -->
 
 With MTP, a round adds per draft step one more embedder run and a greedy pick over the drafter's
 logits, and per verification the embeddings for 4 positions and a greedy pick over 4 rows of logits
 ([executors.md](litert-lm/executors.md#what-runs-on-the-cpu-for-every-token)). <!-- c:LM-EXE-063 -->
-Our `e43f9a8d` stopped copying the whole token history into the mask fill every step and reuses the
-sampled-ID buffer; v0.18.0 still does both. <!-- c:LM-EXE-035 --> In the engine run, Metal
-tensor-buffer read locks copied 15,419,392 bytes in 29 copies over the whole case.
-<!-- c:LM-EXE-086 -->
+Since our `e43f9a8d` the mask fill no longer copies the whole token history every step and the
+sampled-ID buffer is reused, in the release Agello ships too. <!-- c:LM-EXE-035 --> In the engine run, Metal
+tensor-buffer read locks copied 8,912,896 bytes in 5 copies over the whole case, and write unlocks only
+336 bytes, since packed shared buffers lock in place (ours: `89137792`). <!-- c:LM-EXE-086 -->
 
 What the layers above `Tasks` cost per chunk has not been measured separately: the telemetry span
 `stream_callback` covers the C callback and everything it calls for the chunks streamed inside the
@@ -339,15 +356,15 @@ decode loop, but not the last call after the loop, which delivers text flushed f
 - **The decode loop.** `Tasks::Decode` runs on the execution thread, and all sessions of one engine
   share that thread and the one executor: a decode task runs every step until it stops before the next
   queued task starts. <!-- c:LM-ENG-061 --> The pools hold one thread each. <!-- c:LM-ENG-030 -->
-  On Apple they are POSIX threads with default attributes, named `execution_threa` and
-  `callback_thread`, with no QoS class. <!-- c:LM-ENG-032 -->
+  On Apple they are POSIX threads created with the user-interactive quality-of-service class (ours:
+  `4780b5c5`), named `execution_threa` and `callback_thread`. <!-- c:LM-ENG-032 -->
 - **Who delivers chunks to Swift.** The execution thread, from inside `Tasks::Decode`, for every
   streamed chunk; the callback thread for the final chunk and any text flushed with it.
   <!-- c:LM-SWIFT-015 --> Time spent in the Swift callback is time the decode loop doesn't run, and the
   execution thread waits up to 10 s for a final callback before it takes the next task.
   <!-- c:LM-CAPI-028 -->
 - **Swift.** The `Engine` actor's `initialize()` runs the whole native load on the actor's thread.
-  <!-- c:LM-SWIFT-001 --> `Conversation` is a `Sendable` class with no actor or lock, so nothing in
+  <!-- c:LM-SWIFT-001 --> `Conversation` is a `Sendable` class with no actor or lock of its own, so nothing in
   Swift serializes calls on one conversation <!-- c:LM-SWIFT-010 -->; Agello does, by keeping all
   native calls inside its actor. `sendMessage` (the blocking form) holds its caller's thread for the
   whole reply. <!-- c:LM-SWIFT-011 -->
@@ -376,10 +393,10 @@ decode loop, but not the last call after the loop, which delivers text flushed f
 | The executor (`LlmExecutor`) | `ResourceManager` | the engine | one per engine, behind a mutex <!-- c:LM-ENG-047 --> |
 | A session | `Conversation` (or the C session handle) | until deleted | an ID, a context handler, a task chain; deleting it waits for its tasks up to 10 minutes <!-- c:LM-ENG-027 --> |
 | Live KV cache | the executor's `LitertState` | the engine | GPU output buffers on a GPU engine with a `param_tensor` input (E4B, E2B) <!-- c:LM-EXE-017 --> |
-| KV snapshots | the session's `SharedProcessedContext` | until that session next acquires the executor | a deep copy taken at a context switch <!-- c:LM-ENG-049 --> <!-- c:LM-ENG-064 -->; ours are raw byte copies in pages of their own <!-- c:LM-ENG-051 --> <!-- c:LM-ENG-052 --> |
+| KV snapshots | the session's `SharedProcessedContext` | until that session next acquires the executor | a copy of the filled positions (ours: `37bdbbf5`), taken at a context switch <!-- c:LM-ENG-049 --> <!-- c:LM-ENG-064 -->; ours are GPU blits or raw byte copies into pages of their own <!-- c:LM-ENG-051 --> <!-- c:LM-ENG-052 --> |
 | Model file | `MemoryMappedFile` | the engine | mapped `MAP_PRIVATE`, `MADV_DONTNEED` on Apple <!-- c:LM-FMT-020 -->; CPU and GPU models built from the mapped section bytes <!-- c:LM-CMP-069 --> |
 | GPU weights | the delegate's shared memory manager | the delegate | read from the weight cache as mapped data and wrapped without a copy on Apple <!-- c:RT-DLG-058 --> |
-| GPU intermediates | ML Drift's `MemoryManager` | the manager | reused across models, never shrunk while the manager lives <!-- c:MD-MTL-013 --> |
+| GPU intermediates | ML Drift's `MemoryManager` | the manager | reused across models; a prefill graph's own pool of 256 MB or more is freed when another graph runs and allocated again before the prefill runs again (ours: `b96dedea`); the rest stays while the manager lives <!-- c:MD-MTL-013 --> |
 | Metal device | the delegate (process-wide) | reference-counted | one per process <!-- c:RT-DLG-007 --> |
 | Disk caches | the cache directory | until deleted | program cache and weight cache files per model token <!-- c:RT-DLG-062 --> |
 
@@ -388,24 +405,25 @@ The bytes behind these rows (weights mapped and resident, KV per token, snapshot
 
 ### The open and closed parts
 
-[generated/binaries.md](generated/binaries.md) compares the iOS arm64 slices of Google's v0.18.0
-`CLiteRTLM` (what Agello ships) and ours. Google's is 61.6 MB with 212 exported `litert_lm_*`
-functions and the closed FST constraint provider; ours is 37.5 MB with 220 functions and no FST
-symbols. <!-- c:LM-BLD-056 --> The other rows:
+[generated/binaries.md](generated/binaries.md) describes the iOS arm64 slice of our build at the
+pin, and keeps, as a record of 2026-10-16, its comparison of Google's v0.18.0 `CLiteRTLM` (what
+Agello shipped until 2026-10-28) with ours at the time. There Google's was 61.6 MB with 212 exported
+`litert_lm_*` functions and the closed FST constraint provider; ours was 37.5 MB with 220 functions
+and no FST symbols (37.7 MB and 220 at the pin). <!-- c:LM-BLD-056 --> The other rows of the record:
 
-| Component | Google v0.18.0 (defined symbols) | Ours | What it means |
+| Component | Google v0.18.0 (defined symbols, 2026-10-16) | Ours | What it means |
 | --- | --- | --- | --- |
-| TopK Metal sampler (closed) | 39 | 7 | the open target that should link a GPU sampler is empty in both sources; Google's binary links the closed one in, ours samples on the CPU <!-- c:LM-CMP-021 --> <!-- c:LM-BLD-015 --> <!-- c:LM-CMP-022 --> |
+| TopK Metal sampler (closed) | 39 | 7 | the open target that would link a GPU sampler is empty in our build and the release; Google's binary linked the closed one in, ours samples on the CPU <!-- c:LM-CMP-021 --> <!-- c:LM-BLD-015 --> <!-- c:LM-CMP-022 --> |
 | Gemma constraint provider / FST (closed) | 17 | 0 | a prebuilt library in the open tree; `--config=agello` leaves it out <!-- c:LM-CNV-075 --> <!-- c:LM-CNV-076 --> |
-| GPU artisan executor (closed) | 166 | 29 | Google's binary carries a legacy engine and `LlmGpuArtisanExecutor` for `-gpu` files; the open engine fails on them <!-- c:MOD-E2B-057 --> <!-- c:LM-FMT-017 --> |
-| TENSOR_LLM / Google Tensor | 62 | 13 | Google Tensor (Android) code present in Google's slice <!-- c:X-STK-011 --> |
-| ML Drift Metal accelerator (open) | 12 | 9 | the same open component, built by Google from its sources and by us from our forks <!-- c:RT-RUN-029 --> |
+| GPU artisan executor (closed) | 166 | 29 | Google's binary carried a legacy engine and `LlmGpuArtisanExecutor` for `-gpu` files; the open engine fails on them <!-- c:LM-FMT-017 --> |
+| TENSOR_LLM / Google Tensor | 62 | 13 (13 at the pin) | Google Tensor (Android) code, present in Google's slice <!-- c:X-STK-011 --> |
+| ML Drift Metal accelerator (open) | 12 | 9 | the same open component, built by Google from its sources and by us from ours <!-- c:RT-RUN-029 --> |
 | KleidiAI, XNNPACK (open) | 638, 6 | 637, 6 | the same CPU kernels <!-- c:RT-CPU-011 --> |
 | C API | 212 functions | 220 | ours adds `wait_until_done`, the version call, build info and telemetry; only Google's has `get_last_error_code` <!-- c:LM-CAPI-036 --> |
 
-What Google's shipped binary runs that ours doesn't:
+What Google's v0.18.0 binary ran, while Agello shipped it, that ours doesn't:
 
-- **The closed Metal TopK sampler**, expected from the symbols; no run of the shipped binary has
+- **The closed Metal TopK sampler**, expected from the symbols; no run of Google's binary
   recorded which sampler it used ([components.md](litert-lm/components.md#samplers)).
 - **The FST constraint provider.** In builds that include it, `Gemma4DataProcessor::Create` creates it
   whenever constrained decoding is enabled, although a JSON response format still goes through
@@ -413,40 +431,41 @@ What Google's shipped binary runs that ours doesn't:
   conversations don't enable constrained decoding. <!-- c:LM-CNV-079 -->
 - **The GPU artisan path**, only for `-gpu` model files, which Agello doesn't use
   ([models/gemma4-e2b.md](models/gemma4-e2b.md#the-artisan-gpu-variants)).
-- **Google's builds of LiteRT and ML Drift**, without any of our delegate or kernel commits.
-  <!-- c:RT-DLG-083 --> <!-- c:MD-KRN-085 -->
+- **Google's builds of LiteRT and ML Drift**, from Google's sources; the release Agello ships has
+  ours, with our delegate and kernel commits. <!-- c:RT-DLG-083 --> <!-- c:MD-KRN-085 -->
 
 The Metal accelerator itself is open: LiteRT has its source and Bazel target, and ML Drift's Metal
-backend is public. <!-- c:OUR-026 --> LiteRT-LM's `prebuilt/` folder also carries Google's closed
-dylibs (the Metal TopK sampler and the Gemma constraint provider among them) for builds that link
-them dynamically. <!-- c:RT-OTH-004 -->
+backend is public. <!-- c:OUR-026 --> At Google's base, LiteRT-LM's `prebuilt/` folder also carries
+Google's closed dylibs (the Metal TopK sampler and the Gemma constraint provider among them) for
+builds that link them dynamically <!-- c:RT-OTH-004 -->; our tree's prune (`edb2c7db`) kept only
+the constraint provider's.
 
 ### The documented build and what Agello ships
 
-Agello ships the v0.18.0 wrapper with two Swift patches of ours on Google's prebuilt v0.18.0 binary;
-this reference documents `agello-next`. <!-- c:LM-VER-027 --> Agello vendors the shipped wrapper byte
-for byte. <!-- c:LM-SWIFT-046 --> The two halves don't mix: each wrapper compiles only against its own
-headers. <!-- c:LM-SWIFT-048 --> What changes along the trace above:
+Agello ships our release `agello-one-20261115` (`6da75396`) with the Swift wrapper from `main` at
+`82b05ea1`; this reference documents `main` at the pin
+([generated/version-matrix.md](generated/version-matrix.md)). <!-- c:LM-VER-027 --> Agello vendors
+the wrapper's `swift/` byte for byte, with the fork's `Package.swift` pointed at the release's
+binary. <!-- c:LM-SWIFT-046 --> Along the trace above, the pin differs from the
+release only in the commits after `6da75396`
+([generated/patch-log.md](generated/patch-log.md), no ✓): the sliced softmax's order at every
+window, a speculative round's last token and pending tokens' embeddings, the Gemma 4 tool boundary,
+llguidance states of their own for JSON with speculative decoding, the GPU-resident round's drafter
+chain (on by default), and the opt-in B2 and B5 rounds ([patches.md](patches.md#later-commits)).
 
-| Hop | Documented build (`agello-next`) | What Agello ships (v0.18.0 binary) |
-| --- | --- | --- |
-| C API | 1.0.0: status codes and out-parameters | 0.2.0: pointers and ints <!-- c:LM-CAPI-037 --> |
-| Swift stream | the same `streamCallback` parse, weak `StreamContext` | the same, weak `StreamContext` (ours) <!-- c:LM-SWIFT-019 --> |
-| Thinking removed from the KV cache | eagerly, right after the reply | lazily, before the next user message <!-- c:LM-CNV-053 --> <!-- c:LM-CNV-054 --> |
-| Context switch restore | snapshot copied into the live device buffers | snapshot swapped in as the live state, which the GPU delegate doesn't use <!-- c:LM-ENG-055 --> |
-| KV snapshot | raw `MTLBuffer` byte copy in mapped pages (ours) | through tensor-buffer locks <!-- c:LM-EXE-035 --> |
-| Decode step host work | no history copy for the mask, a reused ID buffer (ours) | both per step <!-- c:LM-EXE-035 --> |
-| MTP priming | an explicit primed flag | skipped whenever the last run was a decode <!-- c:LM-EXE-026 --> |
-| Sampler | CPU `TopPSampler` over FP16 logits, integer greedy pick (ours) | Google's closed Metal sampler <!-- c:LM-CMP-030 --> |
-| Logit masks | `LiteRtLogitMaskRunner` on the GPU | logits copied to the host, masked, written back <!-- c:LM-CMP-049 --> |
-| Delegate and kernels | bounded attention, sliding window, direct copies, content weight-cache key (ours) | none of them <!-- c:RT-DLG-083 --> |
-| Metal wait | active in Agello (benchmark mode); passive only outside it (ours) | active <!-- c:RT-RUN-028 --> |
-| Telemetry, build info | yes (ours) | no |
+Until 2026-10-28 Agello shipped Google's v0.18.0 binary with the v0.18.0 wrapper and two Swift
+patches. What that binary held that ours doesn't is in the record above
+([The open and closed parts](#the-open-and-closed-parts)); only ours exported the version call,
+build info and telemetry. <!-- c:LM-CAPI-036 --> Until 2026-11-11 Agello also ran LiteRT-LM in
+benchmark mode, so its GPU waits were active (busy-waits); since then they are passive.
+<!-- c:RT-RUN-028 -->
 
-Two more differences sit outside the turn. Our framework has no simulator slice, Google's does
-<!-- c:APL-066 --> <!-- c:APL-069 -->; and on a Mac, a macOS app built on the shipped package would
-use Google's `CLiteRTLM_mac` (the WebGPU accelerator) <!-- c:RT-OTH-005 -->, but the iPhone app run
-on a Mac uses the iOS slice and its Metal accelerator. <!-- c:APL-061 --> Every one of our commits is
+One other difference sat outside the turn: a macOS app built on Google's package would have used
+Google's `CLiteRTLM_mac` (the WebGPU accelerator) <!-- c:RT-OTH-005 -->, while the iPhone app run on
+a Mac uses the release's iOS slice and its Metal accelerator, not its macOS slice.
+<!-- c:APL-061 --> Neither our framework nor the release Agello ships has a simulator slice, and the
+project rule keeps Agello and its device tests off the simulator. <!-- c:APL-066 -->
+<!-- c:APL-069 --> Every one of our commits is
 listed with its evidence in [patches.md](patches.md); version numbers and how to tell builds apart are
 in [versions.md](versions.md#what-ships-and-what-is-documented).
 
@@ -466,14 +485,17 @@ in [versions.md](versions.md#what-ships-and-what-is-documented).
 
 - **One engine, one thread.** A helper prompt on a second conversation waits behind the chat's decode
   and costs a context switch each way. <!-- c:LM-ENG-061 -->
-- **Cancellation is coarse.** The cancel flag is read between executor decode steps, so a running
-  prefill or MTP round finishes first. <!-- c:LM-ENG-045 --> Dropping the Swift stream doesn't stop
-  the native work; only `cancel()` does. <!-- c:LM-SWIFT-013 -->
+- **Cancellation is coarse.** The cancel flag is read between executor decode steps and between a
+  prefill's runs (ours: `6cfd1a28`), so a running prefill run or MTP round finishes first.
+  <!-- c:LM-ENG-045 --> Cancelling the task that iterates the Swift stream before it ends cancels the
+  native work too, and leaves the conversation cancelled like `cancel()` (ours: `4ca2cf33`).
+  <!-- c:LM-SWIFT-013 -->
 - **Callbacks block the engine.** Anything slow in the Swift callback slows decoding; deleting a
   conversation from inside its own final callback waits for the 10-minute timeout
   ([c-api.md](litert-lm/c-api.md#deleting-while-work-runs)). <!-- c:LM-SWIFT-020 -->
-- **Busy-waiting.** In Agello's configuration the execution thread spins on the CPU while the GPU
-  runs; the cost on the iPhone hasn't been measured at this pin.
+- **Busy-waiting.** In benchmark mode (Agello's configuration until 2026-11-11, and still its device
+  probes') the execution thread spins on the CPU while the GPU runs <!-- c:OUR-034 -->; the cost on
+  the iPhone hasn't been measured at this pin.
 - **No CPU fallback for GPU graphs.** A node the delegate doesn't take fails engine creation.
   <!-- c:RT-RUN-016 -->
 - Failure messages and their causes are collected in [troubleshooting.md](troubleshooting.md).
@@ -482,31 +504,31 @@ in [versions.md](versions.md#what-ships-and-what-is-documented).
 
 | Concept | Symbol | Citation |
 | --- | --- | --- |
-| Agello's generation entry | `AppState.generate`, `consume` | Agello `AppState.swift:656-660`, `:1016-1063` |
-| Agello's engine actor | `LiteRTChatEngine.send`, `runSend` | Agello `ChatEngine.swift:572-582`, `:684-704` |
-| C stream entry | `litert_lm_conversation_send_message_stream` | [`c/conversation.cc:640-672`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L640-L672) |
-| C stream callback | `CreateConversationCallback` | [`c/conversation.cc:44-71`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71) |
-| Turn setup | `Conversation::SendMessageAsync` | [`runtime/conversation/conversation.cc:799-856`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L799-L856) |
+| Agello's generation entry | `AppState.generate`, `consume` | Agello `AppState.swift:716-721`, `AppState+Reply.swift:127-227` |
+| Agello's engine actor | `LiteRTChatEngine.send`, `runSend` | Agello `ChatEngine.swift:747-758`, `:760-985` |
+| C stream entry | `litert_lm_conversation_send_message_stream` | [`c/conversation.cc:658-690`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L658-L690) |
+| C stream callback | `CreateConversationCallback` | [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L45-L86) |
+| Turn setup | `Conversation::SendMessageAsync` | [`runtime/conversation/conversation.cc:846-903`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L846-L903) |
 | Streamed text → messages | `CreateInternalCallback`, `SendCompleteMessage` | [`runtime/conversation/internal_callback_util.cc:330-357`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/internal_callback_util.cc#L330-L357) |
-| Queuing | `SessionAdvanced::RunPrefillAsync`, `RunDecodeAsync` | [`runtime/core/session_advanced.cc:139-147`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L139-L147) |
-| Thread pools | `ThreadedExecutionManager` constructor | [`runtime/framework/resource_management/threaded_execution_manager.cc:87-92`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L92) |
-| Worker threads | `pthread_create` | [`runtime/framework/worker_thread_pthread.cc:77`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/framework/worker_thread_pthread.cc#L77) |
-| Prefill task body | `AddPrefillTask` closure | [`runtime/framework/resource_management/threaded_execution_manager.cc:963-1001`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L963-L1001) |
-| Decode loop | `Tasks::Decode` | [`runtime/core/tasks.cc:614`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L614) |
-| Decode run | `BindTensorsAndRunDecode` | [`runtime/executor/llm_litert_compiled_model_executor.cc:1205-1231`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1205-L1231) |
-| Interpreter invoke | `LiteRtCompiledModelT::Run` | [`litert/runtime/compiled_model.cc:2343-2356`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/litert/runtime/compiled_model.cc#L2343-L2356) |
-| Delegate kernel | `Invoke`, `LITERT_METAL` registration | [`ml_drift_delegate/delegate/delegate_metal.mm:157-168`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L157-L168) |
-| GPU wait | `GpuBackendMetal::WaitForCompletion` | [`ml_drift_delegate/delegate/gpu_backend_metal.mm:203`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L203) |
-| Encoding | `InferenceContext::EncodeWithCommandQueue` | [`ml_drift/metal/inference_context.mm:767`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L767) |
-| Swift stream bridge | `streamCallback` | [`swift/Conversation.swift:906-922`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L906-L922) |
+| Queuing | `SessionAdvanced::RunPrefillAsync`, `RunDecodeAsync` | [`runtime/core/session_advanced.cc:139-147`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/session_advanced.cc#L139-L147) |
+| Thread pools | `ThreadedExecutionManager` constructor | [`runtime/framework/resource_management/threaded_execution_manager.cc:87-92`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L92) |
+| Worker threads | `pthread_create` | [`runtime/framework/worker_thread_pthread.cc:92`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/worker_thread_pthread.cc#L92) |
+| Prefill task body | `AddPrefillTask` closure | [`runtime/framework/resource_management/threaded_execution_manager.cc:974-1016`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L974-L1016) |
+| Decode loop | `Tasks::Decode` | [`runtime/core/tasks.cc:630`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L630) |
+| Decode run | `BindTensorsAndRunDecode` | [`runtime/executor/llm_litert_compiled_model_executor.cc:1279-1305`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1279-L1305) |
+| Interpreter invoke | `LiteRtCompiledModelT::Run` | [`litert/runtime/compiled_model.cc:2343-2356`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/litert/runtime/compiled_model.cc#L2343-L2356) |
+| Delegate kernel | `Invoke`, `LITERT_METAL` registration | [`ml_drift_delegate/delegate/delegate_metal.mm:158-171`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L158-L171) |
+| GPU wait | `GpuBackendMetal::WaitForCompletion` | [`ml_drift_delegate/delegate/gpu_backend_metal.mm:240`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L240) |
+| Encoding | `InferenceContext::EncodeWithCommandQueue` | [`ml_drift/metal/inference_context.mm:817`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L817) |
+| Swift stream bridge | `streamCallback`, `handleStreamChunk` | [`swift/ConversationStream.swift:284-297`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/ConversationStream.swift#L284-L297), [`swift/ConversationStream.swift:332-336`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/ConversationStream.swift#L332-L336) |
 
 ## Open questions
 
-- Which sampler Google's v0.18.0 binary actually uses on an iPhone: the symbols say the closed Metal
-  sampler is linked, but no run of the shipped binary has recorded it.
+- Which sampler Google's v0.18.0 binary actually used on an iPhone: the symbols say the closed Metal
+  sampler was linked, but no run of it recorded it, and we no longer run Google's binary.
 - The per-chunk cost of hops 15 to 19 (JSON building, dumping and the two Swift parses) has not been
   measured on its own; with MTP a chunk can carry up to four tokens, which amortizes it.
-- What the active wait costs in CPU time on the iPhone in Agello's configuration (benchmark mode on)
-  has no results file at this pin.
+- What the active wait costs in CPU time on the iPhone (benchmark mode on, as in Agello until
+  2026-11-11 and in its device probes) has no results file at this pin.
 - How Swift's cooperative pool schedules the `LiteRTChatEngine` actor while a native call holds its
   thread (template rendering and tokenizing a long first turn run there) has not been measured.

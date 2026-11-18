@@ -4,10 +4,10 @@
 > every page, the conventions the pages share, and how to regenerate and re-verify them.
 > **Out of scope:** the facts themselves (the pages below; numbers in [facts.md](facts.md)); how
 > Agello's app is built and tested (Agello's own `docs/` and skills).
-> **Pinned to:** LiteRT-LM `7b872544`, LiteRT `362759838`, ML Drift `15fa9e2`; shipped: LiteRT-LM
-> `85b1a776` with Google's prebuilt v0.18.0 binary.
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift`; Agello ships release `agello-one-20261115` (`6da75396`).
 > **Applies to:** Apple (iOS, macOS), with other platforms mapped in
-> [other-platforms.md](other-platforms.md). **Last verified:** 2026-10-15
+> [other-platforms.md](other-platforms.md). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -15,14 +15,16 @@
   the Swift wrapper down to ML Drift's Metal kernels, with every statement tied to code at a pinned
   commit, a model file's bytes, an official model config or card, or a measurement file.
 - It documents two things, and each page says which one a statement is about: the **documented
-  build** (our source build on `agello-next` at the pins below) and **what Agello ships**. They
-  differ; [versions.md](versions.md#what-ships-and-what-is-documented) lists how.
+  build** (`main` at the pin below) and **what Agello ships** (our release `agello-one-20261115`,
+  built from `6da75396`, an ancestor of the pin). They differ only by the commits after the release;
+  [versions.md](versions.md#what-ships-and-what-is-documented) lists how.
 - **The layout since 2026-11-15:** one repository, `PowerBeef/agello-litert-lm`, one branch, `main`.
-  LiteRT and ML Drift live in it (`agello/litert`, `agello/ml_drift`), imported at the commits the
-  pins below name. The separate `PowerBeef/LiteRT` and `PowerBeef/ml-drift` forks and the
-  `agello-next` branch were folded into it. The two forks are archived, so this reference's links into
-  them still resolve at their commits. A re-pin to `main` ([maintenance.md](maintenance.md#after-a-re-pin-or-rebase))
-  hasn't been done: statements describe the code at the pins.
+  LiteRT and ML Drift live in it (`agello/litert`, `agello/ml_drift`), imported unchanged at
+  `e3c93749` from the old forks' pins, `PowerBeef/LiteRT` `362759838` and `PowerBeef/ml-drift`
+  `15fa9e2`, which are archived. The `agello` and `agello-next` branches were folded into `main`.
+  The reference was re-pinned to `main` on 2026-11-17
+  ([maintenance.md](maintenance.md#after-a-re-pin-or-rebase)): links to files we haven't changed go to
+  Google's repositories at the bases below, the rest to ours at the pin.
 - Start with [stack.md](stack.md) for the whole picture, [facts.md](facts.md) for numbers you
   want to quote, and [glossary.md](glossary.md) for the words to use.
 
@@ -33,13 +35,15 @@ file first ([maintenance.md](maintenance.md#after-a-re-pin-or-rebase)).
 
 | Part | Documented build | Base |
 | --- | --- | --- |
-| LiteRT-LM | `PowerBeef/agello-litert-lm` `agello-next` at `7b872544` | Google's `0.19.0-nightly.20261013` (`df6df5b8`) plus 29 commits of ours |
-| LiteRT | `PowerBeef/LiteRT` `agello-next` at `362759838` | Google's `ca21dc99` (main, 2026-10-09) plus 12 commits |
-| ML Drift | `PowerBeef/ml-drift` `agello-next` at `15fa9e2` | Google's `1b18771` (main, 2026-10-07) plus 8 commits |
+| LiteRT-LM | `PowerBeef/agello-litert-lm` `main` at `b7b856a0`, the repository's root | Google's `0.19.0-nightly.20261013` (`df6df5b8`) plus 145 commits of ours |
+| LiteRT | the same commit, `agello/litert` | Google's `ca21dc99` (main, 2026-10-09) plus 12 commits in the old fork and 17 since the import |
+| ML Drift | the same commit, `agello/ml_drift` | Google's `1b18771` (main, 2026-10-07) plus 8 commits in the old fork and 16 since the import |
+
+[generated/patch-log.md](generated/patch-log.md) lists every one of those commits with its files.
 
 | What Agello ships (2026-11-17) | Exactly |
 | --- | --- |
-| Swift wrapper | `PowerBeef/agello-litert-lm` `main`'s `swift/` with five patches, vendored into Agello as `Vendor/LiteRT-LM` (Agello's `Vendor/README.md` lists them) |
+| Swift wrapper | `PowerBeef/agello-litert-lm` `main`'s `swift/` at `82b05ea1` (the same files as at the pin), with five patches, vendored into Agello as `Vendor/LiteRT-LM` (Agello's `Vendor/README.md` lists them) |
 | Native binary | Our release `agello-one-20261115` (build `0c749789100a`): LiteRT-LM, LiteRT and ML Drift from this repository, Metal on the iPhone and the Mac. Google's prebuilt v0.18.0 binary shipped until 2026-10-28, then our `agello-next-20261024` until 2026-11-15 |
 
 | Model | File and revision |
@@ -50,8 +54,9 @@ file first ([maintenance.md](maintenance.md#after-a-re-pin-or-rebase)).
 | EmbeddingGemma 2 text 270m | `litert-community/embeddinggemma-2-text-270m-litert-lm` @ `9be6e8b9` |
 | Official configs | the `google/gemma-4-*` and `google/embeddinggemma-2` revisions in `pins.json` "hf_repos" ([generated/hf-configs.md](generated/hf-configs.md)) |
 
-Our source build's runtime patches don't reach users until Agello ships that build; until then,
-anything that differs between the two is marked with the build it applies to.
+The commits after the release (the fixes of 2026-11-17, G1, B5's long rounds; ✓-less rows in the
+patch log) reach users with Agello's next release; until then, anything that differs between the
+two builds is marked with the build it applies to.
 
 ## Reading paths
 
@@ -150,8 +155,9 @@ settings):
   from there, with their conditions.
 - **"(ours: `<commit>`)"** marks behavior that comes from one of our commits rather than Google's
   code.
-- **Which build.** "Documented build" or "our build" means the pins above; "Google's v0.18.0 binary"
-  and "the shipped wrapper" mean what Agello ships. A statement about only one of them says so.
+- **Which build.** "Documented build" or "our build" means `main` at the pin; "the release Agello
+  ships" means `agello-one-20261115`. "Google's v0.18.0 binary" appears only as history (Agello
+  shipped it until 2026-10-28). A statement about only one build says so.
 - **Open questions.** Anything not verified sits in a page's "Open questions" section, labeled as
   such, rather than in the text.
 
@@ -162,5 +168,5 @@ settings):
   links and anchors, claim tags, and that each cited range still hashes to the lines the ledger
   recorded.
 - [maintenance.md](maintenance.md) gives the procedures: adding a claim or a page, what to do after
-  a re-pin or rebase (`check_refs.py --repin` lists the citations to re-verify), after a model update
+  a re-pin (`repin.py` re-cites what didn't change and lists the claims to re-verify), after a model update
   and after a new measurement, and who may change what.

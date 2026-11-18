@@ -584,7 +584,7 @@ Same resolution as C14 (MOD-E2B-034); the change is listed there.
 
 ### N29: Agello comment "at the next message the runtime rewinds"
 
-- **Values seen.** Agello `Agello/Inference/ChatEngine.swift:143-146`. <!-- c:LM-CNV-052 --> <!-- c:LM-CNV-054 --> <!-- c:LM-CNV-053 -->
+- **Values seen.** Agello `Agello/Inference/ChatEngine.swift:143-146`. <!-- c:LM-CNV-052 --> <!-- c:LM-CNV-053 -->
 - **Resolution.** True for the shipped v0.18.0 (lazy refill at the next message); with `agello-next` the
   refill happens right after each reply (upstream `97e6dc7d`).
 - **Claims:** LM-CNV-052, -053, -054, -058. **Changes.** Agello comment: **edit** when Agello moves to

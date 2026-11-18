@@ -1,0 +1,98 @@
+[
+ {
+  "group": "apple",
+  "id": "APL-040"
+ },
+ {
+  "group": "lm-api",
+  "id": "LM-CAPI-033"
+ },
+ {
+  "group": "lm-api",
+  "id": "LM-CAPI-020"
+ },
+ {
+  "group": "lm-build",
+  "id": "LM-BLD-009"
+ },
+ {
+  "group": "lm-components",
+  "id": "LM-FMT-039"
+ },
+ {
+  "group": "lm-components",
+  "id": "LM-CMP-011"
+ },
+ {
+  "group": "lm-conversation",
+  "id": "LM-CNV-022"
+ },
+ {
+  "group": "lm-conversation",
+  "id": "LM-CNV-059"
+ },
+ {
+  "group": "lm-engine",
+  "id": "LM-ENG-043"
+ },
+ {
+  "group": "lm-engine",
+  "id": "LM-ENG-078"
+ },
+ {
+  "group": "lm-executors",
+  "id": "LM-EXE-073"
+ },
+ {
+  "group": "lm-executors",
+  "id": "LM-EXE-037"
+ },
+ {
+  "group": "md-architecture",
+  "id": "MD-ARC-047"
+ },
+ {
+  "group": "md-architecture",
+  "id": "MD-ARC-009"
+ },
+ {
+  "group": "md-kernels",
+  "id": "MD-KRN-034"
+ },
+ {
+  "group": "md-kernels",
+  "id": "MD-KRN-016"
+ },
+ {
+  "group": "mod-e2b",
+  "id": "MOD-E2B-048"
+ },
+ {
+  "group": "mod-e4b",
+  "id": "MOD-E4B-049"
+ },
+ {
+  "group": "mod-embedding",
+  "id": "MOD-EMB-049"
+ },
+ {
+  "group": "mod-family",
+  "id": "MOD-TOK-043"
+ },
+ {
+  "group": "ours",
+  "id": "OUR-030"
+ },
+ {
+  "group": "rt-delegate",
+  "id": "RT-DLG-007"
+ },
+ {
+  "group": "rt-delegate",
+  "id": "RT-DLG-078"
+ },
+ {
+  "group": "rt-runtime",
+  "id": "RT-CPU-003"
+ }
+]

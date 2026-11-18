@@ -1,0 +1,1462 @@
+{
+ "agent": "r2",
+ "pages": [
+  "configuration.md",
+  "tools.md",
+  "patches.md",
+  "versions.md",
+  "contributing.md",
+  "litert-lm/build-and-release.md",
+  "litert-lm/c-api.md",
+  "litert-lm/swift-api.md",
+  "litert-lm/file-format.md",
+  "litert-lm/components.md",
+  "other-platforms.md"
+ ],
+ "claims": [
+  {
+   "group": "lm-api",
+   "id": "LM-CAPI-005",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-BLD-025",
+   "tier": "B",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-BLD-040",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-BLD-041",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-BLD-042",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-BLD-046",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-BLD-055",
+   "tier": "B",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-010",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-025",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-013",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "rt-runtime",
+   "id": "RT-OTH-004",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "ours",
+   "id": "OUR-027",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "ours",
+   "id": "PRC-010",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "ours",
+   "id": "PRC-014",
+   "tier": "A",
+   "verdict_now": "verified"
+  }
+ ],
+ "copies": [
+  {
+   "page": "patches.md",
+   "line": 480,
+   "id": "RT-DLG-038",
+   "verdict": "corrected",
+   "text_now": "BoundedAttentionEnabled(), BoundedWindowEnabled(), SliceAttentionEnabled() and MaskBoundsEnabled() read AGELLO_BOUNDED_ATTENTION, AGELLO_BOUNDED_WINDOW, AGELLO_SLICE_ATTENTION and AGELLO_MASK_BOUNDS once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' followed by '-nowindow' when the window is off, '-sliced' when row slicing is on and '-bounds-prefill' when mask bounds are on (by default '|agello-bounded-attention-2-sliced-bounds-prefill'), plus any AGELLO_SLICE_SCORE_MB, AGELLO_PV_TILE or AGELLO_DRAFTER_WINDOW value, to the program cache key.",
+   "text_before": "BoundedAttentionEnabled() and BoundedWindowEnabled() read AGELLO_BOUNDED_ATTENTION and AGELLO_BOUNDED_WINDOW once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' (or '|agello-bounded-attention-2-nowindow') to the program cache key."
+  },
+  {
+   "page": "patches.md",
+   "line": 480,
+   "id": "RT-DLG-055",
+   "verdict": "corrected",
+   "text_now": "Upstream's GenerateUniqueModelIdentifier fingerprints the model token, a custom key (serialization prefix 'gpuv3_metal_data_' on Metal plus precision, texture-weights, quantized-ops, ordering, alignment, batching and serialization options) and TFLite's context and partition tensor sizes, which include the KV caches; our GenerateContentModelIdentifier (97e06d36) keeps the token and options but replaces the sizes with each delegated node's index and builtin code and each kTfLiteMmapRo input's index, byte size and type, and is used unless AGELLO_SHARED_WEIGHT_CACHE=0; our 36275983 appends the AGELLO_SIMULATE_APPLE_GPU value to the prefix.",
+   "text_before": "Upstream's GenerateUniqueModelIdentifier fingerprints the model token, a custom key (serialization prefix 'gpuv3_metal_data_' on Metal plus precision, texture-weights, quantized-ops, ordering, alignment, batching and serialization options) and TFLite's context and partition tensor sizes, which include the KV caches; Agello's GenerateContentModelIdentifier (LiteRT 97e06d36) keeps the token and options but replaces the sizes with each delegated node's index and builtin code and each kTfLiteMmapRo input's index, byte size and type, and is used unless AGELLO_SHARED_WEIGHT_CACHE=0; LiteRT 36275983 appends the AGELLO_SIMULATE_APPLE_GPU value to the prefix."
+  },
+  {
+   "page": "versions.md",
+   "line": 72,
+   "id": "RT-OTH-005",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (Google's release of 2026-10-06; zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default.",
+   "text_before": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default."
+  },
+  {
+   "page": "configuration.md",
+   "line": 59,
+   "id": "RT-DLG-038",
+   "verdict": "corrected",
+   "text_now": "BoundedAttentionEnabled(), BoundedWindowEnabled(), SliceAttentionEnabled() and MaskBoundsEnabled() read AGELLO_BOUNDED_ATTENTION, AGELLO_BOUNDED_WINDOW, AGELLO_SLICE_ATTENTION and AGELLO_MASK_BOUNDS once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' followed by '-nowindow' when the window is off, '-sliced' when row slicing is on and '-bounds-prefill' when mask bounds are on (by default '|agello-bounded-attention-2-sliced-bounds-prefill'), plus any AGELLO_SLICE_SCORE_MB, AGELLO_PV_TILE or AGELLO_DRAFTER_WINDOW value, to the program cache key.",
+   "text_before": "BoundedAttentionEnabled() and BoundedWindowEnabled() read AGELLO_BOUNDED_ATTENTION and AGELLO_BOUNDED_WINDOW once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' (or '|agello-bounded-attention-2-nowindow') to the program cache key."
+  },
+  {
+   "page": "configuration.md",
+   "line": 61,
+   "id": "LM-SWIFT-004",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true).",
+   "text_before": "Engine.initialize (agello-next) reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 62,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "configuration.md",
+   "line": 64,
+   "id": "LM-ENG-062",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the context loaded at that moment, and InitializeSampler returns early once sampler_ exists; since ours f1b88286 (in the release Agello ships), SampleLogits first calls SyncSamplerWithContext, which gives the sampler the active context's sampler parameters and random generator through Sampler::UpdateConfig whenever they differ from the ones it uses, so each session samples with its own parameters and random state; a sampler that handles the decode inputs itself (sampler_handles_input_) is not updated and keeps the first context's configuration. Tokens drafted and verified by MTP come from the drafter's own greedy samplers.",
+   "text_before": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the LlmContext loaded at that moment; InitializeSampler returns early when sampler_ exists, RestoreContext and UpdateRuntimeConfig don't reset sampler_, and no runtime code calls Sampler::UpdateConfig. So on the internal-sampler path, every step that goes through sampler_ (plain decode steps and MTP priming steps) samples with the parameters of the session that sampled first, for every session of the engine; tokens drafted and verified by MTP come from the drafter's own greedy samplers instead. v0.18.0's InitializeSampler has the same early return."
+  },
+  {
+   "page": "configuration.md",
+   "line": 65,
+   "id": "LM-SWIFT-033",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.visualTokenBudget is read by Engine.initialize (as the engine's max vision tokens per image) and again for every native send, in makeOptionalArgs, which uses ConversationConfig.visualTokenBudget or, when that is nil, the flag's current value; the release Agello ships reads it the same way.",
+   "text_before": "ExperimentalFlags.visualTokenBudget is read by Engine.initialize (as the engine's max vision tokens per image) and again for every native send, which uses ConversationConfig.visualTokenBudget or, when that is nil, the flag's current value; in agello-next the read is in makeOptionalArgs, in the shipped wrapper inline in attemptSendMessage and sendToStream."
+  },
+  {
+   "page": "configuration.md",
+   "line": 71,
+   "id": "LM-SWIFT-032",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags is a struct whose flags are static properties over one process-wide store; in our build the store sits behind an NSLock (ours: 82b05ea1), while the release's own wrapper at 6da75396 keeps Google's unsynchronized static vars. Each setter ignores the new value and logs an error unless optIntoExperimentalAPIs() was called, and optedIn has no public way to be reset.",
+   "text_before": "ExperimentalFlags is a struct of static var flags (process-wide, unsynchronized); each setter ignores the new value and logs an error unless optIntoExperimentalAPIs() was called, and optedIn has no public way to be reset."
+  },
+  {
+   "page": "configuration.md",
+   "line": 105,
+   "id": "LM-SWIFT-002",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize (swift/Engine.swift) creates settings with litert_lm_engine_settings_create from EngineConfig.backend.rawValue and the optional vision/audio backends, applies the setters, creates the engine with litert_lm_engine_create, and deletes the settings with defer.",
+   "text_before": "Engine.initialize (swift/Engine.swift, agello-next) creates settings with litert_lm_engine_settings_create from EngineConfig.backend.rawValue and the optional vision/audio backends, applies the setters, creates the engine with litert_lm_engine_create, and deletes the settings with defer."
+  },
+  {
+   "page": "configuration.md",
+   "line": 108,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "configuration.md",
+   "line": 113,
+   "id": "RT-DLG-004",
+   "verdict": "corrected",
+   "text_now": "For the GPU backend, our LiteRT-LM's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true.",
+   "text_before": "For the GPU backend, LiteRT-LM agello-next's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true."
+  },
+  {
+   "page": "configuration.md",
+   "line": 126,
+   "id": "LM-SWIFT-034",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.enableYnnpack is Google's, in the upstream Swift wrapper at our base (df6df5b8), so our build and the release Agello ships have it; when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise.",
+   "text_before": "ExperimentalFlags.enableYnnpack is in Google's upstream Swift wrapper at the agello-next base (df6df5b8), so agello-next has it but the shipped v0.18.0-based wrapper does not (its ExperimentalFlags ends with gpuEnableMetalResidencySet); when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 135,
+   "id": "LM-SWIFT-002",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize (swift/Engine.swift) creates settings with litert_lm_engine_settings_create from EngineConfig.backend.rawValue and the optional vision/audio backends, applies the setters, creates the engine with litert_lm_engine_create, and deletes the settings with defer.",
+   "text_before": "Engine.initialize (swift/Engine.swift, agello-next) creates settings with litert_lm_engine_settings_create from EngineConfig.backend.rawValue and the optional vision/audio backends, applies the setters, creates the engine with litert_lm_engine_create, and deletes the settings with defer."
+  },
+  {
+   "page": "configuration.md",
+   "line": 136,
+   "id": "RT-RUN-016",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's CreateCompilationOptions (llm_executor_settings_utils.cc, our build) sets the hardware accelerators of the GPU-backend LLM compiled model to HwAccelerators::kGpu alone and sets the fully-delegated-to-single-delegate hint, so with LiteRT's rule that leftover nodes fail creation when the CPU is not requested, any op the GPU delegate does not take makes the main graph's compilation fail.",
+   "text_before": "LiteRT-LM's CreateCompilationOptions (llm_executor_settings_utils.cc, agello-next 7b872544) sets the hardware accelerators of the GPU-backend LLM compiled model to HwAccelerators::kGpu alone and sets the fully-delegated-to-single-delegate hint, so with LiteRT's rule that leftover nodes fail creation when the CPU is not requested, any op the GPU delegate does not take makes the main graph's compilation fail."
+  },
+  {
+   "page": "configuration.md",
+   "line": 137,
+   "id": "RT-CPU-007",
+   "verdict": "corrected",
+   "text_now": "The Swift Engine (both in the release Agello ships and in our build) passes only the backend string (\"cpu\") to litert_lm_engine_settings_create and never calls litert_lm_engine_settings_set_num_threads, so Backend.cpu(threadCount:) has no effect on the LLM engine, which keeps CpuConfig's default of 4 threads; only EmbeddingEngine forwards threadCount.",
+   "text_before": "The Swift Engine (both the shipped wrapper 85b1a776 and agello-next 7b872544) passes only the backend string (\"cpu\") to litert_lm_engine_settings_create and never calls litert_lm_engine_settings_set_num_threads, so Backend.cpu(threadCount:) has no effect on the LLM engine, which keeps CpuConfig's default of 4 threads; only EmbeddingEngine forwards threadCount."
+  },
+  {
+   "page": "configuration.md",
+   "line": 139,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "configuration.md",
+   "line": 140,
+   "id": "RT-DLG-044",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available.",
+   "text_before": "LiteRT-LM agello-next computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available."
+  },
+  {
+   "page": "configuration.md",
+   "line": 141,
+   "id": "MD-KRN-008",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's static compiled-model executor (LlmLiteRtCompiledModelExecutorStatic, our build) uses ActivationDataType FLOAT16 unless the executor settings set another type, and CreateCompilationOptions sets LiteRT GPU precision kFp16 for any activation type other than FLOAT32; the dynamic variant (LlmLiteRtCompiledModelExecutorDynamic) always compiles with FLOAT32.",
+   "text_before": "LiteRT-LM's static compiled-model executor (LlmLiteRtCompiledModelExecutorStatic, agello-next) uses ActivationDataType FLOAT16 unless the executor settings set another type, and CreateCompilationOptions sets LiteRT GPU precision kFp16 for any activation type other than FLOAT32; the dynamic variant (LlmLiteRtCompiledModelExecutorDynamic) always compiles with FLOAT32."
+  },
+  {
+   "page": "configuration.md",
+   "line": 142,
+   "id": "LM-CMP-071",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, ResourceManager::CreateContextHandler returns InvalidArgument 'Lora is not supported.' when the session config carries a scoped (text) LoRA file that isn't already loaded, and no code path loads one; only an audio LoRA is loaded, into the audio encoder's LoraManager.",
+   "text_before": "In both LiteRT-LM agello-next and v0.18.0, ResourceManager::CreateContextHandler returns InvalidArgument 'Lora is not supported.' when the session config carries a scoped (text) LoRA file that isn't already loaded, and no code path loads one; only an audio LoRA is loaded, into the audio encoder's LoraManager."
+  },
+  {
+   "page": "configuration.md",
+   "line": 152,
+   "id": "LM-SWIFT-062",
+   "verdict": "corrected",
+   "text_now": "Agello's chat conversation registers CurrentDateTimeTool and CalculatorTool when tools are enabled, plus WebSearchTool when web search is automatic, with a SamplerConfig (seeded when a reply is regenerated with a seed), a ThinkingConfig built from its thinking budget, its visual token budget and per-conversation speculative decoding, which is off when the conversation samples with a seed.",
+   "text_before": "Agello's chat conversation registers CurrentDateTimeTool and CalculatorTool when tools are enabled, plus WebSearchTool when web search is automatic, with a SamplerConfig, a ThinkingConfig built from its thinking budget, its visual token budget and per-conversation speculative decoding."
+  },
+  {
+   "page": "configuration.md",
+   "line": 153,
+   "id": "LM-ENG-062",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the context loaded at that moment, and InitializeSampler returns early once sampler_ exists; since ours f1b88286 (in the release Agello ships), SampleLogits first calls SyncSamplerWithContext, which gives the sampler the active context's sampler parameters and random generator through Sampler::UpdateConfig whenever they differ from the ones it uses, so each session samples with its own parameters and random state; a sampler that handles the decode inputs itself (sampler_handles_input_) is not updated and keeps the first context's configuration. Tokens drafted and verified by MTP come from the drafter's own greedy samplers.",
+   "text_before": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the LlmContext loaded at that moment; InitializeSampler returns early when sampler_ exists, RestoreContext and UpdateRuntimeConfig don't reset sampler_, and no runtime code calls Sampler::UpdateConfig. So on the internal-sampler path, every step that goes through sampler_ (plain decode steps and MTP priming steps) samples with the parameters of the session that sampled first, for every session of the engine; tokens drafted and verified by MTP come from the drafter's own greedy samplers instead. v0.18.0's InitializeSampler has the same early return."
+  },
+  {
+   "page": "configuration.md",
+   "line": 156,
+   "id": "LM-SWIFT-017",
+   "verdict": "corrected",
+   "text_now": "On a stream's final chunk the handler retires the send's ID; if the stream was cancelled it finishes with CancellationError; with pending tool calls and fewer tool rounds than maxToolRounds (25 unless the caller passes another), it starts a Swift Task that runs the tools and sends their responses as the next round under a new ID, and past the limit it finishes with conversation(.recurringToolCallLimitExceeded(limit:)) (ours: 4ca2cf33). This path never checks automaticToolCalling, so streamed replies run registered tools even when ConversationConfig.automaticToolCalling is false.",
+   "text_before": "On the final stream chunk with pending tool calls (fewer than 25 rounds so far), streamCallback starts a Swift Task that runs the tools and sends the tool responses with a newly retained context; this path never checks automaticToolCalling (StreamContext has no such field), so streamed replies run registered tools even when ConversationConfig.automaticToolCalling is false."
+  },
+  {
+   "page": "configuration.md",
+   "line": 158,
+   "id": "LM-SWIFT-033",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.visualTokenBudget is read by Engine.initialize (as the engine's max vision tokens per image) and again for every native send, in makeOptionalArgs, which uses ConversationConfig.visualTokenBudget or, when that is nil, the flag's current value; the release Agello ships reads it the same way.",
+   "text_before": "ExperimentalFlags.visualTokenBudget is read by Engine.initialize (as the engine's max vision tokens per image) and again for every native send, which uses ConversationConfig.visualTokenBudget or, when that is nil, the flag's current value; in agello-next the read is in makeOptionalArgs, in the shipped wrapper inline in attemptSendMessage and sendToStream."
+  },
+  {
+   "page": "configuration.md",
+   "line": 159,
+   "id": "LM-EXE-072",
+   "verdict": "corrected",
+   "text_now": "For each Decode call the compiled-model executor uses MTP when the decode params' enable_speculative_decoding is true, or, when it is unset, whenever a drafter is loaded, except (ours: 3fa97211) near the end of the KV cache, where a round wouldn't fit and the call decodes a plain step instead.",
+   "text_before": "For each Decode call the compiled-model executor uses MTP when the decode params' enable_speculative_decoding is true, or, when it is unset, whenever a drafter is loaded."
+  },
+  {
+   "page": "configuration.md",
+   "line": 159,
+   "id": "LM-SWIFT-059",
+   "verdict": "corrected",
+   "text_now": "Agello's JSON helper conversations use ConversationConfig(enableResponseFormat: true) with speculative decoding off unless AGELLO_JSON_MTP=1 asks for it, and sendMessage with responseFormat .json(schema:); its comment says MTP broke grammar-constrained decoding because the runtime's grammar states shared one matcher across a speculative round.",
+   "text_before": "Agello's JSON helper conversations use ConversationConfig(enableResponseFormat: true, enableSpeculativeDecoding: false) and sendMessage with responseFormat .json(schema:); its comment says MTP-drafted tokens bypassed the JSON mask on device."
+  },
+  {
+   "page": "configuration.md",
+   "line": 161,
+   "id": "LM-CMP-071",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, ResourceManager::CreateContextHandler returns InvalidArgument 'Lora is not supported.' when the session config carries a scoped (text) LoRA file that isn't already loaded, and no code path loads one; only an audio LoRA is loaded, into the audio encoder's LoraManager.",
+   "text_before": "In both LiteRT-LM agello-next and v0.18.0, ResourceManager::CreateContextHandler returns InvalidArgument 'Lora is not supported.' when the session config carries a scoped (text) LoRA file that isn't already loaded, and no code path loads one; only an audio LoRA is loaded, into the audio encoder's LoraManager."
+  },
+  {
+   "page": "configuration.md",
+   "line": 188,
+   "id": "LM-SWIFT-059",
+   "verdict": "corrected",
+   "text_now": "Agello's JSON helper conversations use ConversationConfig(enableResponseFormat: true) with speculative decoding off unless AGELLO_JSON_MTP=1 asks for it, and sendMessage with responseFormat .json(schema:); its comment says MTP broke grammar-constrained decoding because the runtime's grammar states shared one matcher across a speculative round.",
+   "text_before": "Agello's JSON helper conversations use ConversationConfig(enableResponseFormat: true, enableSpeculativeDecoding: false) and sendMessage with responseFormat .json(schema:); its comment says MTP-drafted tokens bypassed the JSON mask on device."
+  },
+  {
+   "page": "configuration.md",
+   "line": 189,
+   "id": "LM-SWIFT-060",
+   "verdict": "corrected",
+   "text_now": "Agello streams replies with sendMessageStream(_:maxOutputTokens:thinkingConfig:followUpMaxOutputTokens:maxToolRounds:), checks Task.isCancelled on every chunk, calls conversation.cancel() when cancelled, when output would overflow the room left in the KV cache, or after a stream error, and treats a cancelled conversation as unusable (reseeding before the next send).",
+   "text_before": "Agello streams replies with sendMessageStream(_:maxOutputTokens:), checks Task.isCancelled on every chunk and calls conversation.cancel() when cancelled or when output would overflow the room left in the KV cache, and treats a cancelled conversation as unusable (reseeding before the next send)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 194,
+   "id": "LM-SWIFT-032",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags is a struct whose flags are static properties over one process-wide store; in our build the store sits behind an NSLock (ours: 82b05ea1), while the release's own wrapper at 6da75396 keeps Google's unsynchronized static vars. Each setter ignores the new value and logs an error unless optIntoExperimentalAPIs() was called, and optedIn has no public way to be reset.",
+   "text_before": "ExperimentalFlags is a struct of static var flags (process-wide, unsynchronized); each setter ignores the new value and logs an error unless optIntoExperimentalAPIs() was called, and optedIn has no public way to be reset."
+  },
+  {
+   "page": "configuration.md",
+   "line": 198,
+   "id": "LM-SWIFT-056",
+   "verdict": "corrected",
+   "text_now": "Agello's LiteRTChatEngine.load calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = false (its reply stats come from the runtime's telemetry) and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines.",
+   "text_before": "Agello's LiteRTChatEngine.load (93122b647a) calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = true and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines."
+  },
+  {
+   "page": "configuration.md",
+   "line": 199,
+   "id": "LM-EXE-038",
+   "verdict": "corrected",
+   "text_now": "Agello's ChatEngine.load sets LiteRT-LM's ExperimentalFlags.enableBenchmark = false (Agello a6912128; it set true at 93122b64), so Agello's engines are not in benchmark mode and get our passive GPU wait (645aaf65); an engine with benchmark enabled (the Swift Engine calls litert_lm_engine_settings_enable_benchmark, which creates the benchmark parameters, so MaybeUpdateAndValidate sets AdvancedSettings::is_benchmark) gets the active GPU wait (SyncExecutionModeWaitType::kActive) from CreateCompilationOptions, in our build and in the release Agello ships alike.",
+   "text_before": "Agello's ChatEngine.load sets LiteRT-LM's ExperimentalFlags.enableBenchmark = true; the Swift Engine then calls litert_lm_engine_settings_enable_benchmark, which creates the engine's benchmark parameters, so EngineSettings::IsBenchmarkEnabled is true and MaybeUpdateAndValidate sets AdvancedSettings::is_benchmark; CreateCompilationOptions then requests the active GPU wait (SyncExecutionModeWaitType::kActive), in agello-next (bypassing our passive-wait commit 645aaf65) and in v0.18.0 alike."
+  },
+  {
+   "page": "configuration.md",
+   "line": 199,
+   "id": "OUR-034",
+   "verdict": "corrected",
+   "text_now": "Since Agello 6db56c6 (2026-11-11) the app sets ExperimentalFlags.enableBenchmark = false when it loads a model (its reply stats come from the runtime's telemetry), so LiteRT-LM runs with is_benchmark unset and our 645aaf65 requests the passive (sleeping) GPU wait; until then Agello set enableBenchmark = true (at 93122b6) and got the active (busy-wait) GPU wait, and its device probes still set it to true.",
+   "text_before": "Agello at 93122b6 sets ExperimentalFlags.enableBenchmark = true when it loads a model, so LiteRT-LM runs with is_benchmark set and requests the active (busy-wait) GPU wait; our passive-wait change 645aaf65, which applies only when is_benchmark is false, therefore does not take effect in the app with our build, and Google's v0.18.0 binary requests the active wait in benchmark mode as well."
+  },
+  {
+   "page": "configuration.md",
+   "line": 199,
+   "id": "RT-RUN-028",
+   "verdict": "corrected",
+   "text_now": "With ExperimentalFlags.enableBenchmark set, the Swift Engine calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in our build and in the release Agello ships; otherwise our change (645aaf65) asks for the passive wait. Agello set enableBenchmark = true for its reply footer until 2026-11-11 and has set it to false since (Agello 6db56c6), taking the stats from the runtime's telemetry, so its GPU waits are passive.",
+   "text_before": "Agello sets ExperimentalFlags.enableBenchmark = true when loading a model; the Swift Engine then calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in both the documented build and the shipped v0.18.0 sources; our passive-wait change (645aaf65) applies only when is_benchmark is false."
+  },
+  {
+   "page": "configuration.md",
+   "line": 200,
+   "id": "LM-SWIFT-004",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true).",
+   "text_before": "Engine.initialize (agello-next) reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 200,
+   "id": "LM-SWIFT-056",
+   "verdict": "corrected",
+   "text_now": "Agello's LiteRTChatEngine.load calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = false (its reply stats come from the runtime's telemetry) and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines.",
+   "text_before": "Agello's LiteRTChatEngine.load (93122b647a) calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = true and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines."
+  },
+  {
+   "page": "configuration.md",
+   "line": 201,
+   "id": "LM-SWIFT-033",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.visualTokenBudget is read by Engine.initialize (as the engine's max vision tokens per image) and again for every native send, in makeOptionalArgs, which uses ConversationConfig.visualTokenBudget or, when that is nil, the flag's current value; the release Agello ships reads it the same way.",
+   "text_before": "ExperimentalFlags.visualTokenBudget is read by Engine.initialize (as the engine's max vision tokens per image) and again for every native send, which uses ConversationConfig.visualTokenBudget or, when that is nil, the flag's current value; in agello-next the read is in makeOptionalArgs, in the shipped wrapper inline in attemptSendMessage and sendToStream."
+  },
+  {
+   "page": "configuration.md",
+   "line": 202,
+   "id": "RT-DLG-069",
+   "verdict": "corrected",
+   "text_now": "On macOS 15/iOS 18 and later the LiteRT accelerator's GpuBackendMetal creates an MTLResidencySet ('LiteRT Model Residency Set') and adds constants and external immutable tensors to it, and tensors bound later only while residency is enabled (ours: 1e2bc133), but attaches it to the queue, requests residency and starts a 100 ms re-request heartbeat thread only when residency is enabled; LiteRT-LM passes AdvancedSettings.gpu_enable_metal_residency_set (default false) in the compilation options and in the run options of the main executor's prefill and decode runs on Apple (the MTP drafter and verify runs pass none), Invoke applies it whenever a run carries GPU options, and Agello doesn't set it, so in Agello the set is never requested.",
+   "text_before": "On macOS 15/iOS 18 and later the LiteRT accelerator's GpuBackendMetal creates an MTLResidencySet ('LiteRT Model Residency Set') and adds constants, external immutable tensors and every bound tensor to it, but attaches it to the queue, requests residency and starts a 100 ms re-request heartbeat thread only when residency is enabled; LiteRT-LM passes AdvancedSettings.gpu_enable_metal_residency_set (default false) in the compilation options and in the run options of the main executor's prefill and decode runs on Apple (the MTP drafter and verify runs pass none), Invoke applies it whenever a run carries GPU options, and Agello doesn't set it, so in Agello the set is never requested."
+  },
+  {
+   "page": "configuration.md",
+   "line": 203,
+   "id": "LM-SWIFT-034",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.enableYnnpack is Google's, in the upstream Swift wrapper at our base (df6df5b8), so our build and the release Agello ships have it; when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise.",
+   "text_before": "ExperimentalFlags.enableYnnpack is in Google's upstream Swift wrapper at the agello-next base (df6df5b8), so agello-next has it but the shipped v0.18.0-based wrapper does not (its ExperimentalFlags ends with gpuEnableMetalResidencySet); when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 204,
+   "id": "LM-CNV-052",
+   "verdict": "corrected",
+   "text_now": "In our build, when a completed reply contains channel content and filtering is on, complete_message_callback rewinds the session to the channel-content checkpoint and prefills the reply re-rendered by the template: render of history up to the checkpoint plus the reply (add_generation_prompt=false) minus render of history up to the checkpoint (add_generation_prompt=true when the checkpoint was saved after the user prefill, as for Gemma 4; false when it was saved before it). The caller's completion sentinel is withheld until that refill prefill reaches kDone.",
+   "text_before": "In agello-next, when a completed reply contains channel content and filtering is on, complete_message_callback rewinds the session to the channel-content checkpoint and prefills the reply re-rendered by the template: render of history up to the checkpoint plus the reply (add_generation_prompt=false) minus render of history up to the checkpoint (add_generation_prompt=true when the checkpoint was saved after the user prefill, as for Gemma 4; false when it was saved before it). The caller's completion sentinel is withheld until that refill prefill reaches kDone."
+  },
+  {
+   "page": "configuration.md",
+   "line": 227,
+   "id": "LM-SWIFT-042",
+   "verdict": "corrected",
+   "text_now": "Swift EmbeddingOptions exposes normalize, insertSpecialTokens, outputSize, visionTokensPerImage and inputOverflowStrategy (chunkAndAverage, truncate or error; ours: 4ca2cf33), passed to litert_lm_embedding_options_set_input_overflow_strategy when set; left nil, an embedding call gets the C++ default input_overflow_strategy = kError (an input longer than the longest signature fails).",
+   "text_before": "Swift EmbeddingOptions exposes normalize, insertSpecialTokens, outputSize and visionTokensPerImage but no input overflow strategy, so Swift embedding calls use the C++ default input_overflow_strategy = kError (an input longer than the longest signature fails)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 247,
+   "id": "LM-ENG-005",
+   "verdict": "corrected",
+   "text_now": "In EngineAdvancedImpl::Create, when the file's LlmMetadata has an llm_model_type, the tokenizer is created through a std::future launched with std::launch::async (a separate thread, concurrent with environment and executor creation) if EngineSettings::GetParallelFileSectionLoading() is true, which is the default, or std::launch::deferred (built on the creating thread when the future is read after the executor exists) otherwise; files without llm_model_type load the tokenizer synchronously first.",
+   "text_before": "In EngineAdvancedImpl::Create (agello-next 7b872544), when the file's LlmMetadata has an llm_model_type, the tokenizer is created through a std::future launched with std::launch::async (a separate thread, concurrent with environment and executor creation) if EngineSettings::GetParallelFileSectionLoading() is true, which is the default, or std::launch::deferred (built on the creating thread when the future is read after the executor exists) otherwise; files without llm_model_type load the tokenizer synchronously first."
+  },
+  {
+   "page": "configuration.md",
+   "line": 247,
+   "id": "LM-ENG-006",
+   "verdict": "corrected",
+   "text_now": "In our build, the only place in runtime/ where EngineSettings::GetParallelFileSectionLoading() changes behavior is EngineAdvancedImpl::Create, where it selects the tokenizer future's launch policy (async or deferred); elsewhere it is only printed by EngineSettings' operator<<.",
+   "text_before": "At agello-next 7b872544, the only place in runtime/ where EngineSettings::GetParallelFileSectionLoading() changes behavior is EngineAdvancedImpl::Create, where it selects the tokenizer future's launch policy (async or deferred); elsewhere it is only printed by EngineSettings' operator<<."
+  },
+  {
+   "page": "configuration.md",
+   "line": 261,
+   "id": "LM-SWIFT-004",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true).",
+   "text_before": "Engine.initialize (agello-next) reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 284,
+   "id": "LM-EXE-019",
+   "verdict": "corrected",
+   "text_now": "In our build, CreateSampler for a GPU sampler backend finds no Metal TopK sampler (the closed library isn't linked), falls back to the CPU TopPSampler and records a sampler_fallback_to_cpu anomaly; an engine run on an Apple M6 recorded sampler = cpu (GPU sampler unavailable), and our binary defines 7 TopK Metal sampler symbols (Google's v0.18.0 binary had 39 in the record of 2026-10-16).",
+   "text_before": "In our agello-next build, CreateSampler for a GPU sampler backend finds no Metal TopK sampler (the closed library isn't linked), falls back to the CPU TopPSampler and records a sampler_fallback_to_cpu anomaly; an engine run on an Apple M6 recorded sampler = cpu (GPU sampler unavailable), while Google's prebuilt v0.18.0 binary defines 39 TopK Metal sampler symbols to our 7."
+  },
+  {
+   "page": "configuration.md",
+   "line": 286,
+   "id": "LM-EXE-072",
+   "verdict": "corrected",
+   "text_now": "For each Decode call the compiled-model executor uses MTP when the decode params' enable_speculative_decoding is true, or, when it is unset, whenever a drafter is loaded, except (ours: 3fa97211) near the end of the KV cache, where a round wouldn't fit and the call decodes a plain step instead.",
+   "text_before": "For each Decode call the compiled-model executor uses MTP when the decode params' enable_speculative_decoding is true, or, when it is unset, whenever a drafter is loaded."
+  },
+  {
+   "page": "configuration.md",
+   "line": 288,
+   "id": "LM-CAPI-048",
+   "verdict": "corrected",
+   "text_now": "SessionAdvanced's destructor calls WaitUntilDone(), which waits up to Engine::kDefaultTimeout (absl::Minutes(10)) for the session's tasks without cancelling them, in our build and in the release Agello ships; the wait (ThreadedExecutionManager::WaitUntilSessionDone) ends when the session has no active task, and tasks leave that state only in an end state (done, max tokens, failed, cancelled).",
+   "text_before": "SessionAdvanced's destructor calls WaitUntilDone(), which waits up to Engine::kDefaultTimeout (absl::Minutes(10)) for the session's tasks without cancelling them, in both agello-next and v0.18.0; the wait (ThreadedExecutionManager::WaitUntilSessionDone) ends when the session has no active task, and tasks leave that state only in an end state (done, max tokens, failed, cancelled)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 296,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 297,
+   "id": "LM-CNV-068",
+   "verdict": "corrected",
+   "text_now": "The C API maps kLiteRtLmConstraintTypeRegex and kLiteRtLmConstraintTypeJsonSchema to an LlGuidanceConstraintArg in OptionalArgs.decoding_constraint (no Lark or external constraints through C); litert_lm_conversation_config_set_constraint_provider accepts only kLiteRtLmConstraintProviderTypeLlGuidance in our build and the release Agello ships (others return InvalidArgument), and conversation creation acts only on LlGuidance.",
+   "text_before": "The C API maps kLiteRtLmConstraintTypeRegex and kLiteRtLmConstraintTypeJsonSchema to an LlGuidanceConstraintArg in OptionalArgs.decoding_constraint (no Lark or external constraints through C); litert_lm_conversation_config_set_constraint_provider accepts only kLiteRtLmConstraintProviderTypeLlGuidance in agello-next (others return InvalidArgument), while in v0.18.0 it stores any value and conversation creation acts only on LlGuidance."
+  },
+  {
+   "page": "configuration.md",
+   "line": 298,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 299,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 300,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 301,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 302,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 315,
+   "id": "MD-KRN-008",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's static compiled-model executor (LlmLiteRtCompiledModelExecutorStatic, our build) uses ActivationDataType FLOAT16 unless the executor settings set another type, and CreateCompilationOptions sets LiteRT GPU precision kFp16 for any activation type other than FLOAT32; the dynamic variant (LlmLiteRtCompiledModelExecutorDynamic) always compiles with FLOAT32.",
+   "text_before": "LiteRT-LM's static compiled-model executor (LlmLiteRtCompiledModelExecutorStatic, agello-next) uses ActivationDataType FLOAT16 unless the executor settings set another type, and CreateCompilationOptions sets LiteRT GPU precision kFp16 for any activation type other than FLOAT32; the dynamic variant (LlmLiteRtCompiledModelExecutorDynamic) always compiles with FLOAT32."
+  },
+  {
+   "page": "configuration.md",
+   "line": 321,
+   "id": "LM-SWIFT-004",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true).",
+   "text_before": "Engine.initialize (agello-next) reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 322,
+   "id": "LM-EXE-034",
+   "verdict": "corrected",
+   "text_now": "Our commit 645aaf65 makes CreateCompilationOptions set the GPU sync wait type to kPassive outside benchmark mode (kActive in benchmark mode); the release Agello ships has the same choice.",
+   "text_before": "Our agello-next commit 645aaf65 makes CreateCompilationOptions set the GPU sync wait type to kPassive outside benchmark mode (kActive in benchmark mode); LiteRT-LM v0.18.0 sets kActive in benchmark mode and leaves the delegate's default otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 323,
+   "id": "RT-DLG-069",
+   "verdict": "corrected",
+   "text_now": "On macOS 15/iOS 18 and later the LiteRT accelerator's GpuBackendMetal creates an MTLResidencySet ('LiteRT Model Residency Set') and adds constants and external immutable tensors to it, and tensors bound later only while residency is enabled (ours: 1e2bc133), but attaches it to the queue, requests residency and starts a 100 ms re-request heartbeat thread only when residency is enabled; LiteRT-LM passes AdvancedSettings.gpu_enable_metal_residency_set (default false) in the compilation options and in the run options of the main executor's prefill and decode runs on Apple (the MTP drafter and verify runs pass none), Invoke applies it whenever a run carries GPU options, and Agello doesn't set it, so in Agello the set is never requested.",
+   "text_before": "On macOS 15/iOS 18 and later the LiteRT accelerator's GpuBackendMetal creates an MTLResidencySet ('LiteRT Model Residency Set') and adds constants, external immutable tensors and every bound tensor to it, but attaches it to the queue, requests residency and starts a 100 ms re-request heartbeat thread only when residency is enabled; LiteRT-LM passes AdvancedSettings.gpu_enable_metal_residency_set (default false) in the compilation options and in the run options of the main executor's prefill and decode runs on Apple (the MTP drafter and verify runs pass none), Invoke applies it whenever a run carries GPU options, and Agello doesn't set it, so in Agello the set is never requested."
+  },
+  {
+   "page": "configuration.md",
+   "line": 324,
+   "id": "MD-KRN-017",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM (our build) fills an unset AdvancedSettings.allow_src_quantized_fc_conv_ops with true when the model's metadata names a well-known llm_model_type and false for generic or missing types, then enables LiteRT's AllowSrcQuantizedFcConvOps GPU option unless the setting is false; the ML Drift delegate adds ModelHints::kDisallow8bitConvs only when that option is off. E4B's metadata names gemma4, so by default ML Drift may run quantized-activation INT8 convolutions for it.",
+   "text_before": "LiteRT-LM (agello-next) fills an unset AdvancedSettings.allow_src_quantized_fc_conv_ops with true when the model's metadata names a well-known llm_model_type and false for generic or missing types, then enables LiteRT's AllowSrcQuantizedFcConvOps GPU option unless the setting is false; the ML Drift delegate adds ModelHints::kDisallow8bitConvs only when that option is off. E4B's metadata names gemma4, so by default ML Drift may run quantized-activation INT8 convolutions for it."
+  },
+  {
+   "page": "configuration.md",
+   "line": 325,
+   "id": "RT-DLG-004",
+   "verdict": "corrected",
+   "text_now": "For the GPU backend, our LiteRT-LM's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true.",
+   "text_before": "For the GPU backend, LiteRT-LM agello-next's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true."
+  },
+  {
+   "page": "configuration.md",
+   "line": 326,
+   "id": "RT-DLG-084",
+   "verdict": "corrected",
+   "text_now": "With cache_compiled_programs_only (LiteRT-LM AdvancedSettings.cache_compiled_shaders_only) set, DelegateKernel::ReadFromSerializedData disables the delegate's program cache; at Google's base only the OpenCL and WebGPU delegates read that option (to cache compiled programs themselves), and our tree removed both delegates in the prune edb2c7db, so on Metal the option leaves no program cache at all.",
+   "text_before": "With cache_compiled_programs_only (LiteRT-LM AdvancedSettings.cache_compiled_shaders_only) set, DelegateKernel::ReadFromSerializedData disables the delegate's program cache, and among the delegates only the OpenCL and WebGPU ones read that option, so on Metal no program cache is used at all."
+  },
+  {
+   "page": "configuration.md",
+   "line": 332,
+   "id": "RT-DLG-018",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM's GPU executor uses no-external-tensors mode by default (GpuConfig.external_tensor_mode = false) and adds external tensor patterns kv_cache_, param_tensor, w_prime, lora_ and (when the sampler backend is GPU) logits, and buffer-storage patterns kv_cache_c_, param_tensor, w_prime, lora_, plus kv_cache_ when the model has an INT32 param input.",
+   "text_before": "LiteRT-LM agello-next's GPU executor uses no-external-tensors mode by default (GpuConfig.external_tensor_mode = false) and adds external tensor patterns kv_cache_, param_tensor, w_prime, lora_ and (when the sampler backend is GPU) logits, and buffer-storage patterns kv_cache_c_, param_tensor, w_prime, lora_, plus kv_cache_ when the model has an INT32 param input."
+  },
+  {
+   "page": "configuration.md",
+   "line": 343,
+   "id": "LM-FMT-014",
+   "verdict": "corrected",
+   "text_now": "Potential mismatch found by reading code: Google's Python builder (python/litert_lm_builder), which our tree removed in the prune of 2026-11-11 (7e4d9b8d), validates backend_constraint after splitting on ',' and stripping spaces but stores the original string lowercased (its docstring example is 'cpu, gpu'), while the runtime's ValidateBackendConstraint splits on ',' without trimming, so a stored ' gpu' part would not match a GPU executor backend.",
+   "text_before": "Potential mismatch found by reading code: the Python builder validates backend_constraint after splitting on ',' and stripping spaces but stores the original string lowercased (its docstring example is 'cpu, gpu'), while the runtime's ValidateBackendConstraint splits on ',' without trimming, so a stored ' gpu' part would not match a GPU executor backend."
+  },
+  {
+   "page": "configuration.md",
+   "line": 363,
+   "id": "RT-RUN-008",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's CreateEnvironment (runtime/util/litert_util.cc, unchanged in our build) creates the LiteRT Environment with only these options: magic-number configs and verifications (CPU, GPU, or generic NPU backend, unless configure_magic_numbers is off), NPU dispatch and compiler-plugin library directories (NPU backends only), and the minimum log severity when one is set; it passes no Metal device or command queue.",
+   "text_before": "LiteRT-LM's CreateEnvironment (runtime/util/litert_util.cc, agello-next 7b872544) creates the LiteRT Environment with only these options: magic-number configs and verifications (CPU, GPU, or generic NPU backend, unless configure_magic_numbers is off), NPU dispatch and compiler-plugin library directories (NPU backends only), and the minimum log severity when one is set; it passes no Metal device or command queue."
+  },
+  {
+   "page": "configuration.md",
+   "line": 368,
+   "id": "RT-RUN-001",
+   "verdict": "corrected",
+   "text_now": "In our LiteRT, TriggerAcceleratorAutomaticRegistration registers accelerators in the fixed order NPU, WebNN, GPU, CPU, and when kLiteRtEnvOptionTagAutoRegisterAccelerators is not set the default set is CPU | GPU | NPU | WebNN.",
+   "text_before": "In LiteRT 362759838, TriggerAcceleratorAutomaticRegistration registers accelerators in the fixed order NPU, WebNN, GPU, CPU, and when kLiteRtEnvOptionTagAutoRegisterAccelerators is not set the default set is CPU | GPU | NPU | WebNN."
+  },
+  {
+   "page": "configuration.md",
+   "line": 370,
+   "id": "RT-RUN-008",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's CreateEnvironment (runtime/util/litert_util.cc, unchanged in our build) creates the LiteRT Environment with only these options: magic-number configs and verifications (CPU, GPU, or generic NPU backend, unless configure_magic_numbers is off), NPU dispatch and compiler-plugin library directories (NPU backends only), and the minimum log severity when one is set; it passes no Metal device or command queue.",
+   "text_before": "LiteRT-LM's CreateEnvironment (runtime/util/litert_util.cc, agello-next 7b872544) creates the LiteRT Environment with only these options: magic-number configs and verifications (CPU, GPU, or generic NPU backend, unless configure_magic_numbers is off), NPU dispatch and compiler-plugin library directories (NPU backends only), and the minimum log severity when one is set; it passes no Metal device or command queue."
+  },
+  {
+   "page": "configuration.md",
+   "line": 372,
+   "id": "RT-RUN-008",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's CreateEnvironment (runtime/util/litert_util.cc, unchanged in our build) creates the LiteRT Environment with only these options: magic-number configs and verifications (CPU, GPU, or generic NPU backend, unless configure_magic_numbers is off), NPU dispatch and compiler-plugin library directories (NPU backends only), and the minimum log severity when one is set; it passes no Metal device or command queue.",
+   "text_before": "LiteRT-LM's CreateEnvironment (runtime/util/litert_util.cc, agello-next 7b872544) creates the LiteRT Environment with only these options: magic-number configs and verifications (CPU, GPU, or generic NPU backend, unless configure_magic_numbers is off), NPU dispatch and compiler-plugin library directories (NPU backends only), and the minimum log severity when one is set; it passes no Metal device or command queue."
+  },
+  {
+   "page": "configuration.md",
+   "line": 381,
+   "id": "RT-RUN-015",
+   "verdict": "corrected",
+   "text_now": "In LiteRtCompiledModelT::Create (our LiteRT), if kLiteRtHwAcceleratorCpu is not in the requested hardware set and any node remains undelegated after all accelerators are applied, creation fails with kLiteRtStatusErrorCompilation \"Some ops are not accelerated. Add kLiteRtHwAcceleratorCpu ...\"; there is no automatic CPU fallback for such nodes.",
+   "text_before": "In LiteRtCompiledModelT::Create (LiteRT 362759838), if kLiteRtHwAcceleratorCpu is not in the requested hardware set and any node remains undelegated after all accelerators are applied, creation fails with kLiteRtStatusErrorCompilation \"Some ops are not accelerated. Add kLiteRtHwAcceleratorCpu ...\"; there is no automatic CPU fallback for such nodes."
+  },
+  {
+   "page": "configuration.md",
+   "line": 381,
+   "id": "RT-RUN-016",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's CreateCompilationOptions (llm_executor_settings_utils.cc, our build) sets the hardware accelerators of the GPU-backend LLM compiled model to HwAccelerators::kGpu alone and sets the fully-delegated-to-single-delegate hint, so with LiteRT's rule that leftover nodes fail creation when the CPU is not requested, any op the GPU delegate does not take makes the main graph's compilation fail.",
+   "text_before": "LiteRT-LM's CreateCompilationOptions (llm_executor_settings_utils.cc, agello-next 7b872544) sets the hardware accelerators of the GPU-backend LLM compiled model to HwAccelerators::kGpu alone and sets the fully-delegated-to-single-delegate hint, so with LiteRT's rule that leftover nodes fail creation when the CPU is not requested, any op the GPU delegate does not take makes the main graph's compilation fail."
+  },
+  {
+   "page": "configuration.md",
+   "line": 388,
+   "id": "RT-CPU-010",
+   "verdict": "corrected",
+   "text_now": "At XNNPACK d89ef666 (the version our LiteRT-LM WORKSPACE pins), kleidiai_enabled_by_default requires //build_config:aarch64 and :arm_i8mm_enabled, arm_i8mm_enabled_by_default matches //build_config:aarch64, and //build_config:aarch64 includes ios_arm64 and macos_arm64, so KleidiAI is enabled by default for Apple arm64 targets unless --define xnn_enable_kleidiai=false (or xnn_enable_arm_i8mm=false) is set; the only .bazelrc in our tree, LiteRT-LM's at the root (LiteRT's was removed in the prune 7e4d9b8d), sets neither.",
+   "text_before": "At XNNPACK d89ef666 (the version our LiteRT-LM WORKSPACE pins), kleidiai_enabled_by_default requires //build_config:aarch64 and :arm_i8mm_enabled, arm_i8mm_enabled_by_default matches //build_config:aarch64, and //build_config:aarch64 includes ios_arm64 and macos_arm64, so KleidiAI is enabled by default for Apple arm64 targets unless --define xnn_enable_kleidiai=false (or xnn_enable_arm_i8mm=false) is set; neither LiteRT-LM's nor LiteRT's .bazelrc sets them."
+  },
+  {
+   "page": "configuration.md",
+   "line": 401,
+   "id": "RT-DLG-004",
+   "verdict": "corrected",
+   "text_now": "For the GPU backend, our LiteRT-LM's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true.",
+   "text_before": "For the GPU backend, LiteRT-LM agello-next's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true."
+  },
+  {
+   "page": "configuration.md",
+   "line": 404,
+   "id": "RT-DLG-069",
+   "verdict": "corrected",
+   "text_now": "On macOS 15/iOS 18 and later the LiteRT accelerator's GpuBackendMetal creates an MTLResidencySet ('LiteRT Model Residency Set') and adds constants and external immutable tensors to it, and tensors bound later only while residency is enabled (ours: 1e2bc133), but attaches it to the queue, requests residency and starts a 100 ms re-request heartbeat thread only when residency is enabled; LiteRT-LM passes AdvancedSettings.gpu_enable_metal_residency_set (default false) in the compilation options and in the run options of the main executor's prefill and decode runs on Apple (the MTP drafter and verify runs pass none), Invoke applies it whenever a run carries GPU options, and Agello doesn't set it, so in Agello the set is never requested.",
+   "text_before": "On macOS 15/iOS 18 and later the LiteRT accelerator's GpuBackendMetal creates an MTLResidencySet ('LiteRT Model Residency Set') and adds constants, external immutable tensors and every bound tensor to it, but attaches it to the queue, requests residency and starts a 100 ms re-request heartbeat thread only when residency is enabled; LiteRT-LM passes AdvancedSettings.gpu_enable_metal_residency_set (default false) in the compilation options and in the run options of the main executor's prefill and decode runs on Apple (the MTP drafter and verify runs pass none), Invoke applies it whenever a run carries GPU options, and Agello doesn't set it, so in Agello the set is never requested."
+  },
+  {
+   "page": "configuration.md",
+   "line": 405,
+   "id": "LM-EXE-034",
+   "verdict": "corrected",
+   "text_now": "Our commit 645aaf65 makes CreateCompilationOptions set the GPU sync wait type to kPassive outside benchmark mode (kActive in benchmark mode); the release Agello ships has the same choice.",
+   "text_before": "Our agello-next commit 645aaf65 makes CreateCompilationOptions set the GPU sync wait type to kPassive outside benchmark mode (kActive in benchmark mode); LiteRT-LM v0.18.0 sets kActive in benchmark mode and leaves the delegate's default otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 405,
+   "id": "RT-DLG-065",
+   "verdict": "corrected",
+   "text_now": "GpuBackendMetal::WaitForCompletion commits the pending command buffer, then for kGpuDelegateWaitTypeActive spins until a completed handler sets a volatile flag (a 100-iteration empty loop between checks), for kGpuDelegateWaitTypePassive calls waitUntilCompleted, and for DoNotWait doesn't wait; only in our MTP replay test (AGELLO_MTP_REPLAY), while the telemetry library defers GPU waits, it commits the buffer and keeps it for one wait at the end instead (ours: c0994a6a).",
+   "text_before": "GpuBackendMetal::WaitForCompletion commits the pending command buffer, then for kGpuDelegateWaitTypeActive spins until a completed handler sets a volatile flag (a 100-iteration empty loop between checks), for kGpuDelegateWaitTypePassive calls waitUntilCompleted, and for DoNotWait doesn't wait."
+  },
+  {
+   "page": "configuration.md",
+   "line": 405,
+   "id": "OUR-034",
+   "verdict": "corrected",
+   "text_now": "Since Agello 6db56c6 (2026-11-11) the app sets ExperimentalFlags.enableBenchmark = false when it loads a model (its reply stats come from the runtime's telemetry), so LiteRT-LM runs with is_benchmark unset and our 645aaf65 requests the passive (sleeping) GPU wait; until then Agello set enableBenchmark = true (at 93122b6) and got the active (busy-wait) GPU wait, and its device probes still set it to true.",
+   "text_before": "Agello at 93122b6 sets ExperimentalFlags.enableBenchmark = true when it loads a model, so LiteRT-LM runs with is_benchmark set and requests the active (busy-wait) GPU wait; our passive-wait change 645aaf65, which applies only when is_benchmark is false, therefore does not take effect in the app with our build, and Google's v0.18.0 binary requests the active wait in benchmark mode as well."
+  },
+  {
+   "page": "configuration.md",
+   "line": 406,
+   "id": "RT-DLG-018",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM's GPU executor uses no-external-tensors mode by default (GpuConfig.external_tensor_mode = false) and adds external tensor patterns kv_cache_, param_tensor, w_prime, lora_ and (when the sampler backend is GPU) logits, and buffer-storage patterns kv_cache_c_, param_tensor, w_prime, lora_, plus kv_cache_ when the model has an INT32 param input.",
+   "text_before": "LiteRT-LM agello-next's GPU executor uses no-external-tensors mode by default (GpuConfig.external_tensor_mode = false) and adds external tensor patterns kv_cache_, param_tensor, w_prime, lora_ and (when the sampler backend is GPU) logits, and buffer-storage patterns kv_cache_c_, param_tensor, w_prime, lora_, plus kv_cache_ when the model has an INT32 param input."
+  },
+  {
+   "page": "configuration.md",
+   "line": 407,
+   "id": "RT-RUN-016",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM's CreateCompilationOptions (llm_executor_settings_utils.cc, our build) sets the hardware accelerators of the GPU-backend LLM compiled model to HwAccelerators::kGpu alone and sets the fully-delegated-to-single-delegate hint, so with LiteRT's rule that leftover nodes fail creation when the CPU is not requested, any op the GPU delegate does not take makes the main graph's compilation fail.",
+   "text_before": "LiteRT-LM's CreateCompilationOptions (llm_executor_settings_utils.cc, agello-next 7b872544) sets the hardware accelerators of the GPU-backend LLM compiled model to HwAccelerators::kGpu alone and sets the fully-delegated-to-single-delegate hint, so with LiteRT's rule that leftover nodes fail creation when the CPU is not requested, any op the GPU delegate does not take makes the main graph's compilation fail."
+  },
+  {
+   "page": "configuration.md",
+   "line": 408,
+   "id": "MD-KRN-017",
+   "verdict": "corrected",
+   "text_now": "LiteRT-LM (our build) fills an unset AdvancedSettings.allow_src_quantized_fc_conv_ops with true when the model's metadata names a well-known llm_model_type and false for generic or missing types, then enables LiteRT's AllowSrcQuantizedFcConvOps GPU option unless the setting is false; the ML Drift delegate adds ModelHints::kDisallow8bitConvs only when that option is off. E4B's metadata names gemma4, so by default ML Drift may run quantized-activation INT8 convolutions for it.",
+   "text_before": "LiteRT-LM (agello-next) fills an unset AdvancedSettings.allow_src_quantized_fc_conv_ops with true when the model's metadata names a well-known llm_model_type and false for generic or missing types, then enables LiteRT's AllowSrcQuantizedFcConvOps GPU option unless the setting is false; the ML Drift delegate adds ModelHints::kDisallow8bitConvs only when that option is off. E4B's metadata names gemma4, so by default ML Drift may run quantized-activation INT8 convolutions for it."
+  },
+  {
+   "page": "configuration.md",
+   "line": 409,
+   "id": "RT-DLG-004",
+   "verdict": "corrected",
+   "text_now": "For the GPU backend, our LiteRT-LM's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true.",
+   "text_before": "For the GPU backend, LiteRT-LM agello-next's CreateCompilationOptions (runtime/executor/llm_executor_settings_utils.cc) enables infinite-float capping, sets FP32 precision for FLOAT32 activations (or mixed precision) and FP16 otherwise, and under #if defined(__APPLE__) sets prefer_texture_weights false and the Metal residency set from AdvancedSettings.gpu_enable_metal_residency_set; SetCommonGpuOptions also sets use_metal_argument_buffers true under __APPLE__; the executor sets hint_fully_delegated_to_single_delegate true and takes madvise, GPU weight conversion and constant-tensor sharing from AdvancedSettings, whose defaults are true, true and true."
+  },
+  {
+   "page": "configuration.md",
+   "line": 410,
+   "id": "RT-DLG-044",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available.",
+   "text_before": "LiteRT-LM agello-next computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available."
+  },
+  {
+   "page": "configuration.md",
+   "line": 422,
+   "id": "RT-DLG-065",
+   "verdict": "corrected",
+   "text_now": "GpuBackendMetal::WaitForCompletion commits the pending command buffer, then for kGpuDelegateWaitTypeActive spins until a completed handler sets a volatile flag (a 100-iteration empty loop between checks), for kGpuDelegateWaitTypePassive calls waitUntilCompleted, and for DoNotWait doesn't wait; only in our MTP replay test (AGELLO_MTP_REPLAY), while the telemetry library defers GPU waits, it commits the buffer and keeps it for one wait at the end instead (ours: c0994a6a).",
+   "text_before": "GpuBackendMetal::WaitForCompletion commits the pending command buffer, then for kGpuDelegateWaitTypeActive spins until a completed handler sets a volatile flag (a 100-iteration empty loop between checks), for kGpuDelegateWaitTypePassive calls waitUntilCompleted, and for DoNotWait doesn't wait."
+  },
+  {
+   "page": "configuration.md",
+   "line": 425,
+   "id": "RT-DLG-015",
+   "verdict": "corrected",
+   "text_now": "In our build the delegate uses the GraphFloat32 pipeline: DelegateKernel::Initialize calls InitializeIrModel only when options->use_ir_model is set; LITERT_GPU_USE_IR_MODEL is defined only via --define litert_gpu_use_ir_model=true|false (litert/c/options/BUILD), without it LrtGetGpuOptionsUseIrModel returns kLiteRtStatusErrorNotFound for an unset option and ml_drift::CreateDelegate leaves use_ir_model at its default false; our LiteRT-LM neither sets that define nor calls SetUseIrModel.",
+   "text_before": "In the documented build the delegate uses the GraphFloat32 pipeline: DelegateKernel::Initialize calls InitializeIrModel only when options->use_ir_model is set; LITERT_GPU_USE_IR_MODEL is defined only via --define litert_gpu_use_ir_model=true|false (litert/c/options/BUILD), without it LrtGetGpuOptionsUseIrModel returns kLiteRtStatusErrorNotFound for an unset option and ml_drift::CreateDelegate leaves use_ir_model at its default false; LiteRT-LM agello-next neither sets that define nor calls SetUseIrModel."
+  },
+  {
+   "page": "configuration.md",
+   "line": 426,
+   "id": "RT-DLG-029",
+   "verdict": "corrected",
+   "text_now": "MlDriftDelegateOptions declares enable_qkv_norm_rope_fusion and enable_short_conv_step_fusion with default false, and no code outside tests in our tree (LiteRT, ML Drift and LiteRT-LM) sets them, so those fusions don't run in our build.",
+   "text_before": "MlDriftDelegateOptions declares enable_qkv_norm_rope_fusion and enable_short_conv_step_fusion with default false, and no code outside tests in LiteRT 362759838 or LiteRT-LM 7b872544 sets them, so those fusions don't run in these builds."
+  },
+  {
+   "page": "configuration.md",
+   "line": 466,
+   "id": "LM-BLD-005",
+   "verdict": "corrected",
+   "text_now": "agello/build-xcframework.sh exports AGELLO_BUILD_FLAGS=\"--config=agello -c opt <extra args>\", runs `bazelisk build --config=agello -c opt \"$@\" //agello:CLiteRTLM`, deletes dist/CLiteRTLM.xcframework and unzips bazel-bin/agello/CLiteRTLM.xcframework.zip into dist/.",
+   "text_before": "agello/build-xcframework.sh (agello-next) exports AGELLO_BUILD_FLAGS=\"--config=agello -c opt <extra args>\", runs `bazelisk build --config=agello -c opt \"$@\" //agello:CLiteRTLM`, deletes dist/CLiteRTLM.xcframework and unzips bazel-bin/agello/CLiteRTLM.xcframework.zip into dist/."
+  },
+  {
+   "page": "configuration.md",
+   "line": 471,
+   "id": "LM-BLD-006",
+   "verdict": "corrected",
+   "text_now": "The `build:agello` block in LiteRT-LM's .bazelrc (ours) defines LITERT_LM_FST_CONSTRAINTS_DISABLED=1, sets C++20 for C++ and gnu++20 for Objective-C++, links with -Wl,-undefined,error, and sets --workspace_status_command=agello/workspace_status.sh; the define matches //build_config:fst_constraints_disabled_by_define, which makes //build_config:disable_fst_constraints true.",
+   "text_before": "The `build:agello` block in LiteRT-LM's .bazelrc (agello-next, ours) defines LITERT_LM_FST_CONSTRAINTS_DISABLED=1, sets C++20 for C++ and gnu++20 for Objective-C++, links with -Wl,-undefined,error, and sets --workspace_status_command=agello/workspace_status.sh; the define matches //build_config:fst_constraints_disabled_by_define, which makes //build_config:disable_fst_constraints true."
+  },
+  {
+   "page": "configuration.md",
+   "line": 472,
+   "id": "LM-BLD-056",
+   "verdict": "corrected",
+   "text_now": "Our build's CLiteRTLM iOS slice (generated/binaries.md, build 6ddc6b998303) is 37.7 MB with 220 exported litert_lm_* C functions and no Gemma FST constraint provider symbols (0 / 0); in the record of 2026-10-16, Google's v0.18.0 slice, which Agello shipped until 2026-10-28, was 61.6 MB with 212 exported functions and the closed provider (17 defined symbols).",
+   "text_before": "Google's v0.18.0 CLiteRTLM iOS slice is 61.6 MB with 212 exported litert_lm_* C functions and the closed Gemma FST constraint provider (17 defined symbols); our iOS slice at 7b872544 is 37.5 MB with 220 exported functions and no FST provider symbols (0 / 0)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 474,
+   "id": "LM-CMP-004",
+   "verdict": "corrected",
+   "text_now": "In our build both tokenizer libraries are compiled in by default: //build_config:enable_huggingface_tokenizer is a bool_flag defaulting to True, //runtime/components:model_resources depends on //support/tokenizer:huggingface_tokenizer and :sentencepiece_tokenizer unless the disable flag or DISABLE_*_TOKENIZER define is set, and the build:agello config in .bazelrc sets neither.",
+   "text_before": "In LiteRT-LM agello-next both tokenizer libraries are compiled in by default: //build_config:enable_huggingface_tokenizer is a bool_flag defaulting to True, //runtime/components:model_resources depends on //support/tokenizer:huggingface_tokenizer and :sentencepiece_tokenizer unless the disable flag or DISABLE_*_TOKENIZER define is set, and the build:agello config in .bazelrc sets neither."
+  },
+  {
+   "page": "configuration.md",
+   "line": 476,
+   "id": "LM-BLD-013",
+   "verdict": "corrected",
+   "text_now": "In our build (ours, 43f0f5c3), default_static_gpu_accelerator depends on apple_static_gpu_accelerator unless @litert//litert:litert_runtime_link_mode_dynamic; apple_static_gpu_accelerator, only for @platforms//os:ios and @platforms//os:macos, depends on @litert//litert/runtime/accelerators/gpu:ml_drift_metal_accelerator and links -framework Metal and -framework Foundation, and is empty elsewhere.",
+   "text_before": "In agello-next (ours, 43f0f5c3), default_static_gpu_accelerator depends on apple_static_gpu_accelerator unless @litert//litert:litert_runtime_link_mode_dynamic; apple_static_gpu_accelerator, only for @platforms//os:ios and @platforms//os:macos, depends on @litert//litert/runtime/accelerators/gpu:ml_drift_metal_accelerator and links -framework Metal and -framework Foundation, and is empty elsewhere."
+  },
+  {
+   "page": "configuration.md",
+   "line": 476,
+   "id": "LM-BLD-059",
+   "verdict": "corrected",
+   "text_now": "Google's build guide (which our tree removed in the prune 7e4d9b8d) says that to run on GPU on all platforms an open-source build adds --define=litert_runtime_link_mode=dynamic and copies the prebuilt/<OS> shared libraries next to litert_lm_main.",
+   "text_before": "Google's build guide says that to run on GPU on all platforms an open-source build adds --define=litert_runtime_link_mode=dynamic and copies the prebuilt/<OS> shared libraries next to litert_lm_main."
+  },
+  {
+   "page": "configuration.md",
+   "line": 478,
+   "id": "LM-BLD-061",
+   "verdict": "corrected",
+   "text_now": "//runtime/executor:gpu_accelerator is a string flag (default 'default', values metal, webgpu) whose comment says iOS uses Metal and macOS WebGPU by default; in our build the ios_webgpu and macos_metal settings derived from it aren't used by any select in the repository's BUILD files, and apple_static_gpu_accelerator doesn't read it.",
+   "text_before": "//runtime/executor:gpu_accelerator is a string flag (default 'default', values metal, webgpu) whose comment says iOS uses Metal and macOS WebGPU by default; at agello-next the ios_webgpu and macos_metal settings derived from it aren't used by any select in the repository's BUILD files, and apple_static_gpu_accelerator doesn't read it."
+  },
+  {
+   "page": "configuration.md",
+   "line": 479,
+   "id": "LM-CMP-021",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, the Bazel target //runtime/components:default_static_gpu_samplers has empty deps in every select branch, so no GPU (Metal) sampler implementation is linked from the source.",
+   "text_before": "In the LiteRT-LM source at both agello-next 7b872544 and v0.18.0, the Bazel target //runtime/components:default_static_gpu_samplers has empty deps in every select branch, so no GPU (Metal) sampler implementation is linked from the open source."
+  },
+  {
+   "page": "configuration.md",
+   "line": 479,
+   "id": "LM-BLD-015",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, //runtime/components:default_static_gpu_samplers is empty in both branches of its select, so they link no GPU sampler: generated/binaries.md counts 7 defined TopK-Metal-sampler symbols (the open wrapper) in our iOS binary, where its record of 2026-10-16 counted 39 in Google's v0.18.0, which Agello shipped until 2026-10-28.",
+   "text_before": "At agello-next 7b872544, //runtime/components:default_static_gpu_samplers is empty in both branches of its select, so the documented build links no GPU sampler, while Google's v0.18.0 iOS binary contains the closed TopK Metal sampler (39 defined symbols against 7 in ours, per generated/binaries.md)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 481,
+   "id": "RT-DLG-015",
+   "verdict": "corrected",
+   "text_now": "In our build the delegate uses the GraphFloat32 pipeline: DelegateKernel::Initialize calls InitializeIrModel only when options->use_ir_model is set; LITERT_GPU_USE_IR_MODEL is defined only via --define litert_gpu_use_ir_model=true|false (litert/c/options/BUILD), without it LrtGetGpuOptionsUseIrModel returns kLiteRtStatusErrorNotFound for an unset option and ml_drift::CreateDelegate leaves use_ir_model at its default false; our LiteRT-LM neither sets that define nor calls SetUseIrModel.",
+   "text_before": "In the documented build the delegate uses the GraphFloat32 pipeline: DelegateKernel::Initialize calls InitializeIrModel only when options->use_ir_model is set; LITERT_GPU_USE_IR_MODEL is defined only via --define litert_gpu_use_ir_model=true|false (litert/c/options/BUILD), without it LrtGetGpuOptionsUseIrModel returns kLiteRtStatusErrorNotFound for an unset option and ml_drift::CreateDelegate leaves use_ir_model at its default false; LiteRT-LM agello-next neither sets that define nor calls SetUseIrModel."
+  },
+  {
+   "page": "configuration.md",
+   "line": 482,
+   "id": "LM-CMP-082",
+   "verdict": "corrected",
+   "text_now": "In our build, //support/preprocessor:image_preprocessor_impl (the alias that runtime/core links next to the header-only :image_preprocessor) resolves to :stb_image_preprocessor unless --define enable_skia_image_preprocessor=true (build:agello doesn't set it), and :audio_preprocessor_miniaudio depends on @miniaudio//:miniaudio_objc on iOS and macOS (plain @miniaudio elsewhere).",
+   "text_before": "In LiteRT-LM agello-next, //support/preprocessor:image_preprocessor_impl (the alias that runtime/core links next to the header-only :image_preprocessor) resolves to :stb_image_preprocessor unless --define enable_skia_image_preprocessor=true (build:agello doesn't set it), and :audio_preprocessor_miniaudio depends on @miniaudio//:miniaudio_objc on iOS and macOS (plain @miniaudio elsewhere)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 483,
+   "id": "LM-ENG-032",
+   "verdict": "corrected",
+   "text_now": "On iOS and macOS, LiteRT-LM's thread-pool workers are POSIX threads (runtime/framework BUILD selects worker_thread_std_thread.cc only for Windows or --define litert_lm_std_thread=true) created by pthread_create with the interactive quality-of-service class, QOS_CLASS_USER_INTERACTIVE (ours: 4780b5c5); the thread name is the pool prefix plus \"/0\" truncated to 15 characters (\"execution_threa\", \"callback_thread\"), and nice priority and CPU affinity are applied only under __linux__ (an error is logged otherwise).",
+   "text_before": "On iOS and macOS, LiteRT-LM's thread-pool workers are POSIX threads (runtime/framework BUILD selects worker_thread_std_thread.cc only for Windows or --define litert_lm_std_thread=true) created by pthread_create with default attributes; the thread name is the pool prefix plus \"/0\" truncated to 15 characters (\"execution_threa\", \"callback_thread\"), and nice priority and CPU affinity are applied only under __linux__ (an error is logged otherwise); no QoS class is set."
+  },
+  {
+   "page": "configuration.md",
+   "line": 484,
+   "id": "RT-CPU-010",
+   "verdict": "corrected",
+   "text_now": "At XNNPACK d89ef666 (the version our LiteRT-LM WORKSPACE pins), kleidiai_enabled_by_default requires //build_config:aarch64 and :arm_i8mm_enabled, arm_i8mm_enabled_by_default matches //build_config:aarch64, and //build_config:aarch64 includes ios_arm64 and macos_arm64, so KleidiAI is enabled by default for Apple arm64 targets unless --define xnn_enable_kleidiai=false (or xnn_enable_arm_i8mm=false) is set; the only .bazelrc in our tree, LiteRT-LM's at the root (LiteRT's was removed in the prune 7e4d9b8d), sets neither.",
+   "text_before": "At XNNPACK d89ef666 (the version our LiteRT-LM WORKSPACE pins), kleidiai_enabled_by_default requires //build_config:aarch64 and :arm_i8mm_enabled, arm_i8mm_enabled_by_default matches //build_config:aarch64, and //build_config:aarch64 includes ios_arm64 and macos_arm64, so KleidiAI is enabled by default for Apple arm64 targets unless --define xnn_enable_kleidiai=false (or xnn_enable_arm_i8mm=false) is set; neither LiteRT-LM's nor LiteRT's .bazelrc sets them."
+  },
+  {
+   "page": "configuration.md",
+   "line": 486,
+   "id": "LM-BLD-019",
+   "verdict": "corrected",
+   "text_now": "Our build's WORKSPACE (ours) declares @litert as a local_repository at agello/litert: LiteRT's source, imported unchanged into this repository from PowerBeef/LiteRT at AGELLO_LITERT_COMMIT = 362759838e34e1525f1cc27daddaf663a193c059 (whose archive had sha256 dd8d2dc491cbd7c294113747e2a068ff416c4a2bd181bfaa5c4f5c92d971c312) and edited here since.",
+   "text_before": "LiteRT-LM agello-next's WORKSPACE (ours) declares @litert as an http_archive of https://github.com/PowerBeef/LiteRT/archive/<AGELLO_LITERT_COMMIT>.tar.gz with AGELLO_LITERT_COMMIT = 362759838e34e1525f1cc27daddaf663a193c059 and sha256 dd8d2dc491cbd7c294113747e2a068ff416c4a2bd181bfaa5c4f5c92d971c312."
+  },
+  {
+   "page": "configuration.md",
+   "line": 486,
+   "id": "LM-BLD-020",
+   "verdict": "corrected",
+   "text_now": "Our build's WORKSPACE declares @ml_drift as a local_repository at agello/ml_drift, imported unchanged from PowerBeef/ml-drift at ML_DRIFT_COMMIT 15fa9e2ba632145992299e3f04786dc1f575373c (archive sha256 880e9cd6...), with repo_mapping @fp16->@FP16 and @com_github_google_re2->@com_googlesource_code_re2; its comment says Bazel doesn't read @litert's WORKSPACE, which itself pins Google's ML Drift 1b18771f44c0be3d972847b31a80f6dc3d6964b5.",
+   "text_before": "LiteRT-LM agello-next's WORKSPACE declares @ml_drift from https://github.com/PowerBeef/ml-drift/archive/<ML_DRIFT_COMMIT>.tar.gz (15fa9e2ba632145992299e3f04786dc1f575373c, sha256 880e9cd6...) with repo_mapping @fp16->@FP16 and @com_github_google_re2->@com_googlesource_code_re2; its comment says Bazel doesn't read @litert's WORKSPACE, which itself pins Google's ML Drift 1b18771f44c0be3d972847b31a80f6dc3d6964b5."
+  },
+  {
+   "page": "configuration.md",
+   "line": 487,
+   "id": "LM-BLD-027",
+   "verdict": "corrected",
+   "text_now": "agello/workspace_status.sh and agello/build-xcframework.sh read override lines of the form `build \"--override_repository=<name>=<dir>\"` from .bazelrc.user with sed (the last match wins) and report that checkout's commit; without one they report 'in tree, imported at' AGELLO_LITERT_COMMIT or ML_DRIFT_COMMIT from WORKSPACE, the commits agello/litert and agello/ml_drift were imported at.",
+   "text_before": "agello/workspace_status.sh and agello/build-xcframework.sh read override lines of the form `build \"--override_repository=<name>=<dir>\"` from .bazelrc.user with sed (the last match wins) and report that checkout's commit; without one they report AGELLO_LITERT_COMMIT or ML_DRIFT_COMMIT from WORKSPACE."
+  },
+  {
+   "page": "configuration.md",
+   "line": 488,
+   "id": "LM-BLD-048",
+   "verdict": "corrected",
+   "text_now": "Package.swift in our build and the release Agello ships declares platforms .iOS(\"27.0\") and .macOS(\"27.0\") (ours, 78e7edc4), the minimum OS of //agello:CLiteRTLM's slices.",
+   "text_before": "Package.swift at agello-next still declares platforms .iOS(.v15) and .macOS(.v12), while //agello:CLiteRTLM's slices have minimum OS 27.0."
+  },
+  {
+   "page": "configuration.md",
+   "line": 489,
+   "id": "LM-SWIFT-045",
+   "verdict": "corrected",
+   "text_now": "The fork's Package.swift, in our build and at the release's commit, has one binaryTarget CLiteRTLM at the local path dist/CLiteRTLM.xcframework (ours: 3b2327cfcd); the Package.swift Agello vendors declares the same target by the release's CLiteRTLM.xcframework.zip URL (agello-one-20261115) and checksum.",
+   "text_before": "The shipped Package.swift (85b1a776) pins Google's v0.18.0 CLiteRTLM.xcframework.zip (iOS) and CLiteRTLM_mac.xcframework.zip (macOS) by release URL and checksum and picks them by platform condition, while agello-next's Package.swift has one binaryTarget CLiteRTLM at the local path dist/CLiteRTLM.xcframework (ours, 3b2327cfcd)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 489,
+   "id": "LM-BLD-049",
+   "verdict": "corrected",
+   "text_now": "The release Agello ships (agello-one-20261115, 6da75396) has the same single binary target CLiteRTLM at path dist/CLiteRTLM.xcframework; the release script writes the release's Package.swift with the release URL and checksum instead, and Agello's committed binary target is CLiteRTLM.xcframework.zip from https://github.com/PowerBeef/agello-litert-lm/releases/download/agello-one-20261115/ with checksum 90b641a52ae0e29c....",
+   "text_before": "Package.swift at the shipped wrapper 85b1a776 (identical to v0.18.0's) has binary targets CLiteRTLM and CLiteRTLM_mac downloaded from https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.18.0/ with checksums d765b99592d4ec3d0c9e2bd69469454af06c834861340672da1891c0c121c347 and 5f6ee68d95eeccb084c6e66d5ee47255e3020fa0fb29696dd0301ae26d6cfb4f, used on iOS and macOS respectively."
+  },
+  {
+   "page": "configuration.md",
+   "line": 497,
+   "id": "MD-KRN-085",
+   "verdict": "corrected",
+   "text_now": "The bounded-attention pass, the window in FullyConnected, softmax, ConvAppleMPP and ConvWaveMatrix, and AGELLO_SIMULATE_APPLE_GPU come from our commits of 2026-10-14 and 2026-10-15 in the PowerBeef/LiteRT and PowerBeef/ml-drift forks, imported unchanged into agello/litert and agello/ml_drift on 2026-11-11 (e3c93749); the release Agello ships, agello-one-20261115, contains them.",
+   "text_before": "The bounded-attention pass, the window in FullyConnected, softmax, ConvAppleMPP and ConvWaveMatrix, and AGELLO_SIMULATE_APPLE_GPU come from our commits of 2026-10-14 and 2026-10-15 in PowerBeef/LiteRT and PowerBeef/ml-drift (agello-next); what Agello ships (Google's prebuilt v0.18.0 CLiteRTLM) is built from Google's sources and has none of them."
+  },
+  {
+   "page": "configuration.md",
+   "line": 497,
+   "id": "RT-DLG-083",
+   "verdict": "corrected",
+   "text_now": "Agello ships our runtime: release agello-one-20261115 since 2026-11-15 (our runtime since 2026-10-28), built from this repository at 6da75396 with LiteRT and ML Drift in its agello/litert and agello/ml_drift folders, so the app's delegate carries Agello's LiteRT delegate commits (bounded attention, window, direct copies, passive-wait dispatch, content weight cache key, simulated-GPU keys) and those up to 2026-11-15; our build's iOS arm64 slice defines 9 symbols of the ML Drift Metal accelerator.",
+   "text_before": "Agello ships Google's prebuilt v0.18.0 CLiteRTLM.xcframework, whose iOS arm64 slice defines 12 symbols of the ML Drift Metal accelerator (ours: 9) built by Google; none of Agello's LiteRT delegate commits (bounded attention, window, direct copies, passive-wait dispatch, content weight cache key, simulated-GPU keys) are in that binary."
+  },
+  {
+   "page": "configuration.md",
+   "line": 501,
+   "id": "MD-MTL-032",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift, EncodeWithCommandBuffer and EncodeWithCommandQueue push a debug group named after each node at Agello telemetry level >= 3 (kTrace), use EncodeTimed at level >= 4 (kDeep), and EncodeWithCommandQueue calls agello::telemetry::AttachGpuTiming on each command buffer before committing it.",
+   "text_before": "In the PowerBeef/ml-drift fork, EncodeWithCommandBuffer and EncodeWithCommandQueue push a debug group named after each node at Agello telemetry level >= 3 (kTrace), use EncodeTimed at level >= 4 (kDeep), and EncodeWithCommandQueue calls agello::telemetry::AttachGpuTiming on each command buffer before committing it."
+  },
+  {
+   "page": "configuration.md",
+   "line": 501,
+   "id": "MD-MTL-033",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift, InferenceContext::EncodeTimed (telemetry level 4) encodes each kernel in its own compute encoder with stage-boundary timestamp sampling when supported, and a completion handler records each kernel's GPU time in a span named 'gpu.k.<run>:<kernel>' (run: prefill, decode, verify, drafter or other; kernel: the node name with any ' -> ...' tail replaced by ' +fused'), followed by the output and input shapes when AGELLO_KERNEL_SHAPES=1 (ours: a5db0fc4).",
+   "text_before": "In the PowerBeef/ml-drift fork, InferenceContext::EncodeTimed (telemetry level 4) encodes each kernel in its own compute encoder with stage-boundary timestamp sampling when supported, and a completion handler records each kernel's GPU time in a span named 'gpu.k.<run>:<kernel>' (run: prefill, decode, verify, drafter or other; kernel: the node name with any ' -> ...' tail replaced by ' +fused')."
+  },
+  {
+   "page": "configuration.md",
+   "line": 501,
+   "id": "LM-SWIFT-044",
+   "verdict": "corrected",
+   "text_now": "Telemetry (ours, swift/Telemetry.swift, in our build and in the release Agello ships) has Level off = 0, counters = 1, spans = 2, trace = 3, deep = 4, a level property over litert_lm_telemetry_get_level/set_level, snapshotJSON() (frees the C string with litert_lm_telemetry_free_string), snapshot(), reset() and writeTrace(to:).",
+   "text_before": "Telemetry (ours, swift/Telemetry.swift, agello-next only) has Level off = 0, counters = 1, spans = 2, trace = 3, deep = 4, a level property over litert_lm_telemetry_get_level/set_level, snapshotJSON() (frees the C string with litert_lm_telemetry_free_string), snapshot(), reset() and writeTrace(to:)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 504,
+   "id": "MD-ARC-016",
+   "verdict": "corrected",
+   "text_now": "In our build (ours: ef08a67858, underscores since e5e4c6eb), GetGpuInfoFromDeviceDescription builds AppleInfo from the lowercased value of the environment variable AGELLO_SIMULATE_APPLE_GPU, with underscores read as spaces, when it is set and non-empty, instead of from the device name; the vendor is still detected from the real device name.",
+   "text_before": "In the PowerBeef/ml-drift fork (commit ef08a67858), GetGpuInfoFromDeviceDescription builds AppleInfo from the lowercased value of the environment variable AGELLO_SIMULATE_APPLE_GPU when it is set and non-empty, instead of from the device name; the vendor is still detected from the real device name."
+  },
+  {
+   "page": "configuration.md",
+   "line": 504,
+   "id": "MD-ARC-017",
+   "verdict": "corrected",
+   "text_now": "With AGELLO_SIMULATE_APPLE_GPU set, ML Drift's CreateGpuInfoFromMetalDevice still reads the Metal language version, maxThreadsPerThreadgroup, maxBufferLength and is_simulator from the real MTLDevice and its name, because the switch only replaces the name passed to AppleInfo in GetGpuInfoFromDeviceDescription; settings derived from AppleInfo (the image2d size limits, the simdgroup matrix operations, the A15 compute-unit override) follow the simulated GPU, and a simulated name the table doesn't know takes the real device's family and the estimated core count (ours: e5e4c6eb).",
+   "text_before": "With AGELLO_SIMULATE_APPLE_GPU set, ML Drift's CreateGpuInfoFromMetalDevice still reads the Metal language version, maxThreadsPerThreadgroup, maxBufferLength and is_simulator from the real MTLDevice and its name, because the switch only replaces the name passed to AppleInfo in GetGpuInfoFromDeviceDescription; settings derived from AppleInfo (the image2d size limits, the simdgroup matrix operations, the A15 compute-unit override) follow the simulated GPU."
+  },
+  {
+   "page": "configuration.md",
+   "line": 504,
+   "id": "MD-ARC-018",
+   "verdict": "corrected",
+   "text_now": "In our build (ours: 362759838, from the PowerBeef/LiteRT fork imported into agello/litert), the ML Drift delegate's ComputeOptionsFingerprint appends '|agello-simulated-gpu=<value>' when AGELLO_SIMULATE_APPLE_GPU is non-empty, and the weight-cache model identifier uses the backend's serialized-data prefix concatenated with that value.",
+   "text_before": "In the PowerBeef/LiteRT fork (commit 362759838), the ML Drift delegate's ComputeOptionsFingerprint appends '|agello-simulated-gpu=<value>' when AGELLO_SIMULATE_APPLE_GPU is non-empty, and the weight-cache model identifier uses the backend's serialized-data prefix concatenated with that value."
+  },
+  {
+   "page": "configuration.md",
+   "line": 505,
+   "id": "RT-DLG-038",
+   "verdict": "corrected",
+   "text_now": "BoundedAttentionEnabled(), BoundedWindowEnabled(), SliceAttentionEnabled() and MaskBoundsEnabled() read AGELLO_BOUNDED_ATTENTION, AGELLO_BOUNDED_WINDOW, AGELLO_SLICE_ATTENTION and AGELLO_MASK_BOUNDS once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' followed by '-nowindow' when the window is off, '-sliced' when row slicing is on and '-bounds-prefill' when mask bounds are on (by default '|agello-bounded-attention-2-sliced-bounds-prefill'), plus any AGELLO_SLICE_SCORE_MB, AGELLO_PV_TILE or AGELLO_DRAFTER_WINDOW value, to the program cache key.",
+   "text_before": "BoundedAttentionEnabled() and BoundedWindowEnabled() read AGELLO_BOUNDED_ATTENTION and AGELLO_BOUNDED_WINDOW once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' (or '|agello-bounded-attention-2-nowindow') to the program cache key."
+  },
+  {
+   "page": "configuration.md",
+   "line": 506,
+   "id": "RT-DLG-038",
+   "verdict": "corrected",
+   "text_now": "BoundedAttentionEnabled(), BoundedWindowEnabled(), SliceAttentionEnabled() and MaskBoundsEnabled() read AGELLO_BOUNDED_ATTENTION, AGELLO_BOUNDED_WINDOW, AGELLO_SLICE_ATTENTION and AGELLO_MASK_BOUNDS once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' followed by '-nowindow' when the window is off, '-sliced' when row slicing is on and '-bounds-prefill' when mask bounds are on (by default '|agello-bounded-attention-2-sliced-bounds-prefill'), plus any AGELLO_SLICE_SCORE_MB, AGELLO_PV_TILE or AGELLO_DRAFTER_WINDOW value, to the program cache key.",
+   "text_before": "BoundedAttentionEnabled() and BoundedWindowEnabled() read AGELLO_BOUNDED_ATTENTION and AGELLO_BOUNDED_WINDOW once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' (or '|agello-bounded-attention-2-nowindow') to the program cache key."
+  },
+  {
+   "page": "configuration.md",
+   "line": 507,
+   "id": "RT-DLG-055",
+   "verdict": "corrected",
+   "text_now": "Upstream's GenerateUniqueModelIdentifier fingerprints the model token, a custom key (serialization prefix 'gpuv3_metal_data_' on Metal plus precision, texture-weights, quantized-ops, ordering, alignment, batching and serialization options) and TFLite's context and partition tensor sizes, which include the KV caches; our GenerateContentModelIdentifier (97e06d36) keeps the token and options but replaces the sizes with each delegated node's index and builtin code and each kTfLiteMmapRo input's index, byte size and type, and is used unless AGELLO_SHARED_WEIGHT_CACHE=0; our 36275983 appends the AGELLO_SIMULATE_APPLE_GPU value to the prefix.",
+   "text_before": "Upstream's GenerateUniqueModelIdentifier fingerprints the model token, a custom key (serialization prefix 'gpuv3_metal_data_' on Metal plus precision, texture-weights, quantized-ops, ordering, alignment, batching and serialization options) and TFLite's context and partition tensor sizes, which include the KV caches; Agello's GenerateContentModelIdentifier (LiteRT 97e06d36) keeps the token and options but replaces the sizes with each delegated node's index and builtin code and each kTfLiteMmapRo input's index, byte size and type, and is used unless AGELLO_SHARED_WEIGHT_CACHE=0; LiteRT 36275983 appends the AGELLO_SIMULATE_APPLE_GPU value to the prefix."
+  },
+  {
+   "page": "configuration.md",
+   "line": 514,
+   "id": "LM-SWIFT-034",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.enableYnnpack is Google's, in the upstream Swift wrapper at our base (df6df5b8), so our build and the release Agello ships have it; when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise.",
+   "text_before": "ExperimentalFlags.enableYnnpack is in Google's upstream Swift wrapper at the agello-next base (df6df5b8), so agello-next has it but the shipped v0.18.0-based wrapper does not (its ExperimentalFlags ends with gpuEnableMetalResidencySet); when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 515,
+   "id": "LM-BLD-005",
+   "verdict": "corrected",
+   "text_now": "agello/build-xcframework.sh exports AGELLO_BUILD_FLAGS=\"--config=agello -c opt <extra args>\", runs `bazelisk build --config=agello -c opt \"$@\" //agello:CLiteRTLM`, deletes dist/CLiteRTLM.xcframework and unzips bazel-bin/agello/CLiteRTLM.xcframework.zip into dist/.",
+   "text_before": "agello/build-xcframework.sh (agello-next) exports AGELLO_BUILD_FLAGS=\"--config=agello -c opt <extra args>\", runs `bazelisk build --config=agello -c opt \"$@\" //agello:CLiteRTLM`, deletes dist/CLiteRTLM.xcframework and unzips bazel-bin/agello/CLiteRTLM.xcframework.zip into dist/."
+  },
+  {
+   "page": "configuration.md",
+   "line": 519,
+   "id": "RT-DLG-038",
+   "verdict": "corrected",
+   "text_now": "BoundedAttentionEnabled(), BoundedWindowEnabled(), SliceAttentionEnabled() and MaskBoundsEnabled() read AGELLO_BOUNDED_ATTENTION, AGELLO_BOUNDED_WINDOW, AGELLO_SLICE_ATTENTION and AGELLO_MASK_BOUNDS once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' followed by '-nowindow' when the window is off, '-sliced' when row slicing is on and '-bounds-prefill' when mask bounds are on (by default '|agello-bounded-attention-2-sliced-bounds-prefill'), plus any AGELLO_SLICE_SCORE_MB, AGELLO_PV_TILE or AGELLO_DRAFTER_WINDOW value, to the program cache key.",
+   "text_before": "BoundedAttentionEnabled() and BoundedWindowEnabled() read AGELLO_BOUNDED_ATTENTION and AGELLO_BOUNDED_WINDOW once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' (or '|agello-bounded-attention-2-nowindow') to the program cache key."
+  },
+  {
+   "page": "configuration.md",
+   "line": 544,
+   "id": "LM-SWIFT-056",
+   "verdict": "corrected",
+   "text_now": "Agello's LiteRTChatEngine.load calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = false (its reply stats come from the runtime's telemetry) and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines.",
+   "text_before": "Agello's LiteRTChatEngine.load (93122b647a) calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = true and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines."
+  },
+  {
+   "page": "configuration.md",
+   "line": 545,
+   "id": "LM-SWIFT-056",
+   "verdict": "corrected",
+   "text_now": "Agello's LiteRTChatEngine.load calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = false (its reply stats come from the runtime's telemetry) and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines.",
+   "text_before": "Agello's LiteRTChatEngine.load (93122b647a) calls ExperimentalFlags.optIntoExperimentalAPIs(), sets enableBenchmark = true and filterChannelContentFromKvCache = true, and sets ExperimentalFlags.enableSpeculativeDecoding from its plan before creating engines."
+  },
+  {
+   "page": "configuration.md",
+   "line": 546,
+   "id": "LM-SWIFT-057",
+   "verdict": "corrected",
+   "text_now": "Agello's makeEngine builds EngineConfig with backend .gpu, vision and audio backends .cpu() when enabled, maxNumTokens from its plan and EngineCache.directory() (one kv-all-<build id> folder per runtime build), and awaits engine.initialize() inside Task.detached.",
+   "text_before": "Agello's makeEngine builds EngineConfig with backend .gpu or .cpu(), vision and audio backends .cpu() when enabled, maxNumTokens from its plan and a cache directory per context size, and awaits engine.initialize() inside Task.detached."
+  },
+  {
+   "page": "configuration.md",
+   "line": 548,
+   "id": "LM-SWIFT-062",
+   "verdict": "corrected",
+   "text_now": "Agello's chat conversation registers CurrentDateTimeTool and CalculatorTool when tools are enabled, plus WebSearchTool when web search is automatic, with a SamplerConfig (seeded when a reply is regenerated with a seed), a ThinkingConfig built from its thinking budget, its visual token budget and per-conversation speculative decoding, which is off when the conversation samples with a seed.",
+   "text_before": "Agello's chat conversation registers CurrentDateTimeTool and CalculatorTool when tools are enabled, plus WebSearchTool when web search is automatic, with a SamplerConfig, a ThinkingConfig built from its thinking budget, its visual token budget and per-conversation speculative decoding."
+  },
+  {
+   "page": "configuration.md",
+   "line": 549,
+   "id": "LM-SWIFT-060",
+   "verdict": "corrected",
+   "text_now": "Agello streams replies with sendMessageStream(_:maxOutputTokens:thinkingConfig:followUpMaxOutputTokens:maxToolRounds:), checks Task.isCancelled on every chunk, calls conversation.cancel() when cancelled, when output would overflow the room left in the KV cache, or after a stream error, and treats a cancelled conversation as unusable (reseeding before the next send).",
+   "text_before": "Agello streams replies with sendMessageStream(_:maxOutputTokens:), checks Task.isCancelled on every chunk and calls conversation.cancel() when cancelled or when output would overflow the room left in the KV cache, and treats a cancelled conversation as unusable (reseeding before the next send)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 550,
+   "id": "LM-SWIFT-059",
+   "verdict": "corrected",
+   "text_now": "Agello's JSON helper conversations use ConversationConfig(enableResponseFormat: true) with speculative decoding off unless AGELLO_JSON_MTP=1 asks for it, and sendMessage with responseFormat .json(schema:); its comment says MTP broke grammar-constrained decoding because the runtime's grammar states shared one matcher across a speculative round.",
+   "text_before": "Agello's JSON helper conversations use ConversationConfig(enableResponseFormat: true, enableSpeculativeDecoding: false) and sendMessage with responseFormat .json(schema:); its comment says MTP-drafted tokens bypassed the JSON mask on device."
+  },
+  {
+   "page": "configuration.md",
+   "line": 554,
+   "id": "LM-SWIFT-061",
+   "verdict": "corrected",
+   "text_now": "Agello's LiteRTEmbedder runs EmbeddingEngine on .gpu only (two tries) with EmbeddingOptions(normalize: true, outputSize: 768, inputOverflowStrategy: .truncate), and embeds documents in computeEmbeddingBatch calls of 8.",
+   "text_before": "Agello's LiteRTEmbedder uses EmbeddingEngine with EmbeddingOptions(normalize: true, outputSize: 256), embeds documents in computeEmbeddingBatch calls of 8, and initializes on .gpu first, then .cpu()."
+  },
+  {
+   "page": "configuration.md",
+   "line": 561,
+   "id": "LM-EXE-019",
+   "verdict": "corrected",
+   "text_now": "In our build, CreateSampler for a GPU sampler backend finds no Metal TopK sampler (the closed library isn't linked), falls back to the CPU TopPSampler and records a sampler_fallback_to_cpu anomaly; an engine run on an Apple M6 recorded sampler = cpu (GPU sampler unavailable), and our binary defines 7 TopK Metal sampler symbols (Google's v0.18.0 binary had 39 in the record of 2026-10-16).",
+   "text_before": "In our agello-next build, CreateSampler for a GPU sampler backend finds no Metal TopK sampler (the closed library isn't linked), falls back to the CPU TopPSampler and records a sampler_fallback_to_cpu anomaly; an engine run on an Apple M6 recorded sampler = cpu (GPU sampler unavailable), while Google's prebuilt v0.18.0 binary defines 39 TopK Metal sampler symbols to our 7."
+  },
+  {
+   "page": "configuration.md",
+   "line": 564,
+   "id": "LM-ENG-062",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the context loaded at that moment, and InitializeSampler returns early once sampler_ exists; since ours f1b88286 (in the release Agello ships), SampleLogits first calls SyncSamplerWithContext, which gives the sampler the active context's sampler parameters and random generator through Sampler::UpdateConfig whenever they differ from the ones it uses, so each session samples with its own parameters and random state; a sampler that handles the decode inputs itself (sampler_handles_input_) is not updated and keeps the first context's configuration. Tokens drafted and verified by MTP come from the drafter's own greedy samplers.",
+   "text_before": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the LlmContext loaded at that moment; InitializeSampler returns early when sampler_ exists, RestoreContext and UpdateRuntimeConfig don't reset sampler_, and no runtime code calls Sampler::UpdateConfig. So on the internal-sampler path, every step that goes through sampler_ (plain decode steps and MTP priming steps) samples with the parameters of the session that sampled first, for every session of the engine; tokens drafted and verified by MTP come from the drafter's own greedy samplers instead. v0.18.0's InitializeSampler has the same early return."
+  },
+  {
+   "page": "configuration.md",
+   "line": 575,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "configuration.md",
+   "line": 583,
+   "id": "LM-SWIFT-034",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags.enableYnnpack is Google's, in the upstream Swift wrapper at our base (df6df5b8), so our build and the release Agello ships have it; when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise.",
+   "text_before": "ExperimentalFlags.enableYnnpack is in Google's upstream Swift wrapper at the agello-next base (df6df5b8), so agello-next has it but the shipped v0.18.0-based wrapper does not (its ExperimentalFlags ends with gpuEnableMetalResidencySet); when unset, its getter returns true if the environment variable ENABLE_YNNPACK or enable_ynnpack equals \"true\" or a process argument contains \"enable_ynnpack=true\" (no opt-in needed), and nil otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 583,
+   "id": "LM-EXE-034",
+   "verdict": "corrected",
+   "text_now": "Our commit 645aaf65 makes CreateCompilationOptions set the GPU sync wait type to kPassive outside benchmark mode (kActive in benchmark mode); the release Agello ships has the same choice.",
+   "text_before": "Our agello-next commit 645aaf65 makes CreateCompilationOptions set the GPU sync wait type to kPassive outside benchmark mode (kActive in benchmark mode); LiteRT-LM v0.18.0 sets kActive in benchmark mode and leaves the delegate's default otherwise."
+  },
+  {
+   "page": "configuration.md",
+   "line": 583,
+   "id": "MD-KRN-085",
+   "verdict": "corrected",
+   "text_now": "The bounded-attention pass, the window in FullyConnected, softmax, ConvAppleMPP and ConvWaveMatrix, and AGELLO_SIMULATE_APPLE_GPU come from our commits of 2026-10-14 and 2026-10-15 in the PowerBeef/LiteRT and PowerBeef/ml-drift forks, imported unchanged into agello/litert and agello/ml_drift on 2026-11-11 (e3c93749); the release Agello ships, agello-one-20261115, contains them.",
+   "text_before": "The bounded-attention pass, the window in FullyConnected, softmax, ConvAppleMPP and ConvWaveMatrix, and AGELLO_SIMULATE_APPLE_GPU come from our commits of 2026-10-14 and 2026-10-15 in PowerBeef/LiteRT and PowerBeef/ml-drift (agello-next); what Agello ships (Google's prebuilt v0.18.0 CLiteRTLM) is built from Google's sources and has none of them."
+  },
+  {
+   "page": "configuration.md",
+   "line": 589,
+   "id": "LM-SWIFT-032",
+   "verdict": "corrected",
+   "text_now": "ExperimentalFlags is a struct whose flags are static properties over one process-wide store; in our build the store sits behind an NSLock (ours: 82b05ea1), while the release's own wrapper at 6da75396 keeps Google's unsynchronized static vars. Each setter ignores the new value and logs an error unless optIntoExperimentalAPIs() was called, and optedIn has no public way to be reset.",
+   "text_before": "ExperimentalFlags is a struct of static var flags (process-wide, unsynchronized); each setter ignores the new value and logs an error unless optIntoExperimentalAPIs() was called, and optedIn has no public way to be reset."
+  },
+  {
+   "page": "configuration.md",
+   "line": 589,
+   "id": "LM-SWIFT-004",
+   "verdict": "corrected",
+   "text_now": "Engine.initialize reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true).",
+   "text_before": "Engine.initialize (agello-next) reads the process-wide ExperimentalFlags enableBenchmark, enableSpeculativeDecoding, visualTokenBudget (passed to litert_lm_engine_settings_set_max_vision_tokens_per_image), gpuEnableMetalResidencySet and enableYnnpack, and passes each to its C setter only when set (enableBenchmark when true)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 594,
+   "id": "LM-CMP-071",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, ResourceManager::CreateContextHandler returns InvalidArgument 'Lora is not supported.' when the session config carries a scoped (text) LoRA file that isn't already loaded, and no code path loads one; only an audio LoRA is loaded, into the audio encoder's LoraManager.",
+   "text_before": "In both LiteRT-LM agello-next and v0.18.0, ResourceManager::CreateContextHandler returns InvalidArgument 'Lora is not supported.' when the session config carries a scoped (text) LoRA file that isn't already loaded, and no code path loads one; only an audio LoRA is loaded, into the audio encoder's LoraManager."
+  },
+  {
+   "page": "configuration.md",
+   "line": 597,
+   "id": "RT-RUN-028",
+   "verdict": "corrected",
+   "text_now": "With ExperimentalFlags.enableBenchmark set, the Swift Engine calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in our build and in the release Agello ships; otherwise our change (645aaf65) asks for the passive wait. Agello set enableBenchmark = true for its reply footer until 2026-11-11 and has set it to false since (Agello 6db56c6), taking the stats from the runtime's telemetry, so its GPU waits are passive.",
+   "text_before": "Agello sets ExperimentalFlags.enableBenchmark = true when loading a model; the Swift Engine then calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in both the documented build and the shipped v0.18.0 sources; our passive-wait change (645aaf65) applies only when is_benchmark is false."
+  },
+  {
+   "page": "configuration.md",
+   "line": 598,
+   "id": "LM-ENG-062",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the context loaded at that moment, and InitializeSampler returns early once sampler_ exists; since ours f1b88286 (in the release Agello ships), SampleLogits first calls SyncSamplerWithContext, which gives the sampler the active context's sampler parameters and random generator through Sampler::UpdateConfig whenever they differ from the ones it uses, so each session samples with its own parameters and random state; a sampler that handles the decode inputs itself (sampler_handles_input_) is not updated and keeps the first context's configuration. Tokens drafted and verified by MTP come from the drafter's own greedy samplers.",
+   "text_before": "LlmLiteRtCompiledModelExecutorBase creates its internal sampler once, in InitializeSampler on the first SampleLogits (or benchmark InitializeSampler) call, from the sampler parameters of the LlmContext loaded at that moment; InitializeSampler returns early when sampler_ exists, RestoreContext and UpdateRuntimeConfig don't reset sampler_, and no runtime code calls Sampler::UpdateConfig. So on the internal-sampler path, every step that goes through sampler_ (plain decode steps and MTP priming steps) samples with the parameters of the session that sampled first, for every session of the engine; tokens drafted and verified by MTP come from the drafter's own greedy samplers instead. v0.18.0's InitializeSampler has the same early return."
+  },
+  {
+   "page": "configuration.md",
+   "line": 600,
+   "id": "LM-SWIFT-042",
+   "verdict": "corrected",
+   "text_now": "Swift EmbeddingOptions exposes normalize, insertSpecialTokens, outputSize, visionTokensPerImage and inputOverflowStrategy (chunkAndAverage, truncate or error; ours: 4ca2cf33), passed to litert_lm_embedding_options_set_input_overflow_strategy when set; left nil, an embedding call gets the C++ default input_overflow_strategy = kError (an input longer than the longest signature fails).",
+   "text_before": "Swift EmbeddingOptions exposes normalize, insertSpecialTokens, outputSize and visionTokensPerImage but no input overflow strategy, so Swift embedding calls use the C++ default input_overflow_strategy = kError (an input longer than the longest signature fails)."
+  },
+  {
+   "page": "configuration.md",
+   "line": 602,
+   "id": "RT-DLG-083",
+   "verdict": "corrected",
+   "text_now": "Agello ships our runtime: release agello-one-20261115 since 2026-11-15 (our runtime since 2026-10-28), built from this repository at 6da75396 with LiteRT and ML Drift in its agello/litert and agello/ml_drift folders, so the app's delegate carries Agello's LiteRT delegate commits (bounded attention, window, direct copies, passive-wait dispatch, content weight cache key, simulated-GPU keys) and those up to 2026-11-15; our build's iOS arm64 slice defines 9 symbols of the ML Drift Metal accelerator.",
+   "text_before": "Agello ships Google's prebuilt v0.18.0 CLiteRTLM.xcframework, whose iOS arm64 slice defines 12 symbols of the ML Drift Metal accelerator (ours: 9) built by Google; none of Agello's LiteRT delegate commits (bounded attention, window, direct copies, passive-wait dispatch, content weight cache key, simulated-GPU keys) are in that binary."
+  },
+  {
+   "page": "tools.md",
+   "line": 61,
+   "id": "LM-FMT-036",
+   "verdict": "corrected",
+   "text_now": "Google's litertlm_peek_main, which our tree removed with the rest of python/ in the prune of 2026-11-11, is run in Google's tree with 'bazel run //python/litert_lm_builder:litertlm_peek_main -- --litertlm_file=<file>' and accepts --dump_files_dir to dump sections.",
+   "text_before": "litertlm_peek_main is run with 'bazel run //python/litert_lm_builder:litertlm_peek_main -- --litertlm_file=<file>' and accepts --dump_files_dir to dump sections."
+  },
+  {
+   "page": "tools.md",
+   "line": 101,
+   "id": "MOD-E2B-049",
+   "verdict": "corrected",
+   "text_now": "When LlmMetadata has no max_num_tokens, LiteRT-LM's GetModelInfo infers the context from the last dimension of the prefill masks in the main TFLite section, the largest over the prefill signatures; in our build and the release Agello ships it first reads growing prefixes of the section (16, 64 and 256 MiB, 1 GiB) until one verifies as the graph's flatbuffer, then, as before, the whole section, refusing sections over 2 GiB (2,147,483,648 bytes) (ours: cc97925b): for gemma-4-E2B-it.litertlm (b3ca0d2f), whose 818,275,184-byte section holds its weights inline, no prefix verifies and the whole read reports a context of 32,003 (is_dynamic_context true), while the E4B files' main graphs (62.1 and 63.1 MB, weights after the graph) verify on the 64 MiB prefix, so the E4B files (section of 2,260,043,376 bytes in Google's), whose whole read failed and left the context at 0 in v0.18.0, report 32,003 too.",
+   "text_before": "When LlmMetadata has no max_num_tokens, LiteRT-LM's GetModelInfo (same code in v0.18.0 and 7b872544) reads the whole main TFLite section into a std::string to find the prefill mask's last dimension, but refuses sections over 2 GiB (2,147,483,648 bytes): for gemma-4-E2B-it.litertlm (b3ca0d2f) it reads 818,275,184 bytes and reports a context of 32,003 (is_dynamic_context true), while for Google's E4B file (section of 2,260,043,376 bytes) the read fails and the context stays 0."
+  },
+  {
+   "page": "tools.md",
+   "line": 144,
+   "id": "MOD-E4B-065",
+   "verdict": "corrected",
+   "text_now": "Our tree's tools/model-surgery/patch_rope.py --split --block 512 (since f2e7afa0) rewrites each rotary path as position = 512h + l: l in 0-511 goes through the original MUL, SIN and COS, the phase of 512h comes from precomputed sin and cos tables of shape [F, 64] selected by onehot(h), and angle addition combines them; 64 blocks of 512 cover positions 0-32,767.",
+   "text_before": "tools/model-surgery/patch_rope.py --split --block 512 (agello branch, commit f2e7afa0) rewrites each rotary path as position = 512h + l: l in 0-511 goes through the original MUL, SIN and COS, the phase of 512h comes from precomputed sin and cos tables of shape [F, 64] selected by onehot(h), and angle addition combines them; 64 blocks of 512 cover positions 0-32,767."
+  },
+  {
+   "page": "tools.md",
+   "line": 178,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "tools.md",
+   "line": 192,
+   "id": "LM-BLD-053",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM release v0.18.0 (target release/v0.18.0, published 2026-10-06), which Agello shipped until 2026-10-28, has three assets: CLiteRTLM.xcframework.zip (124,129,650 bytes), CLiteRTLM_mac.xcframework.zip (45,143,303 bytes) and litert_lm_main.macos_arm64 (16,578,288 bytes).",
+   "text_before": "Google's LiteRT-LM release v0.18.0 (target release/v0.18.0, published 2026-10-06) has three assets: CLiteRTLM.xcframework.zip (124,129,650 bytes), CLiteRTLM_mac.xcframework.zip (45,143,303 bytes) and litert_lm_main.macos_arm64 (16,578,288 bytes)."
+  },
+  {
+   "page": "tools.md",
+   "line": 192,
+   "id": "LM-BLD-052",
+   "verdict": "corrected",
+   "text_now": "Upstream's CI-Mac workflow (Google's; our tree removed .github/ in the prune 7e4d9b8d) triggers on v*.*.* tag pushes (and pull requests, a daily schedule, manual runs), builds //runtime/engine:litert_lm_main on macOS with --config=macos_arm64 -c opt --define=litert_runtime_link_mode=dynamic, and on a tag uploads it to the release as litert_lm_main.macos_arm64; its iOS simulator build step is commented out, and no workflow builds //swift:CLiteRTLM.",
+   "text_before": "Upstream's CI-Mac workflow triggers on v*.*.* tag pushes (and pull requests, a daily schedule, manual runs), builds //runtime/engine:litert_lm_main on macOS with --config=macos_arm64 -c opt --define=litert_runtime_link_mode=dynamic, and on a tag uploads it to the release as litert_lm_main.macos_arm64; its iOS simulator build step is commented out, and no workflow builds //swift:CLiteRTLM."
+  },
+  {
+   "page": "tools.md",
+   "line": 193,
+   "id": "LM-BLD-059",
+   "verdict": "corrected",
+   "text_now": "Google's build guide (which our tree removed in the prune 7e4d9b8d) says that to run on GPU on all platforms an open-source build adds --define=litert_runtime_link_mode=dynamic and copies the prebuilt/<OS> shared libraries next to litert_lm_main.",
+   "text_before": "Google's build guide says that to run on GPU on all platforms an open-source build adds --define=litert_runtime_link_mode=dynamic and copies the prebuilt/<OS> shared libraries next to litert_lm_main."
+  },
+  {
+   "page": "tools.md",
+   "line": 221,
+   "id": "LM-BLD-047",
+   "verdict": "corrected",
+   "text_now": "In our build, Package.swift (ours, 3b2327cf) has one binary target CLiteRTLM at path dist/CLiteRTLM.xcframework, and LiteRTLM depends on it on all platforms; at upstream base df6df5b8 it had CLiteRTLM and CLiteRTLM_mac binary targets with storage.googleapis.com/litert/litert_lm/swift/nightly URLs and checksums, selected by iOS/macOS conditions; dist/ is git-ignored.",
+   "text_before": "At agello-next 7b872544, Package.swift (ours, 3b2327cf) has one binary target CLiteRTLM at path dist/CLiteRTLM.xcframework, and LiteRTLM depends on it on all platforms; at upstream base df6df5b8 it had CLiteRTLM and CLiteRTLM_mac binary targets with storage.googleapis.com/litert/litert_lm/swift/nightly URLs and checksums, selected by iOS/macOS conditions; dist/ is git-ignored."
+  },
+  {
+   "page": "tools.md",
+   "line": 224,
+   "id": "LM-BLD-049",
+   "verdict": "corrected",
+   "text_now": "The release Agello ships (agello-one-20261115, 6da75396) has the same single binary target CLiteRTLM at path dist/CLiteRTLM.xcframework; the release script writes the release's Package.swift with the release URL and checksum instead, and Agello's committed binary target is CLiteRTLM.xcframework.zip from https://github.com/PowerBeef/agello-litert-lm/releases/download/agello-one-20261115/ with checksum 90b641a52ae0e29c....",
+   "text_before": "Package.swift at the shipped wrapper 85b1a776 (identical to v0.18.0's) has binary targets CLiteRTLM and CLiteRTLM_mac downloaded from https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.18.0/ with checksums d765b99592d4ec3d0c9e2bd69469454af06c834861340672da1891c0c121c347 and 5f6ee68d95eeccb084c6e66d5ee47255e3020fa0fb29696dd0301ae26d6cfb4f, used on iOS and macOS respectively."
+  },
+  {
+   "page": "tools.md",
+   "line": 225,
+   "id": "LM-BLD-063",
+   "verdict": "corrected",
+   "text_now": "(C6, resolved) The agello-bench README in our tree calls research/3913 a tag and says the iPhone's Metal path runs on a Mac through our framework's macOS Metal slice (since 3b2327cf), which //agello:CLiteRTLM has, with the Metal accelerator linked statically; it still names that framework by the former branch, agello-next.",
+   "text_before": "(C6) The agello-bench README at the shipped wrapper commit 85b1a776 says Google's macOS release binaries run on WebGPU and that the Mac runs the iPhone's Metal path only through Agello 'until our own builds add a macOS Metal slice', and calls research/3913 a branch; agello-next's //agello:CLiteRTLM has had a macOS arm64 slice with the Metal accelerator linked statically since 3b2327cf, and research/3913 is now a tag."
+  },
+  {
+   "page": "tools.md",
+   "line": 264,
+   "id": "RT-RUN-028",
+   "verdict": "corrected",
+   "text_now": "With ExperimentalFlags.enableBenchmark set, the Swift Engine calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in our build and in the release Agello ships; otherwise our change (645aaf65) asks for the passive wait. Agello set enableBenchmark = true for its reply footer until 2026-11-11 and has set it to false since (Agello 6db56c6), taking the stats from the runtime's telemetry, so its GPU waits are passive.",
+   "text_before": "Agello sets ExperimentalFlags.enableBenchmark = true when loading a model; the Swift Engine then calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in both the documented build and the shipped v0.18.0 sources; our passive-wait change (645aaf65) applies only when is_benchmark is false."
+  },
+  {
+   "page": "tools.md",
+   "line": 301,
+   "id": "LM-BLD-064",
+   "verdict": "corrected",
+   "text_now": "(C6, resolved) The agello-bench README's suites list in our tree names all fourteen suites in tools/agello-bench/suites: short, long, cross4096, xl, mtp, speed, baseline, long3, sweep-8k, sweep-32k, helper-turn, helper-turn-check, helper-turn-cycles and thinking-mask.",
+   "text_before": "(C6) The agello-bench README's suites list names ten suites (short, long, cross4096, xl, mtp, speed, baseline, long3, sweep-8k, sweep-32k), matching the suites at 85b1a776; on the agello branch tip 61c03d8e, tools/agello-bench/suites also holds helper-turn, helper-turn-check, helper-turn-cycles and thinking-mask, which the list doesn't name."
+  },
+  {
+   "page": "tools.md",
+   "line": 302,
+   "id": "LM-BLD-063",
+   "verdict": "corrected",
+   "text_now": "(C6, resolved) The agello-bench README in our tree calls research/3913 a tag and says the iPhone's Metal path runs on a Mac through our framework's macOS Metal slice (since 3b2327cf), which //agello:CLiteRTLM has, with the Metal accelerator linked statically; it still names that framework by the former branch, agello-next.",
+   "text_before": "(C6) The agello-bench README at the shipped wrapper commit 85b1a776 says Google's macOS release binaries run on WebGPU and that the Mac runs the iPhone's Metal path only through Agello 'until our own builds add a macOS Metal slice', and calls research/3913 a branch; agello-next's //agello:CLiteRTLM has had a macOS arm64 slice with the Metal accelerator linked statically since 3b2327cf, and research/3913 is now a tag."
+  },
+  {
+   "page": "tools.md",
+   "line": 310,
+   "id": "MD-ARC-053",
+   "verdict": "corrected",
+   "text_now": "The release Agello ships, agello-one-20261115 (6da75396, 2026-11-15), is our build: its history contains the ML Drift import (e3c93749) and so our ML Drift commits up to 2026-11-14 (telemetry hooks, the window kernels, the AGELLO_SIMULATE_APPLE_GPU switch), but not the softmax fix at every window (581cb758), B5's row tiling (13def71b) or G1 (e5e4c6eb); the iOS arm64 slice of our build at the pin has 9 defined ML Drift Metal accelerator symbols and 8 Agello telemetry symbols.",
+   "text_before": "Google's prebuilt v0.18.0 CLiteRTLM.xcframework that Agello ships is Google's build (v0.18.0, 2026-10-06), so it contains none of our ML Drift commits (telemetry hooks, window kernels, the AGELLO_SIMULATE_APPLE_GPU switch); consistent with that, its iOS arm64 slice has 12 defined ML Drift Metal accelerator symbols and 0 Agello telemetry symbols (ours: 9 and 7)."
+  },
+  {
+   "page": "tools.md",
+   "line": 329,
+   "id": "MD-MTL-032",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift, EncodeWithCommandBuffer and EncodeWithCommandQueue push a debug group named after each node at Agello telemetry level >= 3 (kTrace), use EncodeTimed at level >= 4 (kDeep), and EncodeWithCommandQueue calls agello::telemetry::AttachGpuTiming on each command buffer before committing it.",
+   "text_before": "In the PowerBeef/ml-drift fork, EncodeWithCommandBuffer and EncodeWithCommandQueue push a debug group named after each node at Agello telemetry level >= 3 (kTrace), use EncodeTimed at level >= 4 (kDeep), and EncodeWithCommandQueue calls agello::telemetry::AttachGpuTiming on each command buffer before committing it."
+  },
+  {
+   "page": "tools.md",
+   "line": 330,
+   "id": "MD-MTL-033",
+   "verdict": "corrected",
+   "text_now": "In our ML Drift, InferenceContext::EncodeTimed (telemetry level 4) encodes each kernel in its own compute encoder with stage-boundary timestamp sampling when supported, and a completion handler records each kernel's GPU time in a span named 'gpu.k.<run>:<kernel>' (run: prefill, decode, verify, drafter or other; kernel: the node name with any ' -> ...' tail replaced by ' +fused'), followed by the output and input shapes when AGELLO_KERNEL_SHAPES=1 (ours: a5db0fc4).",
+   "text_before": "In the PowerBeef/ml-drift fork, InferenceContext::EncodeTimed (telemetry level 4) encodes each kernel in its own compute encoder with stage-boundary timestamp sampling when supported, and a completion handler records each kernel's GPU time in a span named 'gpu.k.<run>:<kernel>' (run: prefill, decode, verify, drafter or other; kernel: the node name with any ' -> ...' tail replaced by ' +fused')."
+  },
+  {
+   "page": "tools.md",
+   "line": 357,
+   "id": "LM-SWIFT-044",
+   "verdict": "corrected",
+   "text_now": "Telemetry (ours, swift/Telemetry.swift, in our build and in the release Agello ships) has Level off = 0, counters = 1, spans = 2, trace = 3, deep = 4, a level property over litert_lm_telemetry_get_level/set_level, snapshotJSON() (frees the C string with litert_lm_telemetry_free_string), snapshot(), reset() and writeTrace(to:).",
+   "text_before": "Telemetry (ours, swift/Telemetry.swift, agello-next only) has Level off = 0, counters = 1, spans = 2, trace = 3, deep = 4, a level property over litert_lm_telemetry_get_level/set_level, snapshotJSON() (frees the C string with litert_lm_telemetry_free_string), snapshot(), reset() and writeTrace(to:)."
+  },
+  {
+   "page": "tools.md",
+   "line": 376,
+   "id": "MD-ARC-016",
+   "verdict": "corrected",
+   "text_now": "In our build (ours: ef08a67858, underscores since e5e4c6eb), GetGpuInfoFromDeviceDescription builds AppleInfo from the lowercased value of the environment variable AGELLO_SIMULATE_APPLE_GPU, with underscores read as spaces, when it is set and non-empty, instead of from the device name; the vendor is still detected from the real device name.",
+   "text_before": "In the PowerBeef/ml-drift fork (commit ef08a67858), GetGpuInfoFromDeviceDescription builds AppleInfo from the lowercased value of the environment variable AGELLO_SIMULATE_APPLE_GPU when it is set and non-empty, instead of from the device name; the vendor is still detected from the real device name."
+  },
+  {
+   "page": "tools.md",
+   "line": 376,
+   "id": "MD-ARC-017",
+   "verdict": "corrected",
+   "text_now": "With AGELLO_SIMULATE_APPLE_GPU set, ML Drift's CreateGpuInfoFromMetalDevice still reads the Metal language version, maxThreadsPerThreadgroup, maxBufferLength and is_simulator from the real MTLDevice and its name, because the switch only replaces the name passed to AppleInfo in GetGpuInfoFromDeviceDescription; settings derived from AppleInfo (the image2d size limits, the simdgroup matrix operations, the A15 compute-unit override) follow the simulated GPU, and a simulated name the table doesn't know takes the real device's family and the estimated core count (ours: e5e4c6eb).",
+   "text_before": "With AGELLO_SIMULATE_APPLE_GPU set, ML Drift's CreateGpuInfoFromMetalDevice still reads the Metal language version, maxThreadsPerThreadgroup, maxBufferLength and is_simulator from the real MTLDevice and its name, because the switch only replaces the name passed to AppleInfo in GetGpuInfoFromDeviceDescription; settings derived from AppleInfo (the image2d size limits, the simdgroup matrix operations, the A15 compute-unit override) follow the simulated GPU."
+  },
+  {
+   "page": "tools.md",
+   "line": 379,
+   "id": "MD-ARC-018",
+   "verdict": "corrected",
+   "text_now": "In our build (ours: 362759838, from the PowerBeef/LiteRT fork imported into agello/litert), the ML Drift delegate's ComputeOptionsFingerprint appends '|agello-simulated-gpu=<value>' when AGELLO_SIMULATE_APPLE_GPU is non-empty, and the weight-cache model identifier uses the backend's serialized-data prefix concatenated with that value.",
+   "text_before": "In the PowerBeef/LiteRT fork (commit 362759838), the ML Drift delegate's ComputeOptionsFingerprint appends '|agello-simulated-gpu=<value>' when AGELLO_SIMULATE_APPLE_GPU is non-empty, and the weight-cache model identifier uses the backend's serialized-data prefix concatenated with that value."
+  },
+  {
+   "page": "tools.md",
+   "line": 394,
+   "id": "APL-057",
+   "verdict": "corrected",
+   "text_now": "ML Drift lowercases AGELLO_SIMULATE_APPLE_GPU, reads underscores as spaces, and matches it against the same name keys as device names ('apple a17 pro', 'apple m2', ...), so a value such as 'A17 Pro' matches no key and leaves AppleGpu::kUnknown; in our build an unknown chip then takes the device's own highest Apple family (capped at Apple10) and an estimated core count (ours: e5e4c6eb; Apple1 in the release Agello ships), so such a value simulates nothing, and our LiteRT reports a kGpuFamilyUnknown anomaly in GpuBackendMetal::GetInfo.",
+   "text_before": "ML Drift (15fa9e2) lowercases AGELLO_SIMULATE_APPLE_GPU and matches it against the same name keys as device names ('apple a17 pro', 'apple m2', ...), so a value such as 'A17 Pro' matches no key, leaves AppleGpu::kUnknown and family Apple1, and our LiteRT (362759838) then reports a kGpuFamilyUnknown anomaly in GpuBackendMetal::GetInfo."
+  },
+  {
+   "page": "tools.md",
+   "line": 401,
+   "id": "APL-060",
+   "verdict": "corrected",
+   "text_now": "Because ML Drift takes the MSL version from the real device and Metal 4 covers A14/M1 and later, setting AGELLO_SIMULATE_APPLE_GPU to an Apple10 name on an Apple9 device with iOS 26 or later would satisfy SupportsConvAppleMPP and select ConvAppleMPP on hardware without GPU Neural Accelerators; Apple says TensorOps fall back to shader code there, but the configuration hasn't been run.",
+   "text_before": "Because ML Drift (15fa9e2) takes the MSL version from the real device and Metal 4 covers A14/M1 and later, setting AGELLO_SIMULATE_APPLE_GPU to an Apple10 name on an Apple9 device with iOS 26 or later would satisfy SupportsConvAppleMPP and select ConvAppleMPP on hardware without GPU Neural Accelerators; Apple says TensorOps fall back to shader code there, but the configuration hasn't been run."
+  },
+  {
+   "page": "tools.md",
+   "line": 441,
+   "id": "RT-OTH-005",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (Google's release of 2026-10-06; zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default.",
+   "text_before": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default."
+  },
+  {
+   "page": "tools.md",
+   "line": 443,
+   "id": "APL-061",
+   "verdict": "corrected",
+   "text_now": "Agello's vendored Vendor/LiteRT-LM/Package.swift makes the LiteRTLM target depend on one binary target, CLiteRTLM, the xcframework of the release Agello ships (agello-one-20261115, slices ios-arm64 and macos-arm64), as the release's own Package.swift does; the iPhone app run on a Mac is an iOS binary, so it uses the ios-arm64 slice and its Metal accelerator, the same code as on the iPhone, not the macos-arm64 slice.",
+   "text_before": "Agello's vendored Vendor/LiteRT-LM/Package.swift (93122b647a, identical declarations to the shipped wrapper 85b1a776) makes the LiteRTLM target depend on CLiteRTLM (Google's iOS xcframework, slices ios-arm64 and ios-arm64-simulator) on iOS and on CLiteRTLM_mac only on macOS; the iPhone app run on a Mac is an iOS binary, so it uses the ios-arm64 slice and its Metal accelerator, not Google's macOS framework."
+  },
+  {
+   "page": "tools.md",
+   "line": 467,
+   "id": "RT-DLG-038",
+   "verdict": "corrected",
+   "text_now": "BoundedAttentionEnabled(), BoundedWindowEnabled(), SliceAttentionEnabled() and MaskBoundsEnabled() read AGELLO_BOUNDED_ATTENTION, AGELLO_BOUNDED_WINDOW, AGELLO_SLICE_ATTENTION and AGELLO_MASK_BOUNDS once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' followed by '-nowindow' when the window is off, '-sliced' when row slicing is on and '-bounds-prefill' when mask bounds are on (by default '|agello-bounded-attention-2-sliced-bounds-prefill'), plus any AGELLO_SLICE_SCORE_MB, AGELLO_PV_TILE or AGELLO_DRAFTER_WINDOW value, to the program cache key.",
+   "text_before": "BoundedAttentionEnabled() and BoundedWindowEnabled() read AGELLO_BOUNDED_ATTENTION and AGELLO_BOUNDED_WINDOW once per process (disabled when the value starts with '0'); when the pass is enabled, ComputeOptionsFingerprint appends '|agello-bounded-attention-2' (or '|agello-bounded-attention-2-nowindow') to the program cache key."
+  },
+  {
+   "page": "litert-lm/build-and-release.md",
+   "line": 313,
+   "id": "APL-066",
+   "verdict": "corrected",
+   "text_now": "The xcframework of the release Agello ships (agello-one-20261115's CLiteRTLM.xcframework.zip, sha256 90b641a5..., the binary target Agello's Package.swift pins) contains ios-arm64 (37,659,392-byte binary) and macos-arm64 (38,814,360 bytes) slices and no simulator slice; they declare platform iOS and macOS with minos 27.0 and SDK 27.2 (LC_BUILD_VERSION), link Metal.framework, and define (nm -U) LiteRtStaticLinkedAcceleratorGpuDef and the ml_drift::ConvAppleMPP and ml_drift::ConvWaveMatrix vtables.",
+   "text_before": "Google's v0.18.0 CLiteRTLM.xcframework.zip (sha256 d765b995..., the binary target Agello's Package.swift pins) contains ios-arm64 (61,591,392-byte binary) and ios-arm64-simulator (58,633,312 bytes) slices; both declare platform iOS / iOS simulator with minos 15.0 and SDK 26.4 (LC_BUILD_VERSION), link /System/Library/Frameworks/Metal.framework, and define (nm -U) LiteRtStaticLinkedAcceleratorGpuDef and the ml_drift::ConvAppleMPP and ml_drift::ConvWaveMatrix vtables."
+  },
+  {
+   "page": "litert-lm/build-and-release.md",
+   "line": 508,
+   "id": "RT-OTH-005",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (Google's release of 2026-10-06; zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default.",
+   "text_before": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default."
+  },
+  {
+   "page": "litert-lm/build-and-release.md",
+   "line": 564,
+   "id": "RT-OTH-005",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (Google's release of 2026-10-06; zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default.",
+   "text_before": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default."
+  },
+  {
+   "page": "litert-lm/c-api.md",
+   "line": 87,
+   "id": "LM-CNV-001",
+   "verdict": "corrected",
+   "text_now": "ConversationConfig::Builder defaults in our build (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine).",
+   "text_before": "ConversationConfig::Builder defaults in LiteRT-LM agello-next (runtime/conversation/conversation.h): enable_constrained_decoding false, prefill_preface_on_init false, filter_channel_content_from_kv_cache true, return_error_on_parse_failure true, return_error_on_max_tokens_reached false, stream_tool_calls false with channel name \"tool_call\", enable_rewinding true; ConversationConfig::CreateDefault(engine) is Builder().Build(engine)."
+  },
+  {
+   "page": "litert-lm/c-api.md",
+   "line": 492,
+   "id": "LM-VER-007",
+   "verdict": "corrected",
+   "text_now": "In our build, c/conversation.h marks litert_lm_conversation_wait_until_done 'Added in version 0.2.0' (changed in 1.0.0 to return a status code), but Google's v0.18.0 (C API 0.2.0) neither declared nor exported it: the 2026-10-16 record in generated/binaries.md lists it among the functions only our binary exported, and our binary at the pin exports it.",
+   "text_before": "At agello-next, c/conversation.h marks litert_lm_conversation_wait_until_done 'Added in version 0.2.0' (changed in 1.0.0 to return a status code), but v0.18.0 (C API 0.2.0) neither declares nor exports it: generated/binaries.md lists it among the functions only our binary exports."
+  },
+  {
+   "page": "litert-lm/c-api.md",
+   "line": 513,
+   "id": "RT-DLG-044",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available.",
+   "text_before": "LiteRT-LM agello-next computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available."
+  },
+  {
+   "page": "litert-lm/c-api.md",
+   "line": 515,
+   "id": "X-CFG-008",
+   "verdict": "corrected",
+   "text_now": "Agello (a691212) puts LiteRT-LM caches under Library/Caches/com.patricedery.agello.litertlm: a single folder kv-all-<build id> for every context size and embedding-<build id> for the embedder, the build id from litert_lm_get_build_info ('unknown' when the runtime reports none), and at each load it deletes everything else in that folder (other builds' folders and earlier per-size folders); the benchmark engine passes the cache directory ':nocache'.",
+   "text_before": "Agello (93122b647a) puts LiteRT-LM caches under Library/Caches/com.patricedery.agello.litertlm: with a runtime that reports no build id (Google's v0.18.0 binary) one folder per context size, kv-<maxNumTokens>, keeping the two most recently used; with a build that reports one (ours, litert_lm_get_build_info) a single folder kv-all-<build id> for every size; the embedder uses embedding or embedding-<build id>; and the benchmark engine passes the cache directory \":nocache\"."
+  },
+  {
+   "page": "litert-lm/swift-api.md",
+   "line": 576,
+   "id": "X-CFG-008",
+   "verdict": "corrected",
+   "text_now": "Agello (a691212) puts LiteRT-LM caches under Library/Caches/com.patricedery.agello.litertlm: a single folder kv-all-<build id> for every context size and embedding-<build id> for the embedder, the build id from litert_lm_get_build_info ('unknown' when the runtime reports none), and at each load it deletes everything else in that folder (other builds' folders and earlier per-size folders); the benchmark engine passes the cache directory ':nocache'.",
+   "text_before": "Agello (93122b647a) puts LiteRT-LM caches under Library/Caches/com.patricedery.agello.litertlm: with a runtime that reports no build id (Google's v0.18.0 binary) one folder per context size, kv-<maxNumTokens>, keeping the two most recently used; with a build that reports one (ours, litert_lm_get_build_info) a single folder kv-all-<build id> for every size; the embedder uses embedding or embedding-<build id>; and the benchmark engine passes the cache directory \":nocache\"."
+  }
+ ],
+ "batches": [
+  "lm-api.z-repin-r2",
+  "lm-build.z-repin-r2",
+  "ours.z-repin-r2",
+  "rt-runtime.z-repin-r2"
+ ]
+}

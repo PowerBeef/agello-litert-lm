@@ -1,8 +1,8 @@
 # LiteRT-LM C API
 
-> **Scope:** the C API in `c/` that every non-C++ binding (Swift, Kotlin JNI, Python, JS) sits on: its conventions (status codes, out-parameters, ownership, threads, callbacks, JSON strings), the life of each object, the API by area with the semantics that matter, error reporting, version macros, our two additions (telemetry, build info), and what changed from C API 0.2 (v0.18.0, what Agello ships) to 1.0.0 (the documented build). **Out of scope:** what the engine does behind each call ([engine-and-sessions.md](engine-and-sessions.md)), the conversation layer's templates, channels, tools and constraints ([conversation.md](conversation.md)), the Swift wrapper ([swift-api.md](swift-api.md)), every function signature ([`generated/c-api-inventory.md`](../generated/c-api-inventory.md)), how the framework is built and versioned ([build-and-release.md](build-and-release.md), [versions.md](../versions.md)).
-> **Pinned to:** LiteRT-LM `7b872544` (agello-next); the shipped headers at `85b1a776` (v0.18.0).
-> **Applies to:** all platforms; Apple specifics under [On Apple](#on-apple). **Last verified:** 2026-10-15
+> **Scope:** the C API in `c/` that the Swift wrapper sits on (our tree removed the other bindings in the prune of 2026-11-11): its conventions (status codes, out-parameters, ownership, threads, callbacks, JSON strings), the life of each object, the API by area with the semantics that matter, error reporting, version macros, our two additions (telemetry, build info), and what changed from C API 0.2 (Google's v0.18.0, which Agello shipped until 2026-10-28) to 1.0.0. **Out of scope:** what the engine does behind each call ([engine-and-sessions.md](engine-and-sessions.md)), the conversation layer's templates, channels, tools and constraints ([conversation.md](conversation.md)), the Swift wrapper ([swift-api.md](swift-api.md)), every function signature ([`generated/c-api-inventory.md`](../generated/c-api-inventory.md)), how the framework is built and versioned ([build-and-release.md](build-and-release.md), [versions.md](../versions.md)).
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root; Agello ships release `agello-one-20261115` (`6da75396`), whose `c/` is identical.
+> **Applies to:** all platforms; Apple specifics under [On Apple](#on-apple). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -17,14 +17,16 @@ only reaches the conversation, embedding and model-info parts, through the Swift
 
 What matters most for us:
 
-- Agello ships C API **0.2.0** (v0.18.0: pointers and `int` returns, `litert_lm_get_last_error_code`);
-  the documented build is **1.0.0** (status codes, `litert_lm_get_api_version`). The two are not
-  source compatible, so the Swift wrapper and the binary move together.
+- Agello ships our release `agello-one-20261115`, whose `c/` is identical to our build's: C API
+  **1.0.0** (status codes, `litert_lm_get_api_version`). Until 2026-10-28 it shipped Google's v0.18.0
+  binary, with C API 0.2.0 ([history](#what-changed-from-c-api-02-v0180-to-100)).
 - Streaming callbacks run on LiteRT-LM's own threads: chunks streamed during decoding on the single
   execution thread, the task's final callback on the single callback thread (in the conversation
   API it first delivers any text not yet sent, then the final chunk). Work done in a callback
   delays decoding, and anything in it that waits for the same session stalls the engine (the
   10-minute stall our Swift patch fixed).
+- A conversation send gets exactly one final chunk, however many errors the conversation layer
+  reports (ours: `8acc748c`).
 - Deleting a session or conversation waits for its running tasks (up to 10 minutes) instead of
   cancelling them; cancelling leaves the session unusable.
 
@@ -129,8 +131,8 @@ Agello links the framework at build time through Swift Package Manager, so the h
 library always come from the same xcframework; the Swift wrapper never calls
 `litert_lm_get_api_version`.
 
-The shipped v0.18.0 tree says `VERSION = "0.18.0"` and `C_API_VERSION = "0.2.0"` and has no
-version macros [`version.bzl:19-22`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/version.bzl#L19-L22). <!-- c:LM-CAPI-002 -->
+The release Agello ships has the same `version.bzl` (`VERSION = "0.19.0"`, `C_API_VERSION = "1.0.0"`)
+and the same headers [`version.bzl:19-23`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/version.bzl#L19-L23). <!-- c:LM-CAPI-002 -->
 
 ## How it works
 
@@ -189,7 +191,7 @@ Both create a session underneath. When the engine has vision or audio executor s
 (`SetVisionModalityEnabled(true)`, `SetAudioModalityEnabled(true)`), whatever the caller passed
 [`c/engine.cc:1071-1083`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.cc#L1071-L1083). `litert_lm_conversation_create` does the same only when a conversation config
 is passed: with a NULL config it takes `ConversationConfig::CreateDefault(engine)`, which doesn't set
-them [`c/conversation.cc:430-431`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L430-L431) [`c/conversation.cc:487-501`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L487-L501) [`c/conversation.cc:544-554`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L544-L554) [`runtime/conversation/conversation.cc:133-136`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L133-L136).
+them [`c/conversation.cc:448-449`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L448-L449) [`c/conversation.cc:505-519`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L505-L519) [`c/conversation.cc:562-572`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L562-L572) [`runtime/conversation/conversation.cc:134-137`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L134-L137).
 
 ### The session API
 
@@ -228,40 +230,42 @@ checks the error field.
 happens in `litert_lm_conversation_create`, which builds a `ConversationConfig` with its builder:
 
 1. The system message JSON becomes the content of a `{"role": "system"}` message; text that is not
-   valid JSON is used as a plain string [`c/conversation.cc:431-444`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L431-L444). <!-- c:LM-CAPI-019 -->
+   valid JSON is used as a plain string [`c/conversation.cc:449-462`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L449-L462). <!-- c:LM-CAPI-019 -->
 2. Initial messages must be a JSON array and are appended after the system message; tools must be a
    JSON array; extra context must be an object. A value that fails these checks is logged with
-   `ABSL_LOG(ERROR)` and dropped, and the conversation is still created [`c/conversation.cc:446-461`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L446-L461) [`c/conversation.cc:463-472`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L463-L472).
+   `ABSL_LOG(ERROR)` and dropped, and the conversation is still created [`c/conversation.cc:464-479`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L464-L479) [`c/conversation.cc:481-490`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L481-L490).
    <!-- c:LM-CAPI-020 -->
 3. The session config is copied (or the default used), with modalities switched on as for
    `litert_lm_engine_create_session`.
 4. Constrained decoding, the constraint provider (`kLiteRtLmConstraintProviderTypeLlGuidance` is the
    only one the C API names; it installs `LlGuidanceConfig`), channel filtering, tool-call
    streaming, a prompt template override and the thinking config are passed to the builder
-   [`c/conversation.cc:506-510`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L506-L510).
+   [`c/conversation.cc:524-528`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L524-L528).
 5. Rewinding is switched off if, and only if, the main executor uses `GpuArtisanConfig` with
-   auto-sized ring buffers [`c/conversation.cc:525-535`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L525-L535).
+   auto-sized ring buffers [`c/conversation.cc:543-553`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L543-L553).
 6. With a NULL config, `ConversationConfig::CreateDefault(engine)` is used instead, and the
    modalities are not switched on
-   [`c/conversation.cc:544-554`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L544-L554).
+   [`c/conversation.cc:562-572`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L562-L572).
 
 Defaults the C layer leaves to the builder: channel content filtered from the KV cache (`true`),
 constrained decoding off, tool-call streaming off with channel name `tool_call`, rewinding on
-[`runtime/conversation/conversation.h:272-282`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.h#L272-L282). A thinking config made with `litert_lm_thinking_config_create` starts
-enabled with an unlimited budget (`-1`) [`c/conversation.cc:273-279`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L273-L279).
+[`runtime/conversation/conversation.h:273-283`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.h#L273-L283). A thinking config made with `litert_lm_thinking_config_create` starts
+enabled with an unlimited budget (`-1`) [`c/conversation.cc:291-297`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L291-L297).
 
 **Sending.** `litert_lm_conversation_send_message` parses the message JSON (invalid JSON is
 `InvalidArgument`), builds the per-turn `OptionalArgs`, calls `Conversation::SendMessage` and blocks
 until the reply is complete; the reply is `Message::dump()` held by a `LiteRtLmJsonResponse`
-[`c/conversation.cc:591-625`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L591-L625) [`c/conversation.h:496-497`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.h#L496-L497). <!-- c:LM-CAPI-024 --> `litert_lm_conversation_send_message_stream`
-does the same with `SendMessageAsync` and returns once the work is queued [`c/conversation.cc:640-672`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L640-L672)
-[`c/conversation.h:547-549`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.h#L547-L549). Its chunks differ from the session API's [`c/conversation.cc:44-71`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71): <!-- c:LM-CAPI-025 -->
+[`c/conversation.cc:609-643`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L609-L643) [`c/conversation.h:496-497`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.h#L496-L497). <!-- c:LM-CAPI-024 --> `litert_lm_conversation_send_message_stream`
+does the same with `SendMessageAsync` and returns once the work is queued [`c/conversation.cc:658-691`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L658-L691)
+[`c/conversation.h:547-549`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.h#L547-L549). Its chunks differ from the session API's, and the release Agello
+ships has the same callback [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L45-L86) [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/c/conversation.cc#L45-L86): <!-- c:LM-CAPI-025 -->
 
 | What the conversation reports | Chunk |
 | --- | --- |
 | a partial message | non-final chunk whose text is the JSON dump of that message |
 | an empty message (end of stream marker) | final chunk, no text, no error |
 | an error `Status` | final chunk, no text, error = `status.ToString()` |
+| anything after the first final chunk (ours: `8acc748c`) | nothing: dropped |
 
 Cancellation and the context limit reach the conversation callback as errors: a cancelled task
 becomes `absl::CancelledError("Task cancelled")`, so the final chunk's error reads
@@ -271,24 +275,24 @@ becomes `absl::CancelledError("Task cancelled")`, so the final chunk's error rea
 no-repeat n-gram and suppressed-token configs, a visual token budget, a maximum number of output
 tokens, a thinking config and a constraint. The penalty configs are deep-copied, and passing NULL or
 a config whose `enabled()` is false (the headers describe the created defaults as inactive) clears it
-[`c/conversation.cc:324-338`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L324-L338). The constraint type maps to an llguidance argument (`kRegex` or `kJsonSchema`), and
-the visual token budget is passed only when the session's model type is Gemma 4 [`c/conversation.cc:111-133`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L111-L133)
-[`c/conversation.cc:73-85`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L73-L85). <!-- c:LM-CAPI-031 --> What each option does during decoding is in
+[`c/conversation.cc:342-356`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L342-L356). The constraint type maps to an llguidance argument (`kRegex` or `kJsonSchema`), and
+the visual token budget is passed only when the session's model type is Gemma 4 [`c/conversation.cc:129-151`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L129-L151)
+[`c/conversation.cc:91-103`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L91-L103). <!-- c:LM-CAPI-031 --> What each option does during decoding is in
 [components.md](components.md) and [conversation.md](conversation.md).
 
 **Other calls.**
 
 - `litert_lm_conversation_render_message_to_string` and `..._render_preface_to_string` return a
   string stored in the conversation, valid until the next call of the same function or the
-  conversation's deletion [`c/conversation.cc:693-701`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L693-L701) [`c/conversation_internal.h:45-56`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation_internal.h#L45-L56).
+  conversation's deletion [`c/conversation.cc:712-720`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L712-L720) [`c/conversation_internal.h:59-70`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation_internal.h#L59-L70).
 - `litert_lm_conversation_get_token_count` reports the tokens in the conversation's KV cache
-  (prefill plus decode) [`c/conversation.cc:766-780`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L766-L780). <!-- c:LM-CAPI-034 -->
+  (prefill plus decode) [`c/conversation.cc:785-799`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L785-L799). <!-- c:LM-CAPI-034 -->
 - `litert_lm_conversation_clone` duplicates a conversation with its prefilled state (C++
   `Conversation::Clone`).
 - `litert_lm_conversation_cancel_process` calls `Conversation::CancelProcess`, which cancels every
   task of the conversation's session. Upstream's own note on `SessionAdvanced::CancelProcess` says a
   session should not be reused after it: the state is "poisoned" and later operations may fail or
-  misbehave [`c/conversation.cc:723-731`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L723-L731) [`runtime/conversation/conversation.cc:927`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L927) [`runtime/core/session_advanced.h:192-207`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L192-L207) [`runtime/core/session_advanced.h:185-188`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/core/session_advanced.h#L185-L188). <!-- c:LM-CAPI-030 -->
+  misbehave [`c/conversation.cc:742-750`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L742-L750) [`runtime/conversation/conversation.cc:974`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L974) [`runtime/core/session_advanced.h:192-207`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L192-L207) [`runtime/core/session_advanced.h:194-197`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L194-L197). <!-- c:LM-CAPI-030 -->
 - `litert_lm_conversation_wait_until_done` runs and waits for the session's pending work. It is
   required after `send_message_stream` when the engine was created with single-threaded execution:
   in that mode nothing runs until a caller drives it, and the stream callback is invoked from inside
@@ -336,20 +340,20 @@ thinking and tool calls go) is in [conversation.md](conversation.md).
 The callback type is `void (*)(void* callback_data, const LiteRtLmStreamChunk* chunk)`; the library
 never frees `callback_data`. A chunk and the strings read from it exist only during the call: the C
 layer builds the chunk on its stack around temporary strings [`c/engine.h:1710-1717`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.h#L1710-L1717) [`c/engine.h:1651-1657`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.h#L1651-L1657)
-[`c/engine_internal.h:46-50`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine_internal.h#L46-L50) [`c/conversation.cc:44-71`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71). <!-- c:LM-CAPI-027 --> Copy what you need before returning.
+[`c/engine_internal.h:46-50`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine_internal.h#L46-L50) [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L45-L86). <!-- c:LM-CAPI-027 --> Copy what you need before returning.
 
 The headers only say callbacks come "from a background thread" [`c/engine.h:1741-1743`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.h#L1741-L1743). The engine decides
 which. With single-threaded execution off (the default), the engine runs a
 `ThreadedExecutionManager` with two thread pools of one thread each, `execution_thread_pool` and
-`callback_thread_pool` [`runtime/engine/engine_settings.h:187`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.h#L187) [`runtime/core/engine_advanced_impl.cc:663-679`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L663-L679) [`runtime/framework/resource_management/threaded_execution_manager.cc:87-92`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L92). Partial chunks are delivered
+`callback_thread_pool` [`runtime/engine/engine_settings.h:187`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.h#L187) [`runtime/core/engine_advanced_impl.cc:666-682`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L666-L682) [`runtime/framework/resource_management/threaded_execution_manager.cc:87-92`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L92). Partial chunks are delivered
 on the execution thread, inside `Tasks::Decode`, which receives the callback and calls it between
 decode steps; the final callback is scheduled on the callback thread, and the execution thread then
 waits up to 10 s for it before taking the next task. In the conversation API that final callback
 first flushes any text not yet sent (`SendCompleteMessage`) as non-final chunks, so those arrive on
-the callback thread too [`runtime/conversation/internal_callback_util.cc:95-149`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/internal_callback_util.cc#L95-L149) [`runtime/framework/resource_management/threaded_execution_manager.cc:402-403`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L402-L403) [`runtime/framework/resource_management/threaded_execution_manager.cc:1111-1117`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L1111-L1117)
-[`runtime/core/tasks.cc:792-799`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L792-L799) [`runtime/framework/resource_management/threaded_execution_manager.cc:526-538`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L526-L538) [`runtime/framework/resource_management/threaded_execution_manager.cc:548-557`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L548-L557). <!-- c:LM-CAPI-028 -->
-v0.18.0 has the same two single-thread pools and the same 10-second wait [`runtime/framework/resource_management/threaded_execution_manager.cc:86-92`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/framework/resource_management/threaded_execution_manager.cc#L86-L92)
-[`runtime/framework/resource_management/threaded_execution_manager.cc:515-540`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/framework/resource_management/threaded_execution_manager.cc#L515-L540).
+the callback thread too [`runtime/conversation/internal_callback_util.cc:95-149`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/internal_callback_util.cc#L95-L149) [`runtime/framework/resource_management/threaded_execution_manager.cc:405-406`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L405-L406) [`runtime/framework/resource_management/threaded_execution_manager.cc:1127-1133`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L1127-L1133)
+[`runtime/core/tasks.cc:808-815`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L808-L815) [`runtime/framework/resource_management/threaded_execution_manager.cc:529-541`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L529-L541) [`runtime/framework/resource_management/threaded_execution_manager.cc:551-560`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L551-L560). <!-- c:LM-CAPI-028 -->
+The release Agello ships has the same two single-thread pools and the same 10-second wait [`runtime/framework/resource_management/threaded_execution_manager.cc:87-93`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L93)
+[`runtime/framework/resource_management/threaded_execution_manager.cc:529-561`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/framework/resource_management/threaded_execution_manager.cc#L529-L561).
 
 ```mermaid
 sequenceDiagram
@@ -377,24 +381,23 @@ Three consequences:
 3. With single-threaded execution on, a `SerialExecutionManager` runs the work on the caller's
    thread inside `litert_lm_conversation_wait_until_done`.
 
-**How many final chunks a send gets.** The conversation callback turns every error it receives into a
-chunk with `is_final` true and the error text, and the end marker into a final chunk without error. It
-keeps no state, so it passes on every terminal event the conversation layer produces
-([`c/conversation.cc:44-71`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71);
-v0.18.0: [`c/conversation.cc:43-70`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/conversation.cc#L43-L70)).
-<!-- c:X-GAP-014 --> Usually that is one: the end marker or one error. With tools declared, a tool-call
-block the parser rejects produces two final error chunks for the same send, one when the block's end
-fence streams and one when the whole reply is parsed at the end, and the stream keeps running in
-between. <!-- c:X-GAP-015 --> A callback that frees `callback_data` on the first final chunk must
-ignore later ones; the Swift wrapper doesn't
+**How many final chunks a send gets.** One (ours: `8acc748c`). The conversation callback turns the
+first error it receives into a chunk with `is_final` true and the error text, or the end marker into a
+final chunk without error, and then drops every later message, error or not
+([`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L45-L86); the release: [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/c/conversation.cc#L45-L86)). <!-- c:X-GAP-014 --> The conversation layer can report more than one
+terminal event for a send: with tools declared, a tool-call block the parser rejects is reported as an
+error when the block's end fence streams and again when the whole reply is parsed at the end, and
+decoding goes on in between. The C callback passes on only the first. <!-- c:X-GAP-015 --> A binding
+can therefore free its `callback_data` on the first final chunk; the native task may still be decoding
+after an error chunk. The Swift wrapper also ends each stream once, by ID
 ([swift-api.md](swift-api.md#error-chunks-and-the-retained-context)).
 
 ### Deleting while work runs
 
 `SessionAdvanced`'s destructor calls `WaitUntilDone`, which waits up to `Engine::kDefaultTimeout`
-(10 minutes) for the session's tasks to finish, and does not cancel them [`runtime/core/session_advanced.cc:484-489`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L484-L489) [`runtime/core/session_advanced.h:224-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L224-L232)
-[`runtime/engine/engine.h:453`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine.h#L453) [`runtime/core/session_advanced.cc:478-479`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/core/session_advanced.cc#L478-L479). <!-- c:LM-CAPI-048 --> The wait ends when the session has no active
-task, and a task leaves that set only in an end state (done, token limit, failed, cancelled) [`runtime/framework/resource_management/threaded_execution_manager.cc:831-848`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L831-L848)
+(10 minutes) for the session's tasks to finish, and does not cancel them [`runtime/core/session_advanced.cc:484-489`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/session_advanced.cc#L484-L489) [`runtime/core/session_advanced.h:224-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L224-L232)
+[`runtime/engine/engine.h:453`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine.h#L453); the release Agello ships has the same destructor [`runtime/core/session_advanced.cc:484-491`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/core/session_advanced.cc#L484-L491). <!-- c:LM-CAPI-048 --> The wait ends when the session has no active
+task, and a task leaves that set only in an end state (done, token limit, failed, cancelled) [`runtime/framework/resource_management/threaded_execution_manager.cc:841-858`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L841-L858)
 [`runtime/engine/io_types.cc:102-109`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/io_types.cc#L102-L109). So `litert_lm_conversation_delete` or `litert_lm_session_delete` on a busy object
 blocks the calling thread until the generation ends; called from inside that object's final stream
 callback, it blocks until the 10-minute timeout. To stop quickly, cancel first and wait for the
@@ -438,15 +441,15 @@ convention. <!-- c:LM-CAPI-039 -->
 - `c/telemetry.h` (ours: `4aed9274a4`): `litert_lm_telemetry_set_level` / `_get_level`
   (`int`), `_snapshot_json` (a `malloc`'d JSON string the caller frees with
   `litert_lm_telemetry_free_string`), `_reset`, and `_write_trace` (returns `false` on an I/O
-  error) [`c/telemetry.h:30-55`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/c/telemetry.h#L30-L55) [`c/telemetry.cc:33-40`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/c/telemetry.cc#L33-L40). The level starts at 1 (counters and anomalies), or at the value of
+  error) [`c/telemetry.h:30-55`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/telemetry.h#L30-L55) [`c/telemetry.cc:33-40`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/telemetry.cc#L33-L40). The level starts at 1 (counters and anomalies), or at the value of
   the `AGELLO_TELEMETRY` environment variable clamped to 0 to 4, read when the library loads; with
   `AGELLO_TELEMETRY_OUT=<path>` the process writes the snapshot to that path at exit, and the trace
-  to `<path>.trace.json` at level 3 or more [`agello/telemetry/agello/agello_telemetry.cc:52-59`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.cc#L52-L59) [`agello/telemetry/agello/agello_telemetry.cc:755-772`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.cc#L755-L772). <!-- c:LM-CAPI-040 --> What
+  to `<path>.trace.json` at level 3 or more [`agello/telemetry/agello/agello_telemetry.cc:52-59`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/telemetry/agello/agello_telemetry.cc#L52-L59) [`agello/telemetry/agello/agello_telemetry.cc:874-891`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/telemetry/agello/agello_telemetry.cc#L874-L891). <!-- c:LM-CAPI-040 --> What
   the probes record is in [tools.md](../tools.md).
 - `c/build_info.h` (ours: `c7c744ebc6`): `litert_lm_get_build_info` returns a static JSON object
   with five string fields, `build_id`, `litert_lm`, `litert`, `ml_drift` and `flags`, generated
   from Bazel's stable status when built with `--config=agello`; outside that config `build_id` is
-  `"dev"` and the other fields read `"unknown"` [`c/build_info.h:29-33`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/c/build_info.h#L29-L33) [`agello/make_build_info.sh:10-14`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/make_build_info.sh#L10-L14) [`.bazelrc:565-566`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/.bazelrc#L565-L566).
+  `"dev"` and the other fields read `"unknown"` [`c/build_info.h:29-33`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/build_info.h#L29-L33) [`agello/make_build_info.sh:10-14`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/make_build_info.sh#L10-L14) [`.bazelrc:565-566`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/.bazelrc#L565-L566).
   <!-- c:LM-CAPI-041 -->
 
 ### The API by area
@@ -471,32 +474,20 @@ That is 220 functions in total, the number our iOS binary exports
 
 ## What changed from C API 0.2 (v0.18.0) to 1.0.0
 
-Agello's shipped app calls Google's prebuilt v0.18.0 binary with C API 0.2.0; the documented build
-has 1.0.0, Google's change, already present at our upstream base `df6df5b8`
-(0.19.0-nightly.20261013); our commits add only the telemetry and build-info headers.
+This is history. Until 2026-10-28 Agello shipped Google's prebuilt v0.18.0 binary, with C API 0.2.0;
+since then it has shipped our runtime, with 1.0.0, Google's change, already present at our upstream
+base `df6df5b8` (0.19.0-nightly.20261013). Our commits to `c/` add the telemetry and build-info
+headers and the one final chunk per send.
 
-| | 0.2.0 (v0.18.0, shipped) | 1.0.0 (agello-next, documented) |
-| --- | --- | --- |
-| Constructors | return the handle, NULL on failure (`LiteRtLmEngine* litert_lm_engine_create(settings)`) [`c/engine.h:820-828`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/engine.h#L820-L828) | return a status, handle in `out_*` |
-| Setters | mostly `void`; a few `int` (`-1` on failure) | status for every setter |
-| Stream starts | `int`: 0, `-1` for bad arguments, else the `absl` code [`c/conversation.h:439-443`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/conversation.h#L439-L443) [`c/conversation.cc:586-617`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/conversation.cc#L586-L617) | status |
-| Counts and getters | values directly, negative or 0 for errors (`litert_lm_conversation_get_token_count` returns `int`) [`c/conversation.h:499-504`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/conversation.h#L499-L504) | status, value in `out_*`; absent values are `NotFound` |
-| Error code | `int litert_lm_get_last_error_code(void)` [`c/error_reporter.h:160-185`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/error_reporter.h#L160-L185) | removed: the return value is the code |
-| Error message | `litert_lm_get_last_error_message`, `litert_lm_clear_last_error` | same |
-| Version | none | `LITERT_LM_C_API_VERSION_*`, `litert_lm_get_api_version` |
-| Single-threaded streams | no `litert_lm_conversation_wait_until_done` | added |
-| Functions exported by the iOS binary | 212 | 220 (with our 7) |
-
-<!-- c:LM-CAPI-037 -->
-
-Google's v0.18.0 binary exports 212 `litert_lm_*` functions and ours 220: only Google's exports
-`litert_lm_get_last_error_code`, and only ours exports `litert_lm_conversation_wait_until_done`,
+Our binary (build `6ddc6b998303`, from `b7b856a0`) exports 220 `litert_lm_*` functions. The record of
+2026-10-16 compared Google's v0.18.0 binary with ours at the time: 212 against 220; only Google's
+exported `litert_lm_get_last_error_code`, and only ours `litert_lm_conversation_wait_until_done`,
 `litert_lm_get_api_version`, `litert_lm_get_build_info` and the six telemetry functions
 ([`generated/binaries.md`](../generated/binaries.md)). <!-- c:LM-CAPI-036 -->
 
-The 1.0.0 header marks `litert_lm_conversation_wait_until_done` "Added in version 0.2.0", but the
-v0.18.0 headers, which are C API 0.2.0, don't declare it and Google's v0.18.0 binary doesn't export
-it [`c/conversation.h:632-649`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.h#L632-L649) [`version.bzl:19-22`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/version.bzl#L19-L22). <!-- c:LM-CAPI-038 --> For Agello it is new with 1.0.0. It landed on
+The 1.0.0 header marks `litert_lm_conversation_wait_until_done` "Added in version 0.2.0", but
+Google's v0.18.0 binary, C API 0.2.0, didn't export it [`c/conversation.h:632-649`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.h#L632-L649)
+([`generated/binaries.md`](../generated/binaries.md)). <!-- c:LM-CAPI-038 --> For Agello it is new with 1.0.0. It landed on
 upstream main in `e2952685` on 2026-09-25, a day after v0.18.0 was branched from main, while main's C
 API still read 0.2.0 ([versions.md](../versions.md#upstream-changes-that-matter-to-agello)). <!-- c:LM-VER-007 -->
 
@@ -519,12 +510,12 @@ What this means for the Swift wrapper is in [swift-api.md](swift-api.md#shipped-
   local-attention ring buffers) do nothing with the `gpu` backend Agello uses; see above.
 - **Caches.** `litert_lm_engine_settings_set_cache_dir` sets the same directory for the main,
   vision and audio executors; the value `":nocache"` turns off both GPU cache files, program and weight
-  [`runtime/executor/executor_settings_base.cc:328`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/executor_settings_base.cc#L328) <!-- c:RT-DLG-044 -->, and the XNNPACK cache on the CPU path. <!-- c:RT-CPU-009 --> On iOS the directory must be inside the app's container. Agello passes
-  `kv-<maxNumTokens>` per context size with Google's binary and one `kv-all-<build id>` folder for every
-  size with ours. <!-- c:X-CFG-008 --> Cache contents are described in
+  [`runtime/executor/executor_settings_base.cc:328`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/executor_settings_base.cc#L328) <!-- c:RT-DLG-044 -->, and the XNNPACK cache on the CPU path. <!-- c:RT-CPU-009 --> On iOS the directory must be inside the app's container. Agello (`a691212`)
+  passes one `kv-all-<build id>` folder for every context size and `embedding-<build id>` for the
+  embedder, and deletes everything else in its cache folder at each load. <!-- c:X-CFG-008 --> Cache contents are described in
   [litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md).
-- **Linking.** On iOS the C API comes in one framework (`CLiteRTLM.framework`, Google's or ours)
-  that the app links at build time; there is no `dlopen`, so the run-time version check the header
+- **Linking.** On iOS the C API comes in one framework (our `CLiteRTLM.framework`) that the app
+  links at build time; there is no `dlopen`, so the run-time version check the header
   describes is not needed.
 
 ## Settings
@@ -547,7 +538,7 @@ lazily when the engine didn't), `set_max_vision_tokens_per_image`, `set_parallel
 | Deleting a conversation blocks for a long time | the session destructor waits for running tasks, up to 10 minutes | cancel, wait for the final chunk, then delete |
 | The engine stalls for 10 minutes after a stream | the conversation was deleted inside its own final callback | never release the last reference inside a callback |
 | Decode slows down with a heavy callback | chunks streamed during decoding run on the execution thread | do little in the callback; hand work to another thread |
-| Two final chunks for one send | a tool-call block the parser rejects is reported twice | ignore chunks after the first final one |
+| A stream ends with an error while the model was still writing | a tool-call block the parser rejected; the C layer passes on the first error as the send's one final chunk, and decoding may still run | cancel if the reply is no longer wanted |
 | A conversation misbehaves after a cancel | a cancelled session is not reusable | create a new conversation |
 | `set_num_threads`, artisan setters have no effect | the main backend's config is of another type; the call still returns OK | check the backend |
 | Using a session or conversation after `litert_lm_engine_delete` | undefined behavior | delete children first |
@@ -565,19 +556,20 @@ lazily when the engine didn't), `set_max_vision_tokens_per_image`, `set_parallel
 | Ownership rule | engine.h comment | [`c/engine.h:1111-1120`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.h#L1111-L1120) |
 | Backend strings | `GetBackendFromString` | [`runtime/executor/executor_settings_base.cc:75-94`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/executor_settings_base.cc#L75-L94) |
 | Session stream chunks | `CreateCallback` | [`c/engine.cc:59-101`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.cc#L59-L101) |
-| Conversation stream chunks | `CreateConversationCallback` | [`c/conversation.cc:44-71`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71) |
-| Conversation creation | `litert_lm_conversation_create` | [`c/conversation.cc:431-444`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L431-L444), [`c/conversation.cc:487-501`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L487-L501), [`c/conversation.cc:525-535`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L525-L535) |
-| Thread pools | `ThreadedExecutionManager` constructor | [`runtime/framework/resource_management/threaded_execution_manager.cc:87-92`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L92) |
-| Final callback | `ThreadedExecutionManager::FinishTask` | [`runtime/framework/resource_management/threaded_execution_manager.cc:526-538`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L526-L538), [`runtime/framework/resource_management/threaded_execution_manager.cc:548-557`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L548-L557) |
-| Destructor wait | `SessionAdvanced::~SessionAdvanced` | [`runtime/core/session_advanced.cc:484-489`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L484-L489) |
-| Telemetry C API (ours) | `litert_lm_telemetry_*` | [`c/telemetry.h:30-55`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/c/telemetry.h#L30-L55) |
-| Build info (ours) | `litert_lm_get_build_info` | [`c/build_info.h:29-33`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/c/build_info.h#L29-L33) |
+| Conversation stream chunks | `CreateConversationCallback` | [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L45-L86) |
+| Conversation creation | `litert_lm_conversation_create` | [`c/conversation.cc:449-462`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L449-L462), [`c/conversation.cc:505-519`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L505-L519), [`c/conversation.cc:543-553`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L543-L553) |
+| Thread pools | `ThreadedExecutionManager` constructor | [`runtime/framework/resource_management/threaded_execution_manager.cc:87-92`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L87-L92) |
+| Final callback | `ThreadedExecutionManager::FinishTask` | [`runtime/framework/resource_management/threaded_execution_manager.cc:529-541`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L529-L541), [`runtime/framework/resource_management/threaded_execution_manager.cc:551-560`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L551-L560) |
+| Destructor wait | `SessionAdvanced::~SessionAdvanced` | [`runtime/core/session_advanced.cc:484-489`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/session_advanced.cc#L484-L489) |
+| Telemetry C API (ours) | `litert_lm_telemetry_*` | [`c/telemetry.h:30-55`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/telemetry.h#L30-L55) |
+| Build info (ours) | `litert_lm_get_build_info` | [`c/build_info.h:29-33`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/build_info.h#L29-L33) |
 
 ## Open questions
 
 - Thread safety of concurrent calls on one handle (two threads sending on the same conversation, or
   reading a response while deleting it) is not documented in the headers and not checked here.
-- **One final chunk per send.** Traced through `internal_callback_util.cc` and `c/conversation.cc`:
-  every path sends one terminal chunk except an unparsable tool call, which sends two
-  ([Threads and callbacks](#threads-and-callbacks)). The execution manager's error paths below the
-  conversation layer were not traced chunk by chunk.
+- **More than one terminal event per send.** The C callback now passes on only the first
+  ([Threads and callbacks](#threads-and-callbacks)), so a binding sees one final chunk. Below it,
+  traced through `internal_callback_util.cc`: an unparsable tool call is reported at least twice;
+  the execution manager's own error paths below the conversation layer were not traced chunk by
+  chunk.

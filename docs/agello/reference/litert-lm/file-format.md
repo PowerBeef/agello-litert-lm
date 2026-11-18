@@ -3,7 +3,7 @@
 > **Scope:** the `.litertlm` container (magic, version, header flatbuffer, 16 KiB alignment, sections
 > and their items), section data types and `model_type` strings, the metadata protos, how
 > `LitertLmLoader` maps sections and what the runtime does with `backend_constraint` and
-> `prefer_activation_type`, external weights, `ModelInfo`, the Python builder and peek tool, and the
+> `prefer_activation_type`, external weights, `ModelInfo`, Google's Python builder and peek tool, and the
 > file variants Google publishes (`-gpu`, `-web`, `.task`). Evidence: the bytes of the real files in
 > `generated/models/`.
 > **Out of scope:** what the runtime builds from each section ([components.md](components.md),
@@ -12,9 +12,10 @@
 > ([../models/gemma4-e4b.md](../models/gemma4-e4b.md), [../models/gemma4-e2b.md](../models/gemma4-e2b.md),
 > [../models/embeddinggemma.md](../models/embeddinggemma.md)); container versions over time
 > ([../versions.md](../versions.md)).
-> **Pinned to:** LiteRT-LM `7b872544` (agello-next: Google's `df6df5b8` plus our commits). Shipped
-> comparison: the v0.18.0 source at `b2f686e2` (wrapper `85b1a776`).
-> **Applies to:** all platforms; Apple specifics in [On Apple](#on-apple). **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root; Agello ships release `agello-one-20261115`
+> (`6da75396`). Google's Python builder and peek tool, which our tree removed in the prune of
+> 2026-11-11, are cited at Google's base `df6df5b8`.
+> **Applies to:** all platforms; Apple specifics in [On Apple](#on-apple). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -26,8 +27,8 @@ The runtime maps sections lazily and keys them by data type and `model_type`.
 
 What matters for Agello:
 
-- Every reader at both pins accepts any container version whose major number is 1; our files are
-  1.5.0 (E4B, E2B), 1.6.0 (`-gpu`) and 1.7.0 (EmbeddingGemma 2).
+- Every reader, in our build and in the release Agello ships, accepts any container version whose
+  major number is 1; our files are 1.5.0 (E4B, E2B), 1.6.0 (`-gpu`) and 1.7.0 (EmbeddingGemma 2).
 - Two sections with the same data type and `model_type` don't give the runtime a choice: the last one
   in the header replaces the earlier ones. `backend_constraint` only validates the engine's backend,
   and `prefer_activation_type` only fills in an activation type the caller didn't set.
@@ -47,7 +48,8 @@ What matters for Agello:
 | 32 … header end | the `LiteRTLMMetaData` flatbuffer (system metadata, section list) |
 | then, each at a multiple of 16,384 | section data, in header order |
 
-[`schema/core/litertlm_read.cc:71-139`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L71-L139) [`python/litert_lm_builder/litertlm_core.py:24-31`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_core.py#L24-L31) [`python/litert_lm_builder/litertlm_builder.py:1438-1504`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1438-L1504) <!-- c:LM-FMT-001 -->
+[`schema/core/litertlm_read.cc:71-139`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L71-L139) [`python/litert_lm_builder/litertlm_core.py:24-31`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_core.py#L24-L31) [`python/litert_lm_builder/litertlm_builder.py:1438-1504`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1438-L1504) (Google's builder, which our tree
+removed in the prune of 2026-11-11) <!-- c:LM-FMT-001 -->
 
 The flatbuffer schema (`schema/core/litertlm_header_schema.fbs`):
 
@@ -59,8 +61,8 @@ The flatbuffer schema (`schema/core/litertlm_header_schema.fbs`):
   covers `[begin_offset, end_offset)`. [`schema/core/litertlm_header_schema.fbs:147-169`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_header_schema.fbs#L147-L169)
 - Alignment: the schema comment says section i+1 begins no sooner than the smallest multiple of
   `BLOCK_SIZE = 16 * 1024` greater than the previous section's end
-  [`schema/core/litertlm_header_schema.fbs:147-152`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_header_schema.fbs#L147-L152). The Python builder places each section
-  exactly at the previous end rounded up to 16,384 (the first at 32 + metadata size rounded up)
+  [`schema/core/litertlm_header_schema.fbs:147-152`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_header_schema.fbs#L147-L152). Google's Python builder (removed from our
+  tree) places each section exactly at the previous end rounded up to 16,384 (the first at 32 + metadata size rounded up)
   [`python/litert_lm_builder/litertlm_builder.py:1476-1486`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1476-L1486) [`python/litert_lm_builder/litertlm_builder.py:1507-1511`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1507-L1511), and in all six files in
   `generated/models` every section begins at the previous end (or the header end) rounded up to
   16,384.
@@ -89,7 +91,7 @@ major one) [`schema/core/litertlm_header_schema.fbs:105-145`](https://github.com
 | 12 | `Text2ImageMetadataProto` | text-to-image metadata | `GetText2ImageMetadata` |
 
 <!-- c:LM-FMT-008 --> The zlib section starts with a little-endian `uint64` holding the uncompressed
-size, which the reader caps at 1 GB. [`schema/core/litertlm_read.cc:337-353`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L337-L353) [`python/litert_lm_builder/litertlm_builder.py:1335`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1335)
+size, which the reader caps at 1 GB (Google's builder, removed from our tree, writes it with `zlib.compress`). [`schema/core/litertlm_read.cc:337-353`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L337-L353) [`python/litert_lm_builder/litertlm_builder.py:1335`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1335)
 
 ### `model_type` strings
 
@@ -134,7 +136,7 @@ what matters here:
 - **`ExecutorMetadata`** (`executor_metadata.proto`): `llm_executor_metadata` with
   `max_history_size`, `state_buffers` (KV caches by type, sequence axis, minimum and maximum length)
   and `attention_mask_settings`. [`runtime/proto/executor_metadata.proto:110-127`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/proto/executor_metadata.proto#L110-L127) It is optional: the executor uses it when present.
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:315-318`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L315-L318)
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:318-321`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L318-L321)
 - **`EmbeddingMetadata`** (`embedding_metadata.proto`): `embedding_model_type`, `bos_token`,
   `eos_token`, `audio_preprocessor`, `min_input_length`, `max_input_length`, `min_runtime_version`.
   [`runtime/proto/embedding_metadata.proto:81-129`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/proto/embedding_metadata.proto#L81-L129)
@@ -162,14 +164,14 @@ None of them has an `ExecutorMetadataProto` section.
 `ReadHeaderFromLiteRTLM` checks the magic, reads the three version numbers, rejects a major version
 other than `LITERTLM_MAJOR_VERSION` (1) with `Unimplemented`, skips the padding, reads the header end
 offset and copies the flatbuffer that follows. The minor and patch numbers are read and logged, never
-compared. [`schema/core/litertlm_read.cc:71-139`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L71-L139) [`schema/core/litertlm_read.cc:96-101`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L96-L101) The v0.18.0 reader has the same check. [`schema/core/litertlm_read.cc:96-101`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/schema/core/litertlm_read.cc#L96-L101)
-<!-- c:LM-FMT-002 --> The two builds' own version constants differ (1.9.0 in agello-next, 1.7.0 in
-v0.18.0), and the Python builder writes 1.9.0. [`schema/core/litertlm_header.h:31-38`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_header.h#L31-L38) [`schema/core/litertlm_header.h:36-38`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/schema/core/litertlm_header.h#L36-L38) [`python/litert_lm_builder/litertlm_core.py:24-31`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_core.py#L24-L31)
+compared. [`schema/core/litertlm_read.cc:71-139`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L71-L139) [`schema/core/litertlm_read.cc:96-101`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L96-L101) The v0.18.0 reader has the same check. [`schema/core/litertlm_read.cc:96-101`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_read.cc#L96-L101)
+<!-- c:LM-FMT-002 --> Our build's own version constants are 1.9.0, as in the release Agello
+ships, and Google's Python builder (removed from our tree) writes 1.9.0. [`schema/core/litertlm_header.h:31-38`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/core/litertlm_header.h#L31-L38) [`python/litert_lm_builder/litertlm_core.py:24-31`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_core.py#L24-L31)
 <!-- c:LM-FMT-003 -->
 
-So, to the question "which container versions does the reader accept": any 1.x.y, at both pins. A
-newer minor version can still fail later, at the section level: an unknown `model_type` string is an
-error (above), and a data type value the reader doesn't know is stored under its number and never
+So, to the question "which container versions does the reader accept": any 1.x.y, in our build and
+in the release Agello ships. A newer minor version can still fail later, at the section level: an
+unknown `model_type` string is an error (above), and a data type value the reader doesn't know is stored under its number and never
 read.
 
 `LitertLmLoader` maps at most the first 16 KiB of the file to read the header
@@ -205,7 +207,7 @@ Because step 2 assigns into a map keyed by `BufferKey`, a later section with the
 order wins**, whatever its `backend_constraint` or `prefer_activation_type`. The runtime never picks
 among duplicates by backend or activation type. [`runtime/util/litert_lm_loader.cc:350-368`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_loader.cc#L350-L368) <!-- c:LM-FMT-011 --> `ModelInfo`
 behaves the same way for the main LLM graph (each `kMainLlm` section overwrites the previous one).
-[`schema/model_info/model_info.cc:680-685`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L680-L685) None of our files has two sections with the same key (checked from the header bytes of
+[`schema/model_info/model_info.cc:680-685`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L680-L685) None of our files has two sections with the same key (checked from the header bytes of
 all six files). The sections that look alike in EmbeddingGemma differ by data type: a `TFLiteModel`
 and a `TFLiteWeights` section per role.
 
@@ -218,7 +220,7 @@ only: the main graph (`tf_lite_prefill_decode`), the vision encoder (`tf_lite_vi
 audio encoder (`tf_lite_audio_encoder_hw`). The embedding engine
 does the same for its text encoder, vision encoder and audio encoder
 ([`runtime/core/embedding_engine_impl.cc:319-331`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L319-L331)).
-[`runtime/core/engine_advanced_impl.cc:515-564`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L515-L564) [`runtime/core/engine_advanced_impl.cc:636-650`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L636-L650) [`runtime/engine/engine_settings.cc:530-548`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L530-L548) <!-- c:LM-FMT-012 -->
+[`runtime/core/engine_advanced_impl.cc:518-567`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L518-L567) [`runtime/core/engine_advanced_impl.cc:639-653`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L639-L653) [`runtime/engine/engine_settings.cc:530-548`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L530-L548) <!-- c:LM-FMT-012 -->
 
 - **`backend_constraint`** is split on commas and compared case-insensitively with the executor's
   backend name (`CPU`, `GPU`, `NPU`, `GPU_ARTISAN`, ...). No match → `InvalidArgument("Main backend
@@ -237,7 +239,8 @@ In the Gemma 4 E2B and E4B files, the audio encoder, the audio adapter and the v
 constraints aren't checked at all: `EngineSettings::CreateDefault` puts both adapters on the CPU
 regardless. [`runtime/engine/engine_settings.cc:244-245`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L244-L245)
 
-The validation splits on `,` without trimming spaces, while the Python builder accepts and stores a
+The validation splits on `,` without trimming spaces, while Google's Python builder (removed from our
+tree) accepts and stores a
 constraint such as `'cpu, gpu'` (its own example), validating it with `strip()` but writing the string
 as given (lowercased). A section written that way would reject a GPU engine, because `" gpu"` doesn't
 equal `GPU`. Not observed in any file we have; found by reading the code. [`runtime/engine/engine_settings.cc:81-111`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L81-L111)
@@ -261,14 +264,14 @@ How a model path gets here: `litert_lm_engine_settings_create` builds a path-onl
 the assets hold a memory-mapped file or an already-open `ScopedFile`; so a path from the C API with
 another extension fails with "Unsupported or unknown file format."
 [`runtime/util/file_format_util.cc:63-102`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/file_format_util.cc#L63-L102) [`runtime/util/file_format_util.cc:40-51`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/file_format_util.cc#L40-L51). `BuildLiteRtCompiledModelResources` accepts only the
-TASK and LITERT_LM formats. [`runtime/executor/litert_compiled_model_executor_utils.cc:920-933`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L920-L933) [`runtime/executor/litert_compiled_model_executor_utils.cc:131-164`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L131-L164) A stream-backed `ModelAssets`
+TASK and LITERT_LM formats. [`runtime/executor/litert_compiled_model_executor_utils.cc:924-937`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L924-L937) [`runtime/executor/litert_compiled_model_executor_utils.cc:131-164`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L131-L164) A stream-backed `ModelAssets`
 goes through the streaming loader instead, which reads the same header and hands out sections in file
-order without memory-mapping. [`runtime/core/engine_advanced_impl.cc:405-410`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L405-L410) [`runtime/util/litert_lm_streaming_loader.h:70-74`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_streaming_loader.h#L70-L74) [`runtime/util/litert_lm_streaming_loader.h:47-56`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_streaming_loader.h#L47-L56)
+order without memory-mapping. [`runtime/core/engine_advanced_impl.cc:408-413`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L408-L413) [`runtime/util/litert_lm_streaming_loader.h:70-74`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_streaming_loader.h#L70-L74) [`runtime/util/litert_lm_streaming_loader.h:47-56`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_streaming_loader.h#L47-L56)
 
 The loader's `GetLlmMetadata()` calls `.value()` on the optional section buffer without checking it
 [`runtime/util/litert_lm_loader.h:152-156`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_loader.h#L152-L156), and `EngineAdvancedImpl::Create` calls `model_resources->GetLlmMetadata()` for
 every model not backed by a data stream (data-stream assets go to `CreateStreamingWeights` first)
-[`runtime/core/engine_advanced_impl.cc:398-410`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L398-L410) [`runtime/core/engine_advanced_impl.cc:450-451`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L450-L451) [`runtime/components/model_resources_litert_lm.cc:228-239`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/model_resources_litert_lm.cc#L228-L239). So an
+[`runtime/core/engine_advanced_impl.cc:400-414`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L400-L414) [`runtime/core/engine_advanced_impl.cc:453-454`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L453-L454) [`runtime/components/model_resources_litert_lm.cc:228-239`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/model_resources_litert_lm.cc#L228-L239). So an
 LLM engine created from a mapped `.litertlm` file without an `LlmMetadataProto` section (an embedding
 model, for instance) fails on that optional access instead of returning an error status. Agello opens
 EmbeddingGemma through the embedding engine, which doesn't take this path.
@@ -286,11 +289,11 @@ A TFLite graph's constant data can live in three places, and our files use all t
 
 <!-- c:LM-FMT-030 --> For a `TFLiteWeights` section the runtime passes LiteRT a duplicated file
 descriptor plus one region named `tflite_weights` (offset, length) through
-`SetExternalWeightScopedFile`; no such section → no external weights. [`runtime/executor/litert_compiled_model_executor_utils.cc:1200-1219`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1200-L1219)
-[`runtime/components/model_resources_litert_lm.cc:348-351`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/model_resources_litert_lm.cc#L348-L351) The LLM executor does this for the main graph [`runtime/executor/llm_litert_compiled_model_executor.cc:2101-2102`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L2101-L2102); the embedding
+`SetExternalWeightScopedFile`; no such section → no external weights. [`runtime/executor/litert_compiled_model_executor_utils.cc:1204-1223`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1204-L1223)
+[`runtime/components/model_resources_litert_lm.cc:348-351`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/model_resources_litert_lm.cc#L348-L351) The LLM executor does this for the main graph [`runtime/executor/llm_litert_compiled_model_executor.cc:2461-2462`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L2461-L2462); the embedding
 lookups, the audio executor, the MTP drafter and the embedding executor do it for theirs. On
 WebAssembly only, a GPU engine whose model has external weights is switched to the streaming path.
-[`runtime/core/engine_advanced_impl.cc:209-230`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L209-L230)
+[`runtime/core/engine_advanced_impl.cc:210-231`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L210-L231)
 
 ### The `-gpu`, `-web` and `.task` variants
 
@@ -304,13 +307,14 @@ starts from, `-gpu.litertlm`, `-web.litertlm` and `-web.task` files (and NPU-spe
   encoders or drafter sections. <!-- c:LM-FMT-018 --> When `EngineSettings::CreateDefault` sees a
   `tf_lite_artisan_text_decoder` section, it switches a GPU engine to `GPU_ARTISAN` (and a GPU audio
   backend too) [`runtime/engine/engine_settings.cc:217-223`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L217-L223) [`runtime/engine/engine_settings.cc:225-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L225-L232); the open executor factory then returns
-  `Unsupported backend` for anything but CPU, GPU and NPU. [`runtime/executor/llm_litert_compiled_model_executor_factory.cc:315-331`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/llm_litert_compiled_model_executor_factory.cc#L315-L331) So the documented build
-  can't run a `-gpu` file; Google's v0.18.0 binary contains a closed GPU artisan executor
-  ([`generated/binaries.md`](../generated/binaries.md): 166 defined symbols against our 29).
+  `Unsupported backend` for anything but CPU, GPU and NPU. [`runtime/executor/llm_litert_compiled_model_executor_factory.cc:315-331`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/llm_litert_compiled_model_executor_factory.cc#L315-L331) So our build can't run a `-gpu`
+  file. Our binary has 29 defined symbols matching the GPU artisan executor, open code that
+  configures or loads it; the record of 2026-10-16 found 166 in Google's v0.18.0 binary, which
+  contains the closed executor ([`generated/binaries.md`](../generated/binaries.md)).
   <!-- c:LM-FMT-017 -->
 - **`-web.litertlm`**: the same byte size as `-gpu` in both repositories; not inspected here.
 - **`.task`**: a ZIP archive (`PK` magic) of named files;
-  `BuildModelResourcesFromTaskFormat` requires a `TF_LITE_PREFILL_DECODE` entry. [`runtime/executor/litert_compiled_model_executor_utils.cc:109-127`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L109-L127)
+  `BuildModelResourcesFromTaskFormat` requires a `TF_LITE_PREFILL_DECODE` entry. [`runtime/executor/litert_compiled_model_executor_utils.cc:109-127`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L109-L127)
 
 ### Our E4B file against Google's
 
@@ -324,8 +328,10 @@ for ours); the `-gpu` files and EmbeddingGemma end exactly at their last section
 
 ### Writing files: the builder
 
-`python/litert_lm_builder` (`litert-lm-builder` on PyPI, documented in Google's
-`docs/litert_lm_builder.md`) builds, unpacks and inspects files. `_build_sections`
+Google's `python/litert_lm_builder` (`litert-lm-builder` on PyPI, documented in Google's
+`docs/litert_lm_builder.md`) builds, unpacks and inspects files; our tree removed it, with the other
+bindings and the upstream docs, in the prune of 2026-11-11, so it is cited at Google's base.
+`_build_sections`
 [`python/litert_lm_builder/litertlm_builder.py:1438-1504`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1438-L1504):
 
 1. Fill in system metadata (a UUID if missing, a fresh `creation_timestamp`).
@@ -338,11 +344,12 @@ for ours); the `-gpu` files and EmbeddingGemma end exactly at their last section
 <!-- c:LM-FMT-034 --> `add_tflite_model` stores `backend_constraint` (validated against `cpu`, `gpu`,
 `npu`, `gpu_artisan`) and `prefer_activation_type` as lowercase string items; `add_tflite_weights`
 adds a `TFLiteWeights` section for a model type; `add_hf_tokenizer` compresses a JSON tokenizer with
-zlib. [`python/litert_lm_builder/litertlm_builder.py:266-273`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L266-L273) [`python/litert_lm_builder/litertlm_builder.py:1124-1132`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1124-L1132) [`python/litert_lm_builder/litertlm_builder.py:1163-1166`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1163-L1166) [`python/litert_lm_builder/litertlm_builder.py:1335`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1335) The peek tool prints the header,
+zlib. [`python/litert_lm_builder/litertlm_builder.py:266-273`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L266-L273) [`python/litert_lm_builder/litertlm_builder.py:1124-1132`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1124-L1132) [`python/litert_lm_builder/litertlm_builder.py:1163-1166`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1163-L1166) [`python/litert_lm_builder/litertlm_builder.py:1335`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1335) Its peek tool prints the header,
 system metadata and every section (decoding the metadata protos as text) and can dump each section to
 a file: [`python/litert_lm_builder/litertlm_peek_main.py:20-21`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_peek_main.py#L20-L21)
 
 ```sh
+# in Google's tree (ours has no python/):
 bazel run //python/litert_lm_builder:litertlm_peek_main -- --litertlm_file=<file.litertlm>
 # or, from the PyPI package:
 litert-lm-peek --litertlm_file demo.litertlm --dump_files_dir ./extracted_files
@@ -360,12 +367,12 @@ section), vision token budgets, default sampler parameters, supported backends p
 the embedding size and input lengths. [`schema/model_info/model_info.h:110-227`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.h#L110-L227) `GetModelInfo` classifies a file as an embedding
 model when it has `EmbeddingMetadata`, or a text encoder and neither LLM metadata nor a main graph;
 it fills the LLM capability when `LlmMetadata` exists or the file isn't an embedding model.
-[`schema/model_info/model_info.cc:1301-1361`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1301-L1361) <!-- c:LM-FMT-037 --> The C and Swift wrappers around it are on
+[`schema/model_info/model_info.cc:1324-1384`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L1324-L1384) <!-- c:LM-FMT-037 --> The C and Swift wrappers around it are on
 [c-api.md](c-api.md) and [swift-api.md](swift-api.md).
 
 ## On Apple
 
-- The Swift wrapper passes a file path to `litert_lm_engine_settings_create` [`swift/Engine.swift:81-84`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/Engine.swift#L81-L84); the runtime later opens it as a `ScopedFile` (`GetOrCreateScopedFile`), and the loader maps each section the first time it is
+- The Swift wrapper passes a file path to `litert_lm_engine_settings_create` [`swift/Engine.swift:87-90`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Engine.swift#L87-L90); the runtime later opens it as a `ScopedFile` (`GetOrCreateScopedFile`), and the loader maps each section the first time it is
   needed with `mmap(MAP_PRIVATE)` and `madvise(MADV_DONTNEED)` (`#ifdef __APPLE__`), so reading the
   header and creating the engine don't page in sections that are never used (on E4B, the audio
   sections when no audio arrives). [`support/util/memory_mapped_file_posix.cc:133-145`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/support/util/memory_mapped_file_posix.cc#L133-L145)
@@ -410,10 +417,10 @@ it fills the LLM capability when `LlmMetadata` exists or the file isn't an embed
 | Backend constraint check | `ValidateBackendConstraint` | [`runtime/engine/engine_settings.cc:81-111`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L81-L111) |
 | Activation hint | `MaybeOverrideActivationType` | [`runtime/engine/engine_settings.cc:126-145`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L126-L145) |
 | Artisan detection | `EngineSettings::CreateDefault` | [`runtime/engine/engine_settings.cc:225-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L225-L232) |
-| External weights | `GetExternalWeightResources` | [`runtime/executor/litert_compiled_model_executor_utils.cc:1200-1219`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1200-L1219) |
+| External weights | `GetExternalWeightResources` | [`runtime/executor/litert_compiled_model_executor_utils.cc:1204-1223`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1204-L1223) |
 | Format detection | `GetFileFormatFromFileContents` | [`runtime/util/file_format_util.cc:40-51`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/file_format_util.cc#L40-L51) |
-| Builder | `LitertLmFileBuilder._build_sections` | [`python/litert_lm_builder/litertlm_builder.py:1438-1504`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1438-L1504) |
-| Model info | `GetModelInfo` | [`schema/model_info/model_info.cc:1301-1361`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1301-L1361) |
+| Builder (Google's, removed from our tree) | `LitertLmFileBuilder._build_sections` | [`python/litert_lm_builder/litertlm_builder.py:1438-1504`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/python/litert_lm_builder/litertlm_builder.py#L1438-L1504) |
+| Model info | `GetModelInfo` | [`schema/model_info/model_info.cc:1324-1384`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L1324-L1384) |
 | Streaming loader | `LitertLmStreamingLoader` | [`runtime/util/litert_lm_streaming_loader.h:70-74`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_streaming_loader.h#L70-L74) |
 
 ## Open questions

@@ -8,9 +8,11 @@
 > **Out of scope:** what each patch does and when it can go, in [patches.md](patches.md); the
 > #3913 model fix, in [models/gemma4-e4b.md](models/gemma4-e4b.md); building and releasing our
 > framework, in [litert-lm/build-and-release.md](litert-lm/build-and-release.md).
-> **Pinned to:** LiteRT-LM base `df6df5b8`, LiteRT base `ca21dc99`, ML Drift base `1b18771`
-> (their contribution files); GitHub state read on 2026-10-15 (volatile).
-> **Applies to:** all platforms. **Last verified:** 2026-10-15
+> **Pinned to:** Google's bases for the contribution files: LiteRT-LM `df6df5b8`, LiteRT `ca21dc99`,
+> ML Drift `1b18771f` (our tree, `main` `b7b856a0`, keeps LiteRT-LM's at the root and removed
+> LiteRT's, ML Drift's and LiteRT-LM's `.github/` in prune `7e4d9b8d`); our files at `main`
+> `b7b856a0`; Agello at `a691212`; GitHub state read on 2026-10-15 and 2026-11-17 (volatile).
+> **Applies to:** all platforms. **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -21,10 +23,10 @@
   apply a pull request internally, export it as a squashed commit with the author kept, and close
   the original.
 - **Nothing goes out without the user's OK**: no post, comment, push, release or model upload.
-- **What's out there:** one issue, #3913 (2026-10-10), with three follow-up comments of ours.
-  Google answered once, on 2026-10-12 (reproduced; will investigate FP16 accumulation), and
-  hasn't commented since; the issue is open, labeled as awaiting a developer, and unassigned
-  since 2026-10-15.
+- **What's out there:** one issue, #3913 (2026-10-10). Google answered once, on 2026-10-12
+  (reproduced; will investigate FP16 accumulation), and hasn't commented since; on 2026-11-17 the
+  issue is open, labeled as awaiting a developer, assigned to `hheydary` (since 2026-10-29), with
+  20 comments, eight of them ours.
 - **Seven drafts** wait in [../upstream/](../upstream/): four LiteRT-LM issues, three LiteRT pull
   requests and one ML Drift pull request. Two need rework before posting (a Google change
   overlaps one; another lacks a later commit), and some of their numbers have no raw record.
@@ -41,6 +43,9 @@
 
 None of the three repositories has issue or pull request templates at our base: their `.github/`
 folders hold `CODEOWNERS` (LiteRT-LM, LiteRT) and workflows only, and ML Drift has no `.github/`.
+Our tree keeps LiteRT-LM's `CONTRIBUTING.md` and `GOVERNANCE.md` at the root; the prune `7e4d9b8d`
+(2026-11-11) removed LiteRT's and ML Drift's contribution files and every `.github/` folder, so the
+links on this page read them at Google's bases.
 
 ### The posting rule
 
@@ -50,7 +55,7 @@ Hugging Face. [../PLAN-MAC.md](../PLAN-MAC.md) states it for pushes, releases, m
 upstream posts, [../upstream/README.md](../upstream/README.md) for every draft, and Agello's
 `agello-litert-update` skill for pushes and posts; our release script is a dry run unless given
 `--publish`
-([`agello/release-xcframework.sh:68-74`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/release-xcframework.sh#L68-L74)).
+([`agello/release-xcframework.sh:69-75`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/release-xcframework.sh#L69-L75)).
 <!-- c:PRC-010 --> A message from an agent or a script is never that OK; only the user's own
 message is. Reading GitHub (`gh api`, the web) needs no OK.
 
@@ -135,8 +140,8 @@ be accepted, so posting one first only produces a failed CLA check.
 
 | Draft | Kind | Our commits | State on 2026-10-15 |
 | --- | --- | --- | --- |
-| [litert-lm-swift-stream-stall.md](../upstream/litert-lm-swift-stream-stall.md) | LiteRT-LM issue | `agello` `85b1a776` | Not posted |
-| [litert-lm-swift-tool-call-errors.md](../upstream/litert-lm-swift-tool-call-errors.md) | LiteRT-LM issue | `agello` `a3c0d0ef` | Not posted |
+| [litert-lm-swift-stream-stall.md](../upstream/litert-lm-swift-stream-stall.md) | LiteRT-LM issue | `85b1a776` (old `agello` branch; `0b2ca12f` in `main`) | Not posted |
+| [litert-lm-swift-tool-call-errors.md](../upstream/litert-lm-swift-tool-call-errors.md) | LiteRT-LM issue | `a3c0d0ef` (old `agello` branch; `f3408e06` in `main`) | Not posted |
 | [litert-lm-session-snapshots.md](../upstream/litert-lm-session-snapshots.md) | LiteRT-LM issue | `aec81cb7`, `ed998d80`, `585203d3` | Not posted |
 | [litert-lm-decode-host-costs.md](../upstream/litert-lm-decode-host-costs.md) | LiteRT-LM issue | `ef197a04`, `e43f9a8d`, `5e946049`, `fdd5bac7` | Not posted |
 | [litert-bounded-attention.md](../upstream/litert-bounded-attention.md) | LiteRT PR and ML Drift PR | LiteRT `ede28c64`, `aa05bd2d`, `31386317`; ML Drift `6ae7c68`, `2184a7f` | Not posted; add ML Drift `15fa9e2` |
@@ -171,16 +176,19 @@ Gaps to close before posting:
 5. **Our names.** The drafts keep our environment switches (`AGELLO_BOUNDED_ATTENTION`,
    `AGELLO_SHARED_WEIGHT_CACHE`, ...) and track names; the weight-cache draft already says the
    name should change for upstream. Upstream text should propose options, not our variables.
-6. **Links.** The index says links to our forks work "once the branches are pushed"; all three
-   `agello-next` branches are pushed (LiteRT-LM `7b872544`, LiteRT `362759838`, ML Drift
-   `15fa9e2`), so that caveat can go.
+6. **Links.** The index says links to our forks work "once the branches are pushed". The drafts'
+   commits are in `main`'s history, and the archived `PowerBeef/LiteRT` and `PowerBeef/ml-drift`
+   keep theirs, so commit links resolve and that caveat can go; a link to a branch name
+   (`agello`, `agello-next`) doesn't, since those branches are gone.
 
 ## Issue #3913: what Google has said
 
 [google-ai-edge/LiteRT-LM#3913](https://github.com/google-ai-edge/LiteRT-LM/issues/3913)
 ("iOS GPU (default float16 activations): Gemma 4 E4B duplicates digits at ~3.7K-token context;
 CPU and float32 are correct") was opened by `PowerBeef` on 2026-10-10. On 2026-10-15 it is open,
-labeled `type :bug` and `status:awaiting LiteRT-LM developer`, with seven comments.
+labeled `type :bug` and `status:awaiting LiteRT-LM developer`, with seven comments. On 2026-11-17
+it is still open with the same labels, assigned to `hheydary` (since 2026-10-29), with 20 comments,
+eight of them ours and still one from Google; the table below stops at 2026-10-15.
 <!-- c:PRC-009 -->
 
 | Date (UTC) | Who | What |
@@ -267,35 +275,34 @@ off, named as an option for upstream.>
 
 Fidelity: <exact-copy suites and counts; replies identical or not>.
 Tests: <test target> (<n> cases).
-Commits on `agello-next` of https://github.com/PowerBeef/<repo>: `<sha>`, ...
+Commits on `main` of https://github.com/PowerBeef/agello-litert-lm: `<sha>`, ...
 ```
 
-Before opening one: the CLA is signed, the branch is rebased on upstream `main`, our telemetry
-calls and `AGELLO_*` switches are removed or turned into options, and new files carry Google's
-license header.
+Before opening one: the CLA is signed, the change is ported onto a branch cut from upstream `main`
+(we don't rebase our `main` onto upstream), our telemetry calls and `AGELLO_*` switches are removed
+or turned into options, and new files carry Google's license header.
 
 ### Commit messages (our forks and Agello)
 
-Our commits follow one form: a subject `Area: what changed [tag]` (the plan or track tag in
-brackets, for example `Build: LiteRT's Metal accelerator, linked statically, from source
-[M1.2]`), a body that says what was wrong, what changed and what was measured with its machine
-and conditions, then trailers: `Track:` and `Validated: <machine> <date>` on the fork commits that
-were validated, and `Co-Authored-By:` and `Claude-Session:` lines. The author is the GitHub
-noreply identity `109446870+PowerBeef@users.noreply.github.com`. <!-- c:PRC-014 -->
+Our commit subjects are one line, `Area: what changed`. Since 2026-11-13 the plan or track tag,
+when there is one, goes in parentheses after the area (`Agello (B5 phase 3): a copy realigns past an
+edit instead of three tokens later`); in October it went in brackets at the end (`Build: LiteRT's
+Metal accelerator, linked statically, from source [M1.2]`, the last on 2026-10-24). The body says
+what was wrong, what changed and what was measured with its machine and conditions, and ends with a
+`Co-Authored-By:` line. The October fork commits also carried `Track:` and
+`Validated: <machine> <date>` trailers when validated and, until 2026-10-16, `Claude-Session:`
+lines; none of our commits since 2026-11-01 does. The author is the GitHub noreply identity
+`109446870+PowerBeef@users.noreply.github.com`. <!-- c:PRC-014 -->
 
 ```text
-<Area>: <what changed, one line> [<tag>]
+<Area> (<tag>): <what changed, one line>
 
 <What was wrong, with the mechanism.> <What the change does.> <What it leaves alone.>
 
 <Machine>, <model>, <window>, <MTP on/off>, <method>: <metric> <before> -> <after>
 (<CI or spread>); replies identical. <test targets> pass.
 
-Track: <tag>
-Validated: <mac|iphone> <YYYY-MM-DD>
-
 Co-Authored-By: ...
-Claude-Session: ...
 ```
 
 Agello's own commits use the same subject form without the tag (`Model: …`, `Harness: …`,
@@ -312,8 +319,9 @@ and these:
    its conditions: device and OS, runtime build id and commits, model file and revision, window
    (allocated context), prompt and output lengths, MTP on or off, sampling, warm-up and
    repetitions, and whether the arms ran in one binary (A/B) or as separate runs.
-2. **Say which build.** Google's prebuilt v0.18.0, Google's nightly, or our source build at a
-   commit; never mix them in one row without saying so ([versions.md](versions.md)).
+2. **Say which build.** Our release (`agello-one-20261115`), our build at a commit, Google's
+   nightly, or, for records made before 2026-10-28, Google's prebuilt v0.18.0; never mix them in
+   one row without saying so ([versions.md](versions.md)).
 3. **Code citations at upstream's commit.** `cite.py` links files we don't change to Google's
    repository at the base, so they paste into an issue; link our changes as commits in our fork.
 4. **No claim beyond the evidence.** "Within noise" when the difference is inside the spread;
@@ -327,18 +335,20 @@ and these:
 
 ## License notices in modified files
 
-Apache 2.0 asks that modified files carry prominent notices that they were changed. Across the
-three forks, our commits modify 57 existing C++, Objective-C++ and Swift files (28 in LiteRT-LM,
-14 in LiteRT, 15 in ML Drift); 49 of them contain the word "Agello" (in comments next to the
-changes, or in the telemetry includes), and one,
-`swift/Conversation.swift`, has a header notice describing the change
-([`swift/Conversation.swift:15-20`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L15-L20)).
-The eight without a mention: LiteRT-LM `logit_mask.cc` and `tensor_buffer_util.cc`; LiteRT
-`gpu_backend_metal_litert.mm` and `serialization_weight_cache.cc`; ML Drift
-`fully_connected_util.cc`, `gpu_operation.cc`, `metal/common.mm` and `metal/compute_task.mm`.
-<!-- c:PRC-015 --> Before we distribute a framework built from these sources, each modified file
-should get a header notice like the Swift one; in an upstream pull request the notices come out
-(the change becomes Google's file under the CLA).
+Apache 2.0 asks that modified files carry prominent notices that they were changed. At the pin, our
+commits modify 113 existing C++, Objective-C++ and Swift files (71 in LiteRT-LM, 18 in LiteRT, 24
+in ML Drift); 99 of them mention Agello (in comments next to the changes, or in the telemetry
+includes), and six Swift files have a header notice describing the change: `Conversation.swift`
+([`swift/Conversation.swift:15-25`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Conversation.swift#L15-L25)),
+`Engine.swift`, `EmbeddingEngine.swift`, `EmbeddingEngineConfig.swift`, `ExperimentalFlags.swift`
+and `ToolManager.swift`. The fourteen without a mention: LiteRT-LM `composite_constraint.cc` and
+`.h`, `logit_mask.cc`, `suppress_tokens_constraint.cc`, `thinking_budget_constraint.cc`,
+`tensor_buffer_util.cc` and `swift/LiteRTLMError.swift`; LiteRT `gpu_backend_metal_litert.mm` and
+`serialization_weight_cache.cc`; ML Drift `fully_connected_util.cc` and `.h`, `gpu_operation.cc`,
+`metal/common.mm` and `metal/compute_task.mm`. <!-- c:PRC-015 --> We distribute frameworks built
+from these sources (our releases, since 2026-10-28), so each modified file should get a header
+notice like the Swift ones; in an upstream pull request the notices come out (the change becomes
+Google's file under the CLA).
 
 ## Checklist for user-facing docs
 
@@ -346,21 +356,22 @@ Agello's README, `docs/` (USER_GUIDE, ENGINEERING, ARCHITECTURE, TESTING), `NOTI
 `Vendor/README.md`, `CLAUDE.md` and the skills repeat facts that live here. On each change to
 the runtime, the model or the tests, check:
 
-| Fact | Where in Agello (`93122b6`) | Source of truth |
+| Fact | Where in Agello (`a691212`) | Source of truth |
 | --- | --- | --- |
-| LiteRT-LM version | README badge (line 14), Project layout, "Vendored LiteRT-LM"; ARCHITECTURE code map ("prebuilt runtime") | [versions.md](versions.md) |
-| Patches in the wrapper | README "Vendored LiteRT-LM" (two), `Vendor/README.md` (two), `NOTICE` (both), `CLAUDE.md` line 24 (one: stale, C3) | [patches.md](patches.md#what-agello-ships-c3) |
-| Which runtime ships | ENGINEERING's #3913 section ("LiteRT-LM's runtime is a prebuilt binary") | [versions.md](versions.md#what-ships-and-what-is-documented) |
-| Performance figures | README Performance table; ENGINEERING's #3913 results | [versions.md](versions.md#performance-figures-which-build) (C16) |
+| LiteRT-LM version | README badge ("our Metal build", line 10) and "Vendored LiteRT-LM"; ARCHITECTURE code map ("our runtime release") | [versions.md](versions.md) |
+| Patches in the wrapper | `Vendor/README.md` (five), `CLAUDE.md` (five), README "Vendored LiteRT-LM" and the `agello-litert-update` skill (four: stale, C3), `NOTICE` (each change, no count) | [patches.md](patches.md#what-agello-ships-c3) |
+| Which runtime ships | README "Vendored LiteRT-LM", `Vendor/README.md` "The runtime"; ENGINEERING's #3913 section names Google's prebuilt binary as what the app ran when the bug was found | [versions.md](versions.md#what-ships-and-what-is-documented) |
+| Performance figures | README Performance (our build, 2026-11-17; Google's v0.18.0 table kept as history) | [versions.md](versions.md#performance-figures-which-build) (C16) |
 | Model file and revision | ModelCatalog, NOTICE, USER_GUIDE "The models", ENGINEERING | `pins.json`; [patches.md](patches.md#model-revisions-in-older-notes-c17) |
-| Third-party licenses | `NOTICE` | When the app ships our framework: `agello/THIRD_PARTY_NOTICES.md` (LM-BLD-044) |
-| Privacy manifest | `Agello/PrivacyInfo.xcprivacy` (`C617.1`, `35F9.1`) | [litert-lm/build-and-release.md](litert-lm/build-and-release.md#privacy-manifest) |
+| Third-party licenses | `NOTICE`, from the release's `agello/THIRD_PARTY_NOTICES.md` (LM-BLD-044) | the release |
+| Privacy manifest | `Agello/PrivacyInfo.xcprivacy` (`CA92.1`, `E174.1`, `C617.1`, `35F9.1`) | [litert-lm/build-and-release.md](litert-lm/build-and-release.md#privacy-manifest) |
 | Test counts | README badge and highlight, TESTING table | The harness, at a date (C7, below) |
 
-At `93122b6`, Agello's README badge says LiteRT-LM 0.18.0, its "Vendored LiteRT-LM" section
-lists two Swift patches, ARCHITECTURE calls the vendored package the "prebuilt runtime", and
-ENGINEERING says LiteRT-LM's runtime is a prebuilt binary; all four match what Agello ships and
-change when it ships our build. <!-- c:PRC-016 -->
+At Agello `a691212` the README badge says "LiteRT-LM, our Metal build", ARCHITECTURE's code map
+calls `Vendor/LiteRT-LM` the "LiteRT-LM Swift package (our runtime release, iPhone and Mac)", and
+ENGINEERING's #3913 section says the app ran Google's prebuilt runtime binary when the bug was
+found; all three match what Agello ships. At `93122b6` (2026-10-15) the badge said 0.18.0 and both
+docs described the prebuilt runtime, which was then right. <!-- c:PRC-016 -->
 
 Rules for those docs:
 
@@ -370,7 +381,8 @@ Rules for those docs:
   reference from developer docs (`CLAUDE.md`, skills), not from the user guide.
 - **Update together**: a wrapper change touches `Vendor/README.md`, `NOTICE`, the README section
   and `CLAUDE.md` in one commit (C3 came from missing `CLAUDE.md`).
-- **The fork's landing page** (`.github/README.md` on `agello`) is a user-facing doc too (C4,
+- **The fork's landing page** (since 2026-11-15 the root `README.md` of `main`, Google's, and the
+  repository's description) is a user-facing doc too (C4,
   [patches.md](patches.md#the-fork-landing-page-c4)).
 
 ### Test counts (C7)
@@ -390,7 +402,7 @@ tour, lab-model probes) says so. The README's 220 / 48 are older than the tests 
 ## Limits and failure modes
 
 - **GitHub state is volatile.** Issue comments, labels, assignees and pull request counts were
-  read on 2026-10-15; re-read before quoting them.
+  read on 2026-10-15 (#3913's again on 2026-11-17); re-read before quoting them.
 - **Policies move.** Re-read each CONTRIBUTING.md on upstream `main` before posting anything.
 - **A failed CLA check** blocks a pull request until the CLA is signed; posting first gains
   nothing.
@@ -406,8 +418,8 @@ tour, lab-model probes) says so. The README's 220 / 48 are older than the tests 
 | LiteRT CLA and pull requests | `CONTRIBUTING.md` | [`CONTRIBUTING.md:5-25`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/CONTRIBUTING.md#L5-L25), [`CONTRIBUTING.md:27-40`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/CONTRIBUTING.md#L27-L40) |
 | LiteRT governance | `GOVERNANCE.md` | [`GOVERNANCE.md:19-36`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/GOVERNANCE.md#L19-L36) |
 | ML Drift contribution policy | `CONTRIBUTING.md` | [`CONTRIBUTING.md:1-32`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/CONTRIBUTING.md#L1-L32) |
-| Release dry run | `agello/release-xcframework.sh` | [`agello/release-xcframework.sh:68-74`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/release-xcframework.sh#L68-L74) |
-| Our notice | `swift/Conversation.swift` header | [`swift/Conversation.swift:15-20`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L15-L20) |
+| Release dry run | `agello/release-xcframework.sh` | [`agello/release-xcframework.sh:69-75`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/release-xcframework.sh#L69-L75) |
+| Our notice | `swift/Conversation.swift` header | [`swift/Conversation.swift:15-25`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Conversation.swift#L15-L25) |
 
 ## Open questions
 

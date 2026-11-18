@@ -1,42 +1,246 @@
 {
-  "comment": "What docs/agello/reference documents. Update on every re-pin, then run regen.sh and check_refs.py --repin (maintenance.md).",
+  "comment": "What docs/agello/reference documents: one repository since 2026-11-15, LiteRT and ML Drift in its agello/ folders (subdir). Update on every re-pin, then run regen.sh and check_refs.py --repin (maintenance.md).",
   "repos": {
     "litert-lm": {
-      "path": "/Users/patricedery/Coding projects/agello-arms/next/LiteRT-LM",
+      "path": "/Users/patricedery/Coding projects/LiteRT-LM",
       "fork": "PowerBeef/agello-litert-lm",
-      "branch": "agello-next",
-      "pin": "7b872544fdbd81308f98b1e2acf8c5798a549df6",
+      "branch": "main",
+      "pin": "b7b856a0cf7e2304f556e985218bc698768233f7",
       "upstream": "google-ai-edge/LiteRT-LM",
       "base": "df6df5b84d5845b49889f631ed4cac80b4325dd3",
       "base_label": "0.19.0-nightly.20261013"
     },
     "litert": {
-      "path": "/Users/patricedery/Coding projects/LiteRT",
-      "fork": "PowerBeef/LiteRT",
-      "branch": "agello-next",
-      "pin": "362759838e34e1525f1cc27daddaf663a193c059",
+      "path": "/Users/patricedery/Coding projects/LiteRT-LM",
+      "subdir": "agello/litert",
+      "fork": "PowerBeef/agello-litert-lm",
+      "branch": "main",
+      "pin": "b7b856a0cf7e2304f556e985218bc698768233f7",
       "upstream": "google-ai-edge/LiteRT",
       "base": "ca21dc99de51c76bdcc572afeea1dd937d3c9e5c",
-      "base_label": "main 2026-10-09"
+      "base_label": "main 2026-10-09",
+      "imported": {
+        "commit": "e3c93749b86decbd5ad173ced7c9a539bcfa2d64",
+        "from": "PowerBeef/LiteRT",
+        "from_pin": "362759838e34e1525f1cc27daddaf663a193c059",
+        "commits": [
+          [
+            "355e29ed38e4425b683c756d838c1d970a6fbf2c",
+            "2026-10-14",
+            "Build: fixes for building LiteRT as an external repository (LiteRT-LM)",
+            17
+          ],
+          [
+            "1b177bd9421c0ca64030476b2342b5c85313b237",
+            "2026-10-14",
+            "Telemetry: LiteRT's trace sites and Metal command buffers feed Agello telemetry [T0]",
+            4
+          ],
+          [
+            "b66a46e6d870eab04bff5377fa6fdf4e3cca4942",
+            "2026-10-14",
+            "Telemetry: GPU family and Metal wait mode as facts [T0]",
+            1
+          ],
+          [
+            "77ed9cab4735ac7ea1d9114595162bdaf6b81b76",
+            "2026-10-14",
+            "Metal: passive waits commit command buffers as they're encoded [T5]",
+            1
+          ],
+          [
+            "5083cfaedaca90c748c7ffec19cf53902e6a9ba5",
+            "2026-10-14",
+            "Telemetry: host copies, cache events and delegation coverage [T0]",
+            6
+          ],
+          [
+            "e17213ead251015d1aa30483b918bfbde846a4a0",
+            "2026-10-15",
+            "Metal: read linear buffer tensors straight into host memory [T5]",
+            2
+          ],
+          [
+            "584f3461080228a11bd70ba0aa66539a256a2b81",
+            "2026-10-15",
+            "Metal: direct writes and integer types, tiled strided reads [T5]",
+            1
+          ],
+          [
+            "ede28c641b8552965cdbc4a42414ef5a72ee573c",
+            "2026-10-15",
+            "Delegate: attention select and softmax bounded to the filled KV length [T4]",
+            11
+          ],
+          [
+            "aa05bd2d17acc15008b59602139b8ca4f4f56624",
+            "2026-10-15",
+            "Delegate: tests for the bounded attention pass [T4]",
+            2
+          ],
+          [
+            "3138631754051aeaf46a97d751c34401dae3fef3",
+            "2026-10-15",
+            "Delegate: local attention layers read only their window [T4]",
+            9
+          ],
+          [
+            "97e06d36d7143995298d6bee396a0c25a22fa886",
+            "2026-10-15",
+            "Delegate: one weight cache entry for every context size [T11]",
+            5
+          ],
+          [
+            "362759838e34e1525f1cc27daddaf663a193c059",
+            "2026-10-15",
+            "Delegate: a simulated GPU keys its own program and weight caches [SIM]",
+            1
+          ]
+        ]
+      },
+      "base_changed": [
+        "litert/core/util/BUILD",
+        "litert/core/util/perfetto_profiling.h",
+        "litert/runtime/BUILD",
+        "litert/runtime/compiled_model.cc",
+        "ml_drift_delegate/delegate/BUILD",
+        "ml_drift_delegate/delegate/buffer_handler_metal.mm",
+        "ml_drift_delegate/delegate/composite/BUILD",
+        "ml_drift_delegate/delegate/composite/bounded_attention.cc",
+        "ml_drift_delegate/delegate/composite/bounded_attention.h",
+        "ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc",
+        "ml_drift_delegate/delegate/composite/bounded_attention_kernel.h",
+        "ml_drift_delegate/delegate/composite/bounded_attention_test.cc",
+        "ml_drift_delegate/delegate/composite/custom_transformations.cc",
+        "ml_drift_delegate/delegate/composite/litert_op_selector.cc",
+        "ml_drift_delegate/delegate/composite/runtime_batched_matmul_kernel.cc",
+        "ml_drift_delegate/delegate/composite/runtime_batched_matmul_parser.cc",
+        "ml_drift_delegate/delegate/composite/runtime_batched_matmul_parser.h",
+        "ml_drift_delegate/delegate/delegate_kernel.cc",
+        "ml_drift_delegate/delegate/delegate_kernel_litert.cc",
+        "ml_drift_delegate/delegate/gpu_backend_metal.mm",
+        "ml_drift_delegate/delegate/gpu_backend_metal_litert.mm",
+        "ml_drift_delegate/delegate/serialization_weight_cache/BUILD",
+        "ml_drift_delegate/delegate/serialization_weight_cache/content_identifier_test.cc",
+        "ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc",
+        "ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.h",
+        "third_party/arm_vulkan_ml/workspace.bzl",
+        "third_party/exynos_ai_litecore/workspace.bzl",
+        "third_party/google_tensor/workspace.bzl",
+        "third_party/intel_openvino/openvino.bzl",
+        "third_party/jinja2/workspace.bzl",
+        "third_party/lark/workspace.bzl",
+        "third_party/litert_gpu/workspace.bzl",
+        "third_party/litert_prebuilts/workspace.bzl",
+        "third_party/markupsafe/workspace.bzl",
+        "third_party/models/workspace.bzl",
+        "third_party/neuro_pilot/workspace.bzl",
+        "third_party/qairt/workspace.bzl",
+        "third_party/stblib/workspace.bzl",
+        "third_party/tqdm/workspace.bzl",
+        "third_party/xdsl/workspace.bzl",
+        "tools/build_defs/swift/BUILD"
+      ]
     },
     "ml-drift": {
-      "path": "/Users/patricedery/Coding projects/ml-drift",
-      "fork": "PowerBeef/ml-drift",
-      "branch": "agello-next",
-      "pin": "15fa9e2ba632145992299e3f04786dc1f575373c",
+      "path": "/Users/patricedery/Coding projects/LiteRT-LM",
+      "subdir": "agello/ml_drift",
+      "fork": "PowerBeef/agello-litert-lm",
+      "branch": "main",
+      "pin": "b7b856a0cf7e2304f556e985218bc698768233f7",
       "upstream": "google-ai-edge/ml-drift",
       "base": "1b18771f44c0be3d972847b31a80f6dc3d6964b5",
-      "base_label": "main 2026-10-07"
+      "base_label": "main 2026-10-07",
+      "imported": {
+        "commit": "e3c93749b86decbd5ad173ced7c9a539bcfa2d64",
+        "from": "PowerBeef/ml-drift",
+        "from_pin": "15fa9e2ba632145992299e3f04786dc1f575373c",
+        "commits": [
+          [
+            "e38276cbecf43b5e071316eec8d51b00b6fbc65c",
+            "2026-10-14",
+            "Build: name LiteRT's delegate packages @litert when ML Drift is an external repository",
+            5
+          ],
+          [
+            "04fe7b712c777a10d4d43388a6dca65d38597f66",
+            "2026-10-14",
+            "Telemetry: time the command buffers EncodeWithCommandQueue commits [T0]",
+            2
+          ],
+          [
+            "5aaea039f9bd25cec48f2194a9a7fa2c0dde76a1",
+            "2026-10-14",
+            "Telemetry: kernel names in Instruments, per-kernel GPU timing [T0]",
+            6
+          ],
+          [
+            "55196d78cfd17dfa9b6e19ffc75d8d1b54156850",
+            "2026-10-14",
+            "Telemetry: dump the initialized GPU graph as JSON [T0]",
+            2
+          ],
+          [
+            "6ae7c681ce17bc9e17346893828625f76ef9abd0",
+            "2026-10-15",
+            "Kernels: a sliding attention window start for FC and softmax reductions [T4]",
+            6
+          ],
+          [
+            "2184a7f71b47941a0204f4f1c02753a886303d76",
+            "2026-10-15",
+            "Kernels: the sliding attention window in the Apple matrix-unit convolution [T4]",
+            1
+          ],
+          [
+            "ef08a6785834a9ea248c62c67f1c692aa1cf1c35",
+            "2026-10-15",
+            "GPU info: AGELLO_SIMULATE_APPLE_GPU runs another Apple GPU's kernel paths [SIM]",
+            1
+          ],
+          [
+            "15fa9e2ba632145992299e3f04786dc1f575373c",
+            "2026-10-15",
+            "Kernels: the sliding attention window in the simdgroup-matrix convolution [T4]",
+            1
+          ]
+        ]
+      },
+      "base_changed": [
+        "ml_drift/common/default/BUILD",
+        "ml_drift/common/gpu_info.cc",
+        "ml_drift/common/kernels/BUILD",
+        "ml_drift/common/kernels/conv_apple_mpp.cc",
+        "ml_drift/common/kernels/conv_wave_matrix.cc",
+        "ml_drift/common/kernels/fully_connected.cc",
+        "ml_drift/common/kernels/fully_connected_util.cc",
+        "ml_drift/common/kernels/softmax.cc",
+        "ml_drift/common/kernels/softmax1x1.cc",
+        "ml_drift/common/task/BUILD",
+        "ml_drift/common/task/gpu_operation.cc",
+        "ml_drift/common/task/gpu_operation.h",
+        "ml_drift/gl/BUILD",
+        "ml_drift/metal/BUILD",
+        "ml_drift/metal/common.h",
+        "ml_drift/metal/common.mm",
+        "ml_drift/metal/compute_task.h",
+        "ml_drift/metal/compute_task.mm",
+        "ml_drift/metal/inference_context.h",
+        "ml_drift/metal/inference_context.mm",
+        "ml_drift/samples/stable_diffusion/BUILD"
+      ]
     },
     "litert-lm-shipped": {
-      "comment": "What Agello ships today: the Swift wrapper at this commit (v0.18.0 plus two Swift patches) and Google's prebuilt v0.18.0 CLiteRTLM.xcframework.",
+      "comment": "What Agello ships: the CLiteRTLM.xcframework of release agello-one-20261115, built from this commit. The Swift wrapper Agello vendors is main's swift/ at swift_wrapper, the same files as at the pin: cite the wrapper at the pin.",
       "path": "/Users/patricedery/Coding projects/LiteRT-LM",
       "fork": "PowerBeef/agello-litert-lm",
-      "branch": "agello",
-      "pin": "85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff",
+      "branch": "main",
+      "pin": "6da75396ece779d3c7b6b605ec8c2c06861ce1eb",
+      "release": "agello-one-20261115",
+      "swift_wrapper": "82b05ea1bfd3a4f40f8f986c857c91c5de45ddac",
       "upstream": "google-ai-edge/LiteRT-LM",
-      "base": "b2f686e2ed4718fb84ec398a61dd59ca0f0aff27",
-      "base_label": "v0.18.0"
+      "base": "df6df5b84d5845b49889f631ed4cac80b4325dd3",
+      "base_label": "0.19.0-nightly.20261013"
     }
   },
   "models": {
@@ -85,5 +289,26 @@
     "google/gemma-4-31B-it-assistant": "627c5ec1458b9086b841a91e0512fd31fd2fbbf1",
     "google/embeddinggemma-2": "914f7f89142e33e77833254d9c9b90c3cef7303b"
   },
-  "hf_repos_comment": "Official configs read by gen_hf_configs.py; --update moves each to the repo's current revision."
+  "hf_repos_comment": "Official configs read by gen_hf_configs.py; --update moves each to the repo's current revision.",
+  "previous_pins": {
+    "comment": "The pins before the last re-pin (2026-11-17), still readable for repin.py. repin_batch names that re-pin's verdict batches: a claim verified in one of them, with every code source at a current pin or base, isn't listed again.",
+    "litert-lm": [
+      "7b872544fdbd81308f98b1e2acf8c5798a549df6",
+      "agello-next"
+    ],
+    "litert": [
+      "362759838e34e1525f1cc27daddaf663a193c059",
+      "PowerBeef/LiteRT agello-next"
+    ],
+    "ml-drift": [
+      "15fa9e2ba632145992299e3f04786dc1f575373c",
+      "PowerBeef/ml-drift agello-next"
+    ],
+    "litert-lm-shipped": [
+      "85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff",
+      "agello (v0.18.0 plus Swift patches)",
+      "b2f686e2ed4718fb84ec398a61dd59ca0f0aff27"
+    ],
+    "repin_batch": "z-repin"
+  }
 }

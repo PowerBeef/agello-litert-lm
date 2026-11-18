@@ -7,9 +7,9 @@
 > what each script prints ([tools.md](tools.md#toolsagello-docs)); re-pinning the forks in the build
 > ([build-and-release.md](litert-lm/build-and-release.md#re-pinning-litert-or-ml-drift)); posting
 > anything upstream ([contributing.md](contributing.md)).
-> **Pinned to:** the pins in `tools/agello-docs/pins.json` (LiteRT-LM `7b872544`, LiteRT
-> `362759838`, ML Drift `15fa9e2`; shipped `85b1a776`).
-> **Applies to:** the reference itself. **Last verified:** 2026-10-15
+> **Pinned to:** the pins in `tools/agello-docs/pins.json` (`main` `b7b856a0` for LiteRT-LM, LiteRT
+> and ML Drift; shipped: release `agello-one-20261115`, `6da75396`).
+> **Applies to:** the reference itself. **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -17,22 +17,24 @@ Every statement of fact in the reference is a claim with sources, stored one per
 `ledger/<group>.jsonl` with the verdict an independent verifier gave it; pages carry a hidden tag
 after each tier-A sentence, and code citations carry the SHA-1 of the lines they cite. That makes the
 reference re-checkable: `check_refs.py` proves every link, anchor, cited line range and tag still
-holds, and after a pin moves, `check_refs.py --repin` lists the claims whose cited code changed. The
-upkeep is four routines. After a re-pin or rebase: update `pins.json`, regenerate, list the moved
-citations, re-verify them in a new verdict batch, merge, and fix the pages. After a model update:
+holds, and after a pin moves, `repin.py` re-cites every citation whose lines didn't change and lists
+the claims to re-verify. The upkeep is four routines. After a re-pin: update `pins.json`, regenerate,
+let `repin.py` move what didn't change, re-verify the rest in a new verdict batch, merge, and fix the
+pages. After a model update:
 regenerate the model tables and configs, re-check the model pages and the #3913 fix. After a
 measurement: add the results file with its conditions, a claim that cites it, and a row in
-[facts.md](facts.md). Later corrections go in `z-audit` verdict files, which win the merge.
+[facts.md](facts.md). Later corrections go in `z-audit` verdict files, which the merge applies after
+the earlier batches.
 
 ## Concepts
 
 | Thing | Where | What it is |
 | --- | --- | --- |
-| Pins | `tools/agello-docs/pins.json` | the commits documented (fork pin and upstream base per repository), the shipped wrapper, local and remote model files with SHA-256, Hugging Face config revisions |
+| Pins | `tools/agello-docs/pins.json` | the commits documented (pin and Google's base per component; for LiteRT and ML Drift their folder, the import commit and the files the old forks changed), the shipped release, the pins before the last re-pin, local and remote model files with SHA-256, Hugging Face config revisions |
 | Generated tables | `generated/` | evidence made by scripts from the pins (inventories, flags, patch log, binaries, model tables, configs, engine runs); never edited by hand |
 | Groups | `_work/groups.json` | which group writes which pages, under which claim-ID prefixes |
 | Claims file | `_work/claims/<group>.jsonl` | a group's claims as written: ID, page, anchor, text, tier, kind, sources, applies-to, formula |
-| Verdict file | `_work/verdicts/<group>.<batch>.jsonl` | one verdict per claim: `verified`, `corrected` (with `corrected_text`), `wrong` or `unverifiable`, and a note saying what was checked |
+| Verdict file | `_work/verdicts/<group>.<batch>.jsonl` | one verdict per claim: `verified`, `corrected` (with `corrected_text`), `wrong` or `unverifiable`, and a note saying what was checked; a verified or corrected claim may carry `corrected_sources` |
 | Ledger | `ledger/<group>.jsonl` | claims merged with their verdicts; the only source pages may tag |
 | Tag | `<!-- c:<claim-id> -->` after a sentence | binds the sentence to a verified or corrected claim |
 | Returns | `_work/returns/<group>.md` | a group's notes for other pages: settings rows, terms, contradictions, open questions |
@@ -47,7 +49,9 @@ contradicts an existing doc; all tier-A claims are verified. Tier B claims are v
 sample, more if errors show up (`_work/style.md`).
 
 Citations come in two forms. In pages, a permalink made by `cite.py`: files our commits don't touch
-link to Google's repository at the upstream base, files we change to our fork at the pin. In the
+link to Google's repository at the upstream base, and so do files our tree removed (`cite.py
+--at-base`); files we change link to our repository at the pin, LiteRT's and ML Drift's under their
+`agello/` folders. In the
 ledger, the same link plus `lines_sha1`, the SHA-1 of the cited lines, which is what lets a script
 notice that the code under a claim changed.
 
@@ -83,8 +87,10 @@ All commands run from `tools/agello-docs/`:
 3. **Merge.** `claims.py merge <group>` writes `ledger/<group>.jsonl`: each claim with its verdict,
    the batch that gave it and the verifier's note. A corrected claim's `text` becomes the corrected
    wording and the original is kept as `original_text` (and `original_sources` when sources were
-   replaced). Verdict files are read in name order and later ones win, which is what makes the
-   `z-audit` convention work.
+   replaced). Verdict files are applied in name order, batch by batch: a later verdict replaces the
+   verdict and the note, a later correction the text, and `corrected_sources` (on a verified or a
+   corrected verdict) the sources. A later `verified` confirms the claim as the earlier batches left
+   it, corrections included. That is what makes the `z-audit` and `z-repin` conventions work.
 4. **Apply.** The page editor rewrites corrected sentences to match the ledger text, removes tags of
    `wrong` and `unverifiable` claims (and the statements, or marks them as open questions), then runs
    `claims.py check-applied <group>`: every verified or corrected tier-A claim still tagged, no tag on
@@ -95,8 +101,9 @@ All commands run from `tools/agello-docs/`:
    verdict counts by tier.
 
 Batch names in use: `v1` and `v2` for verification passes, `x1` for a further pass, `z-audit` for
-corrections from spot audits. A new pass takes a new name that sorts before `z-audit` unless it is
-meant to override it.
+corrections from spot audits, `z-repin-<verifier>` for the re-pin of 2026-11-17 (one file per group
+and verifier, `_work/repin/` has the brief and the task files). A new pass takes a new name that
+sorts before `z-audit` unless it is meant to override it.
 
 ### Adding a claim
 
@@ -132,46 +139,53 @@ A fact that is only on a page and in no ledger is a gap: either back it with a c
 
 ### After a re-pin or rebase
 
-> **Since 2026-11-15:** nothing is re-pinned (LiteRT and ML Drift are folders of this repository)
-> and nothing is rebased onto upstream (Google's repositories are a read-only source). The steps
-> below still apply when a cited file changes in `main` or Agello vendors a new release: move the
-> pins in `pins.json` to the new commit, then regenerate and re-check.
+> **Since 2026-11-15** LiteRT and ML Drift are folders of this repository and nothing is rebased onto
+> upstream (Google's repositories are a read-only source). A re-pin moves the pins to a newer commit
+> of `main`, or the shipped pin to a new release; the reference was last re-pinned on 2026-11-17,
+> from the old forks' pins to `main` `b7b856a0`.
 
-When any pin in `pins.json` moves (a re-pin of LiteRT or ML Drift, a rebase of `agello-next` on a
-newer upstream, a new shipped wrapper):
+When any pin in `pins.json` moves:
 
-1. **Move the pins.** Edit `pins.json`: `pin`, and for a rebase `base` and `base_label`; the
-   `litert-lm-shipped` entry when Agello vendors a new wrapper; the local paths if a checkout moved.
-   The build side of a re-pin (overrides, `WORKSPACE`, rebuild) is in
-   [build-and-release.md](litert-lm/build-and-release.md#re-pinning-litert-or-ml-drift).
-2. **Regenerate.** `regen.sh --all` rebuilds every table, including the Swift symbol graph and the
-   per-family engine runs (agello-bench's `.build-next` must be built against the new `dist/`; about
-   ten minutes and about 2 GB of scratch per GPU family, deleted at the end; check `df -h /` first).
+1. **Move the pins.** Edit `pins.json`: each component's `pin`; `litert-lm-shipped`'s `pin` and
+   `release` when Agello vendors a new release; record the old ones in `previous_pins`, so the old
+   citations stay readable.
+2. **Regenerate.** Build `dist/` at the pin (`agello/build-xcframework.sh`, with the tree clean so
+   the stamp names the pin) and agello-bench against it (`swift build -c release --scratch-path
+   .build-next` in `tools/agello-bench`), then `regen.sh --code`: the tables read from the code, the
+   Swift symbol graph and the per-family engine runs (about ten minutes and about 2 GB of scratch per
+   GPU family, deleted at the end; check `df -h /` first, and leave the Mac alone while they run).
    Read the diffs of `generated/`: a changed row is a changed fact.
-3. **List what moved.** `check_refs.py --repin` looks at every ledger code source whose commit is no
-   longer a pin or base, finds its symbol at the new pin and compares the lines' hash: `unchanged`
-   needs nothing; `changed: re-verify`, `symbol gone`, `file gone` and, for sources cited by line
-   range without a symbol, `moved` need a new verdict.
-4. **Re-verify.** Run a verification batch over the listed claims, plus claims whose evidence isn't
-   a code citation but depends on the pin: counts of our commits and changed files, the binary
-   comparisons from `generated/binaries.md`, engine-run and kernel-table numbers, claims that say
-   something is absent upstream as of a date, and every claim whose text names the old commit. The
-   verifier re-cites at the new pin (`cite.py --json`) and gives the new sources as
-   `corrected_sources`; a claim that no longer holds is `wrong` and its sentence leaves the page.
-5. **Merge and edit.** `claims.py merge <group>` per group, then update the pages: re-run `cite.py`
-   for every permalink (`check_refs.py` reports links to commits that are no longer a pin or base),
-   apply corrected wording, update the pages' "Pinned to" lines and "Last verified" dates, then
-   `claims.py check-applied` and a full `check_refs.py`.
-6. **Builds and records.** A re-pinned framework is not byte-identical to the one built with
-   overrides: the stamped commit and so the build id change; compare replies, not bytes.
+3. **Move what didn't change.** `repin.py apply` finds every ledger code source's exact lines
+   (`lines_sha1`) at the new pin, or at Google's base for a file we haven't changed, takes the nearest
+   match to the old line, and re-cites it where the merge reads it (the claims file, or the verdict
+   whose `corrected_sources` the merge keeps); then it merges every group and writes
+   `_work/repin.json`, the claims to re-verify with the reason for each: cited lines changed, file
+   gone, old commit unreadable, file gone from our tree, text that names an old pin or branch, a claim
+   about the shipped build, a cited table the new pin regenerated. `repin.py links --apply` does the
+   same for the pages' permalinks and lists those it can't move; `repin.py labels --apply` then gives
+   the moved links' texts (`path:12-20`) their new line numbers. `repin.py status` (also
+   `check_refs.py --repin`) only counts.
+4. **Re-verify.** A verification batch over the listed claims and links, split by pages so no two
+   verifiers share one (the brief of 2026-11-17, [`_work/repin/brief.md`](_work/repin/brief.md), is
+   the model). `repin.py show <group> --ids ...` prints each claim with its old cited lines next to
+   the nearest lines at the new pin. The verifier re-cites at the new pin (`cite.py --json`) and gives
+   the new sources as `corrected_sources`, on a `verified` verdict too; a claim that no longer holds
+   is `wrong` and its sentence leaves the page.
+5. **Merge and edit.** `claims.py merge <group>` per group, the page edits (corrected wording,
+   re-cited links, the pages' "Pinned to" lines and "Last verified" dates), then
+   `claims.py check-applied` per group and a full `check_refs.py`, which reports any citation or
+   link left at a commit that is no longer a pin or base.
+6. **Builds and records.** A framework built at another commit is not byte-identical: the stamped
+   commit and so the build id change; compare replies, not bytes.
    <!-- c:LM-BLD-029 --> Measurements keep the build id they were made with
    ([versions.md](versions.md#telling-builds-and-versions-apart)).
 
-When the shipped wrapper changes, Agello's own descriptions change with it: `Vendor/README.md`,
-`NOTICE`, the README's "Vendored LiteRT-LM" section and `CLAUDE.md` together, which drifted once
-(C3) <!-- c:OUR-003 -->; and the fork's landing page, which still describes an older layout (C4).
-<!-- c:OUR-025 --> The rebase hotspots (files we patch that changed upstream) are listed in
-[patches.md](patches.md).
+When the shipped release or the vendored wrapper changes, Agello's own descriptions change with it:
+`Vendor/README.md`, `NOTICE`, the README's "Vendored LiteRT-LM" section, the `agello-litert-update`
+skill and `CLAUDE.md` together, which drift apart (C3: until Agello `f51fe1d`, 2026-11-18, two of them
+counted four Swift patches where the others counted five) <!-- c:OUR-003 -->; and the fork's front page on GitHub,
+which since 2026-11-15 is Google's root README, under a repository description of the old `agello`
+branch (C4). <!-- c:OUR-025 --> [patches.md](patches.md) lists the files we patch.
 
 ### After a model update
 
@@ -206,8 +220,9 @@ A new model revision (ours or Google's), a new model, or new official configs:
      the iPhone with Agello's probe 12, 14 of 14 and 6 of 6 with MTP. <!-- c:MOD-E4B-071 -->
    - On an Apple7 GPU (A14, M1) the 512-token block is the one reported exact. <!-- c:MOD-E4B-063 -->
 5. **Agello.** Its model catalog names each file with its size; a renamed file is downloaded again by
-   every user (Agello's `CLAUDE.md`). Older notes that cite a deleted revision are flagged in
-   [patches.md](patches.md#model-revisions-in-older-notes-c17). <!-- c:OUR-029 -->
+   every user (Agello's `CLAUDE.md`). Older notes that cite an earlier revision are flagged in
+   [patches.md](patches.md#model-revisions-in-older-notes-c17); AUDIT.md and BASELINE.md open with a
+   note naming the revision Agello uses now. <!-- c:OUR-029 -->
 
 ### After a new measurement
 
@@ -236,7 +251,7 @@ The reference never runs measurements while it is being written; maintainers do,
 
 A spot audit re-checks a random sample of verified claims (one or two per group) with fresh agents
 that see only the sources. Its verdicts go to `_work/verdicts/<group>.z-audit.jsonl`; because merge
-reads verdict files in name order, `z-audit` wins over the earlier batches. Then `claims.py merge`,
+applies verdict files in name order, `z-audit` comes after the earlier batches. Then `claims.py merge`,
 the page edits, `claims.py check-applied`, and an entry in [`_work/audits.md`](_work/audits.md) with
 what held, what was imprecise and what was wrong. The rule from the two audits so far: more than one
 wrong claim in an area sends the whole area back for re-verification; imprecise claims (a missing

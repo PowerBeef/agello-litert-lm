@@ -1,0 +1,3775 @@
+{
+ "pins": {
+  "litert-lm": "b7b856a0cf7e2304f556e985218bc698768233f7",
+  "litert": "b7b856a0cf7e2304f556e985218bc698768233f7",
+  "ml-drift": "b7b856a0cf7e2304f556e985218bc698768233f7",
+  "litert-lm-shipped": "6da75396ece779d3c7b6b605ec8c2c06861ce1eb"
+ },
+ "groups": {
+  "lm-engine": [
+   {
+    "id": "LM-ENG-001",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-002",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-005",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-006",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-008",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-018",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-022",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:134-193"
+    ]
+   },
+   {
+    "id": "LM-ENG-030",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-032",
+    "reasons": [
+     "changed: litert-lm runtime/framework/worker_thread_pthread.cc:76-85"
+    ]
+   },
+   {
+    "id": "LM-ENG-033",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-035",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-044",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:866-999",
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997"
+    ]
+   },
+   {
+    "id": "LM-ENG-045",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-047",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997"
+    ]
+   },
+   {
+    "id": "LM-ENG-049",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1602-1616"
+    ]
+   },
+   {
+    "id": "LM-ENG-050",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/util/tensor_buffer_util.cc:53-62",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-051",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert/state.cc:305-320",
+     "changed: litert-lm runtime/executor/litert/state.cc:278-301"
+    ]
+   },
+   {
+    "id": "LM-ENG-052",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert/state.cc:278-301"
+    ]
+   },
+   {
+    "id": "LM-ENG-054",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1688-1705",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+     "changed: litert-lm runtime/executor/litert/state.cc:383-403"
+    ]
+   },
+   {
+    "id": "LM-ENG-055",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1434-1445",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+     "changed: litert-lm-shipped runtime/framework/resource_management/resource_manager.cc:733-753",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-058",
+    "reasons": [
+     "changed: litert-lm runtime/core/session_advanced.cc:506-516"
+    ]
+   },
+   {
+    "id": "LM-ENG-059",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649"
+    ]
+   },
+   {
+    "id": "LM-ENG-062",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1707-1741",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1836-1861",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1688-1705",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-064",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-065",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-067",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/resource_manager.cc:264-311"
+    ]
+   },
+   {
+    "id": "LM-ENG-069",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1921"
+    ]
+   },
+   {
+    "id": "LM-ENG-070",
+    "reasons": [
+     "changed: litert-lm runtime/core/session_advanced.cc:506-516"
+    ]
+   },
+   {
+    "id": "LM-ENG-073",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-ENG-076",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997"
+    ]
+   },
+   {
+    "id": "LM-ENG-077",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-ENG-081",
+    "reasons": [
+     "changed: litert-lm runtime/core/tasks.cc:305-365"
+    ]
+   },
+   {
+    "id": "LM-ENG-085",
+    "reasons": [
+     "changed: litert-lm runtime/core/tasks.cc:305-365"
+    ]
+   },
+   {
+    "id": "LM-ENG-086",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "LM-ENG-090",
+    "reasons": [
+     "changed: litert-lm runtime/core/tasks.cc:587-593"
+    ]
+   },
+   {
+    "id": "LM-ENG-091",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1385-1432"
+    ]
+   },
+   {
+    "id": "LM-ENG-098",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1921"
+    ]
+   },
+   {
+    "id": "LM-ENG-100",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:866-999"
+    ]
+   }
+  ],
+  "lm-executors": [
+   {
+    "id": "LM-EXE-001",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-002",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "LM-EXE-004",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-007",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697"
+    ]
+   },
+   {
+    "id": "LM-EXE-009",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-011",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-013",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-014",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1836-1862",
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-016",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1361-1390",
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-018",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert/state.cc:305-354",
+     "changed: litert-lm runtime/executor/litert/state.cc:274-301",
+     "changed: litert-lm runtime/executor/litert/state.cc:372-418",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-019",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-022",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:791-808",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-023",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-648",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:791-808",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1361-1390"
+    ]
+   },
+   {
+    "id": "LM-EXE-024",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:663-709",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1391-1432",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-025",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-026",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1243-1252",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:824-830",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1317-1332",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-029",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-034",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/executor/llm_executor_settings_utils.cc:213-219",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-035",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1024-1050",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1221-1224",
+     "changed: litert-lm-shipped runtime/executor/litert/state.cc:255-262",
+     "changed: litert-lm runtime/executor/litert/state.cc:305-354",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-038",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:134-136",
+     "changed: litert-lm-shipped runtime/executor/llm_executor_settings_utils.cc:213-219",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-039",
+    "reasons": [
+     "our tree no longer has the file: litert-lm runtime/executor/llm_executor_interface.h:31-56",
+     "our tree no longer has the file: litert-lm runtime/executor/llm_executor_interface.h:58-66",
+     "our tree no longer has the file: litert-lm runtime/executor/llm_executor_interface.h:68-78",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-048",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "LM-EXE-054",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-648"
+    ]
+   },
+   {
+    "id": "LM-EXE-058",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:632-651",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:654-684"
+    ]
+   },
+   {
+    "id": "LM-EXE-061",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1526-1569",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1472-1496"
+    ]
+   },
+   {
+    "id": "LM-EXE-062",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-064",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915"
+    ]
+   },
+   {
+    "id": "LM-EXE-066",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-067",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1602-1616"
+    ]
+   },
+   {
+    "id": "LM-EXE-068",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:541-572"
+    ]
+   },
+   {
+    "id": "LM-EXE-069",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1715-1741"
+    ]
+   },
+   {
+    "id": "LM-EXE-071",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1317-1332"
+    ]
+   },
+   {
+    "id": "LM-EXE-072",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1317-1332"
+    ]
+   },
+   {
+    "id": "LM-EXE-074",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:711-721"
+    ]
+   },
+   {
+    "id": "LM-EXE-076",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1391-1432",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:541-572",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1688-1705",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915"
+    ]
+   },
+   {
+    "id": "LM-EXE-078",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:227-252"
+    ]
+   },
+   {
+    "id": "LM-EXE-084",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-EXE-086",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/buffer_handler_metal.mm:566-597",
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-EXE-087",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   }
+  ],
+  "lm-conversation": [
+   {
+    "id": "LM-CNV-001",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CNV-003",
+    "reasons": [
+     "changed: litert-lm runtime/conversation/conversation.cc:159-179"
+    ]
+   },
+   {
+    "id": "LM-CNV-052",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CNV-053",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CNV-054",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/conversation/conversation.cc:617-635",
+     "changed: litert-lm-shipped runtime/conversation/conversation.cc:705-718",
+     "changed: litert-lm-shipped runtime/conversation/conversation.cc:1066-1100",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CNV-055",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1666-1694",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CNV-057",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:175-187"
+    ]
+   },
+   {
+    "id": "LM-CNV-060",
+    "reasons": [
+     "our tree no longer has the file: litert-lm runtime/components/tool_use/antlr/AntlrFcParser.g4:23-29",
+     "our tree no longer has the file: litert-lm runtime/components/tool_use/antlr/AntlrFcLexer.g4:26-41"
+    ]
+   },
+   {
+    "id": "LM-CNV-068",
+    "reasons": [
+     "changed: litert-lm-shipped c/conversation.cc:204-214",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CNV-069",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:78-78"
+    ]
+   },
+   {
+    "id": "LM-CNV-074",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/conversation/model_data_processor/gemma4_data_processor.cc:62-66",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CNV-075",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CNV-076",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "LM-CNV-077",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CNV-078",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:265-268",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CNV-087",
+    "reasons": [
+     "changed: litert-lm runtime/core/session_advanced.cc:506-516"
+    ]
+   }
+  ],
+  "lm-components": [
+   {
+    "id": "LM-CMP-002",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-004",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-009",
+    "reasons": [
+     "changed: litert-lm support/tokenizer/buffered_streaming_detokenizer.cc:104-158"
+    ]
+   },
+   {
+    "id": "LM-CMP-010",
+    "reasons": [
+     "changed: litert-lm support/tokenizer/buffered_streaming_detokenizer.h:48-49"
+    ]
+   },
+   {
+    "id": "LM-CMP-012",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-018",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-021",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CMP-022",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-023",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-028",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CMP-030",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/components/top_p_cpu_sampler.cc:194-202",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CMP-031",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-033",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-041",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1836-1860",
+     "file gone: litert-lm-shipped tools/agello-bench/Sources/BenchKit/Bench.swift:114-114",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CMP-045",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-046",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-047",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CMP-049",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/components/constrained_decoding/constrained_decoder.cc:31-73",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CMP-053",
+    "reasons": [
+     "changed: litert-lm runtime/components/constrained_decoding/constraint.h:31-65"
+    ]
+   },
+   {
+    "id": "LM-CMP-065",
+    "reasons": [
+     "changed: litert-lm runtime/components/constrained_decoding/suppress_tokens_constraint.cc:31-46"
+    ]
+   },
+   {
+    "id": "LM-CMP-071",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/framework/resource_management/resource_manager.cc:579-579",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CMP-074",
+    "reasons": [
+     "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+    ]
+   },
+   {
+    "id": "LM-CMP-082",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-FMT-001",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_core.py:24-31",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1438-1504"
+    ]
+   },
+   {
+    "id": "LM-FMT-002",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-FMT-003",
+    "reasons": [
+     "changed: litert-lm-shipped schema/core/litertlm_header.h:36-38",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_core.py:24-31",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1438-1504",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-FMT-006",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1476-1486",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1507-1511"
+    ]
+   },
+   {
+    "id": "LM-FMT-008",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-FMT-014",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1545-1555",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1124-1132",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1383-1383"
+    ]
+   },
+   {
+    "id": "LM-FMT-017",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "LM-FMT-033",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1335-1335"
+    ]
+   },
+   {
+    "id": "LM-FMT-034",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1438-1504",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1507-1511",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_core.py:24-31"
+    ]
+   },
+   {
+    "id": "LM-FMT-035",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:266-273",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1124-1132"
+    ]
+   },
+   {
+    "id": "LM-FMT-036",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_peek_main.py:20-21"
+    ]
+   },
+   {
+    "id": "LM-FMT-038",
+    "reasons": [
+     "changed: litert-lm runtime/core/engine_advanced_impl.cc:398-410"
+    ]
+   }
+  ],
+  "lm-api": [
+   {
+    "id": "LM-CAPI-001",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CAPI-002",
+    "reasons": [
+     "changed: litert-lm-shipped version.bzl:19-22",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-025",
+    "reasons": [
+     "changed: litert-lm c/conversation.cc:44-71",
+     "changed: litert-lm c/conversation.cc:640-672",
+     "changed: litert-lm-shipped c/conversation.cc:43-70",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-027",
+    "reasons": [
+     "changed: litert-lm c/conversation.cc:44-71"
+    ]
+   },
+   {
+    "id": "LM-CAPI-030",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-034",
+    "reasons": [
+     "changed: litert-lm-shipped c/conversation.h:499-504",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-035",
+    "reasons": [
+     "cites generated/c-api-inventory.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CAPI-036",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-CAPI-037",
+    "reasons": [
+     "changed: litert-lm-shipped c/engine.h:820-828",
+     "changed: litert-lm-shipped c/conversation.h:439-443",
+     "changed: litert-lm-shipped c/conversation.cc:586-617",
+     "changed: litert-lm-shipped c/conversation.h:499-504",
+     "changed: litert-lm-shipped c/error_reporter.h:160-185",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-038",
+    "reasons": [
+     "changed: litert-lm-shipped version.bzl:19-22",
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-048",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/core/session_advanced.cc:478-479",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-CAPI-049",
+    "reasons": [
+     "changed: litert-lm c/conversation.cc:44-71"
+    ]
+   },
+   {
+    "id": "LM-CAPI-050",
+    "reasons": [
+     "changed: litert-lm-shipped runtime/framework/resource_management/threaded_execution_manager.cc:515-540",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-001",
+    "reasons": [
+     "changed: litert-lm swift/Engine.swift:28-43"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-002",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-004",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-005",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:64-98"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-008",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:78-94"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-009",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:175-187"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-010",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:64-98"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-013",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:478-521"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-014",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:574-590"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-016",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:871-903",
+     "changed: litert-lm swift/Conversation.swift:905-928"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-017",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:930-971",
+     "changed: litert-lm swift/Conversation.swift:826-844",
+     "changed: litert-lm swift/Conversation.swift:478-521"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-018",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:930-971",
+     "changed: litert-lm swift/Conversation.swift:826-844"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-019",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:781-784",
+     "changed: litert-lm swift/Conversation.swift:826-844",
+     "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-020",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:826-844",
+     "changed: litert-lm-shipped runtime/framework/resource_management/threaded_execution_manager.cc:515-540",
+     "changed: litert-lm-shipped runtime/core/session_advanced.cc:478-479",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-021",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:930-971",
+     "changed: litert-lm swift/Conversation.swift:826-844"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-022",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:594-599",
+     "changed: litert-lm c/conversation.cc:44-71",
+     "changed: litert-lm swift/Conversation.swift:871-903"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-023",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-024",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:386-409"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-027",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:65-76"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-028",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:65-76"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-030",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:478-521"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-032",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:21-46"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-033",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Conversation.swift:197-200",
+     "changed: litert-lm-shipped swift/Conversation.swift:487-490",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-034",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:205-238",
+     "changed: litert-lm-shipped swift/ExperimentalFlags.swift:189-207",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-037",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-038",
+    "reasons": [
+     "changed: litert-lm swift/LiteRTLMError.swift:223-250"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-039",
+    "reasons": [
+     "changed: litert-lm-shipped swift/LiteRTLMError.swift:56-64",
+     "changed: litert-lm-shipped c/error_reporter.h:160-185",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-040",
+    "reasons": [
+     "changed: litert-lm-shipped swift/ModelInfo.swift:79-96",
+     "changed: litert-lm-shipped swift/ModelInfo.swift:328-330",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-041",
+    "reasons": [
+     "changed: litert-lm swift/EmbeddingEngine.swift:30-52"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-043",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-044",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-045",
+    "reasons": [
+     "changed: litert-lm-shipped Package.swift:35-55",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-046",
+    "reasons": [
+     "changed: litert-lm-shipped Package.swift:35-55",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-047",
+    "reasons": [
+     "changed: litert-lm Package.swift:1-1",
+     "changed: litert-lm Package.swift:20-23",
+     "changed: litert-lm-shipped Package.swift:20-23",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-048",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:78-83",
+     "changed: litert-lm-shipped c/engine.h:820-828",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-050",
+    "reasons": [
+     "cites generated/swift-api-inventory.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-056",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-057",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-058",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-059",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-060",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-061",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-062",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-063",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Conversation.swift:94-98",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-SWIFT-064",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:78-83",
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "lm-build": [
+   {
+    "id": "LM-BLD-001",
+    "reasons": [
+     "our tree no longer has the file: litert-lm docs/getting-started/build-and-run.md:30-30",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-005",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-006",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-010",
+    "reasons": [
+     "changed: litert-lm agello/build-xcframework.sh:14-37"
+    ]
+   },
+   {
+    "id": "LM-BLD-012",
+    "reasons": [
+     "changed: litert-lm runtime/executor/BUILD:252-260"
+    ]
+   },
+   {
+    "id": "LM-BLD-013",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-015",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-019",
+    "reasons": [
+     "changed: litert-lm WORKSPACE:493-508",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-020",
+    "reasons": [
+     "changed: litert-lm WORKSPACE:517-540",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-021",
+    "reasons": [
+     "changed: litert-lm WORKSPACE:447-459",
+     "changed: litert-lm WORKSPACE:503-508",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-022",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-023",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-024",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-027",
+    "reasons": [
+     "changed: litert-lm agello/workspace_status.sh:20-32",
+     "changed: litert-lm agello/build-xcframework.sh:14-22"
+    ]
+   },
+   {
+    "id": "LM-BLD-029",
+    "reasons": [
+     "changed: litert-lm agello/workspace_status.sh:10-40"
+    ]
+   },
+   {
+    "id": "LM-BLD-038",
+    "reasons": [
+     "changed: litert-lm agello/release-xcframework.sh:35-66"
+    ]
+   },
+   {
+    "id": "LM-BLD-044",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-047",
+    "reasons": [
+     "changed: litert-lm Package.swift:35-57",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-048",
+    "reasons": [
+     "changed: litert-lm Package.swift:20-23",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-049",
+    "reasons": [
+     "changed: litert-lm-shipped Package.swift:34-56",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-BLD-050",
+    "reasons": [
+     "our tree no longer has the file: litert-lm .github/workflows/nightly-swift.yml:17-21",
+     "our tree no longer has the file: litert-lm .github/workflows/nightly-swift.yml:31-45",
+     "our tree no longer has the file: litert-lm .github/workflows/nightly-swift.yml:47-64",
+     "our tree no longer has the file: litert-lm .github/workflows/nightly-swift.yml:107-123"
+    ]
+   },
+   {
+    "id": "LM-BLD-051",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-052",
+    "reasons": [
+     "our tree no longer has the file: litert-lm .github/workflows/ci-build-mac.yml:16-19",
+     "our tree no longer has the file: litert-lm .github/workflows/ci-build-mac.yml:125-150",
+     "our tree no longer has the file: litert-lm .github/workflows/ci-build-mac.yml:160-180"
+    ]
+   },
+   {
+    "id": "LM-BLD-053",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-BLD-054",
+    "reasons": [
+     "our tree no longer has the file: litert-lm .github/workflows/nightly-mac-arm64.yml:17-33"
+    ]
+   },
+   {
+    "id": "LM-BLD-056",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-057",
+    "reasons": [
+     "cites generated/version-matrix.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-058",
+    "reasons": [
+     "our tree no longer has the file: litert-lm cmake/packages/litert/litert.cmake:25-25",
+     "our tree no longer has the file: litert-lm cmake/packages/litert/litert.cmake:49-63"
+    ]
+   },
+   {
+    "id": "LM-BLD-059",
+    "reasons": [
+     "our tree no longer has the file: litert-lm docs/getting-started/build-and-run.md:90-97"
+    ]
+   },
+   {
+    "id": "LM-BLD-061",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-001",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-002",
+    "reasons": [
+     "changed: litert-lm-shipped Package.swift:34-56",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-003",
+    "reasons": [
+     "changed: litert-lm-shipped version.bzl:15-22",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-004",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-005",
+    "reasons": [
+     "changed: litert-lm-shipped c/engine.h:826-828",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-006",
+    "reasons": [
+     "changed: litert-lm-shipped c/error_reporter.h:183-185",
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-007",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-008",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-009",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:148-150",
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-014",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-015",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-016",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-017",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-018",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:205-225",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-019",
+    "reasons": [
+     "changed: litert-lm-shipped schema/core/litertlm_header.h:36-38",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_core.py:25-27",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1494-1497",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-023",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-VER-026",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-027",
+    "reasons": [
+     "cites generated/version-matrix.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-028",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-VER-029",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-BLD-063",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/README.md:3-7",
+     "file gone: litert-lm-shipped tools/agello-bench/README.md:48-51",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-BLD-064",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/README.md:14-16",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "LM-OTH-002",
+    "reasons": [
+     "our tree no longer has the file: litert-lm kotlin/java/com/google/ai/edge/litertlm/Config.kt:137-161"
+    ]
+   },
+   {
+    "id": "LM-OTH-003",
+    "reasons": [
+     "our tree no longer has the file: litert-lm kotlin/java/com/google/ai/edge/litertlm/jni/BUILD:24-45",
+     "our tree no longer has the file: litert-lm kotlin/java/com/google/ai/edge/litertlm/jni/litertlm.cc:39-66"
+    ]
+   },
+   {
+    "id": "LM-OTH-005",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm/_ffi.py:155-181"
+    ]
+   },
+   {
+    "id": "LM-OTH-006",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm/BUILD:127-133",
+     "our tree no longer has the file: litert-lm python/litert_lm/BUILD:232-237",
+     "our tree no longer has the file: litert-lm python/litert_lm/BUILD:266-270",
+     "our tree no longer has the file: litert-lm python/litert_lm/BUILD:369-388",
+     "our tree no longer has the file: litert-lm python/litert_lm/BUILD:397-413",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "LM-OTH-007",
+    "reasons": [
+     "our tree no longer has the file: litert-lm js/packages/core/package.json:1-5",
+     "our tree no longer has the file: litert-lm js/packages/core/scripts/download-wasm.js:34-36"
+    ]
+   },
+   {
+    "id": "LM-OTH-008",
+    "reasons": [
+     "our tree no longer has the file: litert-lm omni/README.md:3-38",
+     "our tree no longer has the file: litert-lm omni/README.md:39-70"
+    ]
+   }
+  ],
+  "rt-runtime": [
+   {
+    "id": "RT-RUN-001",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-002",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-005",
+    "reasons": [
+     "changed: litert-lm runtime/executor/BUILD:252-260",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-006",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-RUN-008",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-010",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-011",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-013",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-RUN-015",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-016",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-019",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-RUN-020",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-022",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-RUN-023",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-RUN-026",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/buffer_handler_metal.mm:554-584",
+     "changed: litert ml_drift_delegate/delegate/buffer_handler_metal.mm:492-505"
+    ]
+   },
+   {
+    "id": "RT-RUN-028",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:134-136",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "RT-RUN-029",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-RUN-067",
+    "reasons": [
+     "our tree no longer has the file: litert docs/apis/litert_cancel_api.md:12-13"
+    ]
+   },
+   {
+    "id": "RT-RUN-068",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-CPU-001",
+    "reasons": [
+     "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+    ]
+   },
+   {
+    "id": "RT-CPU-004",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-CPU-005",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-CPU-007",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:73-79",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "RT-CPU-011",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-CPU-014",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-OTH-003",
+    "reasons": [
+     "our tree no longer has the file: litert litert/runtime/accelerators/gpu/ml_drift_gpu_accelerator.cc:170-217"
+    ]
+   },
+   {
+    "id": "RT-OTH-005",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "RT-OTH-008",
+    "reasons": [
+     "our tree no longer has the file: litert litert/runtime/accelerators/gpu/ml_drift_webgpu_accelerator.cc:47-52",
+     "our tree no longer has the file: litert litert/runtime/accelerators/gpu/ml_drift_webgpu_accelerator.cc:111-152"
+    ]
+   },
+   {
+    "id": "RT-OTH-011",
+    "reasons": [
+     "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+    ]
+   }
+  ],
+  "rt-delegate": [
+   {
+    "id": "RT-DLG-001",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-002",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-004",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-011",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-013",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-014",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-015",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-018",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-019",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-024",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697"
+    ]
+   },
+   {
+    "id": "RT-DLG-028",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-029",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-032",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:219-289",
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:44-71",
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:75-92"
+    ]
+   },
+   {
+    "id": "RT-DLG-033",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.h:43-60",
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:219-289"
+    ]
+   },
+   {
+    "id": "RT-DLG-034",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:72-108",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-035",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-037",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:75-92",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-038",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/delegate_kernel.cc:853-868"
+    ]
+   },
+   {
+    "id": "RT-DLG-039",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:309-329"
+    ]
+   },
+   {
+    "id": "RT-DLG-040",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-042",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/litert_op_selector.cc:175-190"
+    ]
+   },
+   {
+    "id": "RT-DLG-044",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-046",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/delegate_kernel.cc:853-868"
+    ]
+   },
+   {
+    "id": "RT-DLG-047",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-048",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/delegate_kernel.cc:853-868"
+    ]
+   },
+   {
+    "id": "RT-DLG-052",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-053",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-054",
+    "reasons": [
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/serialization_weight_cache/GEMINI.md:92-93",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-055",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-063",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:767-801",
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-064",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:767-801",
+     "changed: litert ml_drift_delegate/delegate/gpu_backend_metal.mm:203-245",
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-065",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/gpu_backend_metal.mm:203-245"
+    ]
+   },
+   {
+    "id": "RT-DLG-066",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/gpu_backend_metal.mm:203-245"
+    ]
+   },
+   {
+    "id": "RT-DLG-067",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "RT-DLG-068",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-069",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/gpu_backend_metal.mm:464-491",
+     "changed: litert ml_drift_delegate/delegate/delegate_metal.mm:170-201"
+    ]
+   },
+   {
+    "id": "RT-DLG-070",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/delegate_metal.mm:170-201"
+    ]
+   },
+   {
+    "id": "RT-DLG-072",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "RT-DLG-080",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "RT-DLG-081",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/delegate_metal.mm:157-225"
+    ]
+   },
+   {
+    "id": "RT-DLG-083",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "cites generated/version-matrix.md, regenerated at the new pin",
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "RT-DLG-084",
+    "reasons": [
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_opencl.cc:625-625",
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_webgpu.cc:720-720"
+    ]
+   }
+  ],
+  "md-architecture": [
+   {
+    "id": "MD-ARC-001",
+    "reasons": [
+     "changed: litert-lm WORKSPACE:517-540",
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-ARC-002",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1356-1377"
+    ]
+   },
+   {
+    "id": "MD-ARC-005",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/environment.mm:30-106"
+    ]
+   },
+   {
+    "id": "MD-ARC-007",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-ARC-008",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:889-973"
+    ]
+   },
+   {
+    "id": "MD-ARC-016",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1356-1376"
+    ]
+   },
+   {
+    "id": "MD-ARC-017",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376"
+    ]
+   },
+   {
+    "id": "MD-ARC-018",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-ARC-033",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-ARC-042",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/litert_op_selector.cc:145-252"
+    ]
+   },
+   {
+    "id": "MD-ARC-045",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1535"
+    ]
+   },
+   {
+    "id": "MD-ARC-046",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1518-1589"
+    ]
+   },
+   {
+    "id": "MD-ARC-048",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-ARC-049",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-ARC-053",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "cites generated/version-matrix.md, regenerated at the new pin",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MD-MTL-004",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:138-203"
+    ]
+   },
+   {
+    "id": "MD-MTL-005",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-MTL-013",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/memory_manager.mm:336-367"
+    ]
+   },
+   {
+    "id": "MD-MTL-019",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:735-802"
+    ]
+   },
+   {
+    "id": "MD-MTL-021",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-MTL-025",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:205-247"
+    ]
+   },
+   {
+    "id": "MD-MTL-028",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/gpu_backend_metal.mm:464-491"
+    ]
+   },
+   {
+    "id": "MD-MTL-031",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-MTL-032",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:735-802"
+    ]
+   },
+   {
+    "id": "MD-MTL-033",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:681-733",
+     "changed: ml-drift ml_drift/metal/inference_context.mm:586-606"
+    ]
+   },
+   {
+    "id": "MD-MTL-035",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:767-780"
+    ]
+   },
+   {
+    "id": "MD-MTL-041",
+    "reasons": [
+     "changed: litert-lm agello/telemetry/agello/agello_telemetry_metal.mm:21-36"
+    ]
+   },
+   {
+    "id": "MD-MTL-042",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/memory_manager.mm:138-153"
+    ]
+   },
+   {
+    "id": "MD-OTH-001",
+    "reasons": [
+     "our tree no longer has the file: ml-drift README.md:68-74",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-OTH-002",
+    "reasons": [
+     "our tree no longer has the file: ml-drift README.md:90-96",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-OTH-003",
+    "reasons": [
+     "our tree no longer has the file: ml-drift ml_drift/cl/program_cache.h:60-64",
+     "our tree no longer has the file: ml-drift ml_drift/cl/cl_program.cc:194-205"
+    ]
+   },
+   {
+    "id": "MD-OTH-004",
+    "reasons": [
+     "our tree no longer has the file: ml-drift ml_drift/cl/cl_operation.cc:182-210",
+     "our tree no longer has the file: ml-drift ml_drift/webgpu/inference_context.cc:283-286"
+    ]
+   },
+   {
+    "id": "MD-OTH-005",
+    "reasons": [
+     "our tree no longer has the file: ml-drift ml_drift/gl/gl_operation.cc:103-110"
+    ]
+   },
+   {
+    "id": "MD-OTH-006",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-OTH-010",
+    "reasons": [
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_opencl.cc:664-693",
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_vulkan.cc:356-375"
+    ]
+   }
+  ],
+  "md-kernels": [
+   {
+    "id": "MD-KRN-001",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1536",
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-002",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-003",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-004",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-005",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-006",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1536",
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-008",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-011",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1518-1532"
+    ]
+   },
+   {
+    "id": "MD-KRN-012",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-013",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1530-1536",
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-017",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-019",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_model_builder.cc:1331-1340",
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-022",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-024",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-033",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/kernels/fully_connected.cc:671-676"
+    ]
+   },
+   {
+    "id": "MD-KRN-045",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-047",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-049",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697"
+    ]
+   },
+   {
+    "id": "MD-KRN-050",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:263-276",
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-052",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention.cc:72-108"
+    ]
+   },
+   {
+    "id": "MD-KRN-054",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/task/gpu_operation.h:438-452"
+    ]
+   },
+   {
+    "id": "MD-KRN-056",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-060",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-061",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-062",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MD-KRN-067",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-069",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-072",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:86-91",
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-073",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-078",
+    "reasons": [
+     "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298",
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-080",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1366-1376",
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-081",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-082",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-083",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-084",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:44-71",
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "MD-KRN-085",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MD-KRN-086",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:44-71"
+    ]
+   },
+   {
+    "id": "MD-KRN-087",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_kernel.cc:86-91",
+     "changed: litert ml_drift_delegate/delegate/composite/litert_op_selector.cc:175-190"
+    ]
+   },
+   {
+    "id": "MD-KRN-089",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/inference_context.mm:767-802"
+    ]
+   },
+   {
+    "id": "MD-KRN-090",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   }
+  ],
+  "mod-e4b": [
+   {
+    "id": "MOD-E4B-014",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:117-145",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-035",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:117-145",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-050",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-051",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-061",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-062",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-063",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-064",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-065",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MOD-E4B-072",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-074",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-075",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-077",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:117-145",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E4B-082",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "mod-e2b": [
+   {
+    "id": "MOD-E2B-049",
+    "reasons": [
+     "changed: litert-lm schema/model_info/model_info.cc:1007-1024",
+     "changed: litert-lm schema/model_info/model_info.cc:961-993",
+     "changed: litert-lm-shipped schema/model_info/model_info.cc:1007-1024",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E2B-050",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E2B-051",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E2B-052",
+    "reasons": [
+     "changed: litert-lm schema/model_info/model_info.cc:1007-1024",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E2B-056",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MOD-E2B-057",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E2B-065",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-E2B-070",
+    "reasons": [
+     "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+    ]
+   }
+  ],
+  "mod-family": [
+   {
+    "id": "MOD-FAM-040",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MOD-FAM-059",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto_12b.pbtext:1-60",
+     "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto.pbtext:1-62",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MOD-TOK-022",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto_12b.pbtext:1-60"
+    ]
+   },
+   {
+    "id": "MOD-TOK-026",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto_12b.pbtext:1-60"
+    ]
+   },
+   {
+    "id": "MOD-TOK-030",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/chat_template_e2b_e4b.jinja:123-199"
+    ]
+   },
+   {
+    "id": "MOD-TOK-031",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/BUILD:27-60",
+     "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto.pbtext:1-62"
+    ]
+   },
+   {
+    "id": "MOD-TOK-032",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/README.md:1-36"
+    ]
+   },
+   {
+    "id": "MOD-TOK-033",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/README.md:1-36"
+    ]
+   },
+   {
+    "id": "MOD-TOK-036",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/chat_template_e2b_e4b.jinja:123-199"
+    ]
+   },
+   {
+    "id": "MOD-TOK-037",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/gemma4/chat_template_e2b_e4b.jinja:123-199"
+    ]
+   },
+   {
+    "id": "MOD-TOK-042",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MOD-TOK-045",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "MOD-TOK-053",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-TOK-054",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "mod-embedding": [
+   {
+    "id": "MOD-EMB-048",
+    "reasons": [
+     "our tree no longer has the file: litert-lm models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext:56-56"
+    ]
+   },
+   {
+    "id": "MOD-EMB-056",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "MOD-EMB-057",
+    "reasons": [
+     "changed: litert-lm swift/EmbeddingEngineConfig.swift:42-58",
+     "changed: litert-lm swift/EmbeddingEngine.swift:67-123"
+    ]
+   },
+   {
+    "id": "MOD-EMB-072",
+    "reasons": [
+     "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+    ]
+   }
+  ],
+  "apple": [
+   {
+    "id": "APL-022",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "APL-034",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-035",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "APL-037",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-043",
+    "reasons": [
+     "cites generated/kernels-by-family.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-046",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-047",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-048",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:189-203"
+    ]
+   },
+   {
+    "id": "APL-053",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-057",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-058",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376"
+    ]
+   },
+   {
+    "id": "APL-060",
+    "reasons": [
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-061",
+    "reasons": [
+     "changed: litert-lm-shipped Package.swift:35-55",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "APL-064",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "APL-066",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "APL-068",
+    "reasons": [
+     "changed: ml-drift ml_drift/metal/environment.mm:28-32",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "APL-071",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "APL-072",
+    "reasons": [
+     "cites generated/engine-run.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "APL-073",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "ours": [
+   {
+    "id": "OUR-001",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "OUR-002",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Conversation.swift:15-20",
+     "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+     "changed: litert-lm-shipped Package.swift:36-50",
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-003",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Conversation.swift:15-20",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-004",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:386-409",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-005",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:781-784",
+     "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+     "changed: litert-lm swift/Conversation.swift:835-837",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-007",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "OUR-008",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:781-784"
+    ]
+   },
+   {
+    "id": "OUR-009",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-010",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "OUR-011",
+    "reasons": [
+     "unreadable: litert ml_drift_delegate/delegate/buffer_handler_metal.mm:320-326"
+    ]
+   },
+   {
+    "id": "OUR-012",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "OUR-013",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "OUR-014",
+    "reasons": [
+     "unreadable: litert ml_drift_delegate/delegate/gpu_backend_metal_litert.mm:15-15"
+    ]
+   },
+   {
+    "id": "OUR-015",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "OUR-017",
+    "reasons": [
+     "cites generated/patch-log.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "OUR-024",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "OUR-025",
+    "reasons": [
+     "file gone: litert-lm-shipped .github/README.md:7-13",
+     "file gone: litert-lm-shipped .github/README.md:15-21",
+     "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-026",
+    "reasons": [
+     "file gone: litert-lm-shipped .github/README.md:23-28",
+     "changed: litert-lm WORKSPACE:517-527",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-031",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "OUR-033",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_test.cc:130-234",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "PRC-004",
+    "reasons": [
+     "our tree no longer has the file: litert CONTRIBUTING.md:5-25",
+     "our tree no longer has the file: litert CONTRIBUTING.md:27-40"
+    ]
+   },
+   {
+    "id": "PRC-005",
+    "reasons": [
+     "our tree no longer has the file: litert GOVERNANCE.md:3-17",
+     "our tree no longer has the file: litert GOVERNANCE.md:19-36",
+     "our tree no longer has the file: litert GOVERNANCE.md:38-57"
+    ]
+   },
+   {
+    "id": "PRC-006",
+    "reasons": [
+     "our tree no longer has the file: ml-drift CONTRIBUTING.md:1-32"
+    ]
+   },
+   {
+    "id": "PRC-009",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "PRC-015",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:15-20",
+     "cites generated/patch-log.md, regenerated at the new pin"
+    ]
+   },
+   {
+    "id": "PRC-016",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "PRC-017",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "PRC-018",
+    "reasons": [
+     "our tree no longer has the file: litert-lm .github/CODEOWNERS:1-9",
+     "our tree no longer has the file: ml-drift CONTRIBUTING.md:1-32"
+    ]
+   },
+   {
+    "id": "PRC-019",
+    "reasons": [
+     "our tree no longer has the file: litert-lm .github/CODEOWNERS:1-9"
+    ]
+   },
+   {
+    "id": "PRC-021",
+    "reasons": [
+     "our tree no longer has the file: litert CONTRIBUTING.md:42-46",
+     "our tree no longer has the file: litert CONTRIBUTING.md:84-86"
+    ]
+   },
+   {
+    "id": "PRC-022",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "PRC-025",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "PRC-026",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "x-stack": [
+   {
+    "id": "X-STK-003",
+    "reasons": [
+     "changed: litert-lm c/conversation.cc:640-672",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-004",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-005",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-006",
+    "reasons": [
+     "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:963-1001",
+     "changed: litert-lm runtime/core/tasks.cc:560-593",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-007",
+    "reasons": [
+     "changed: litert ml_drift_delegate/delegate/delegate_metal.mm:157-168",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-008",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-009",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:906-922",
+     "changed: litert-lm-shipped swift/Conversation.swift:850-866",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-STK-010",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-STK-011",
+    "reasons": [
+     "cites generated/binaries.md, regenerated at the new pin",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TLS-001",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TLS-002",
+    "reasons": [
+     "changed: litert-lm agello/telemetry/agello/agello_telemetry.h:102-145",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TLS-003",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TLS-004",
+    "reasons": [
+     "our tree no longer has the file: litert-lm runtime/engine/litert_lm_main.cc:92-151",
+     "our tree no longer has the file: litert-lm runtime/engine/litert_lm_advanced_main.cc:55-56",
+     "our tree no longer has the file: litert-lm runtime/engine/litert_lm_advanced_main.cc:257-286",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TLS-006",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/Package.swift:6-9",
+     "changed: litert-lm-shipped Package.swift:35-55",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-007",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/Sources/agello-bench/main.swift:5-28",
+     "file gone: litert-lm-shipped tools/agello-bench/Sources/agello-bench/main.swift:134-135",
+     "file gone: litert-lm-shipped tools/agello-bench/README.md:31-34",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-008",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TLS-010",
+    "reasons": [
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_peek_main.py:37-51",
+     "our tree no longer has the file: litert-lm python/litert_lm_builder/BUILD:285-290"
+    ]
+   },
+   {
+    "id": "X-TLS-011",
+    "reasons": [
+     "our tree no longer has the file: litert-lm schema/model_info/model_info_cli.cc:24-48"
+    ]
+   },
+   {
+    "id": "X-TLS-012",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:1-11",
+     "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:151-157",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-013",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/Sources/BenchKit/Bench.swift:55-58",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-014",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/Sources/BenchKit/EngineTelemetry.swift:4-18",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-015",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/Sources/agello-bench/main.swift:164-166",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-016",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/compare.py:1-13",
+     "file gone: litert-lm-shipped tools/agello-bench/compare.py:52-54",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TLS-017",
+    "reasons": [
+     "file gone: litert-lm-shipped tools/agello-bench/telemetry.py:1-9",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "x-memory": [
+   {
+    "id": "X-MEM-005",
+    "reasons": [
+     "changed: litert-lm agello/telemetry/agello/agello_telemetry.cc:676-690"
+    ]
+   },
+   {
+    "id": "X-MEM-006",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-MEM-013",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert/state.cc:305-320",
+     "changed: litert-lm runtime/util/metal_raw_buffer.mm:37-52"
+    ]
+   },
+   {
+    "id": "X-TRB-001",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-TRB-003",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TRB-004",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-TRB-005",
+    "reasons": [
+     "changed: litert-lm c/conversation.cc:44-71",
+     "text names an old pin or branch"
+    ]
+   }
+  ],
+  "x-config": [
+   {
+    "id": "X-CFG-001",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:88-130",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-CFG-002",
+    "reasons": [
+     "changed: litert-lm-shipped swift/Engine.swift:208-265",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-CFG-003",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:478-487",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-CFG-004",
+    "reasons": [
+     "changed: litert-lm swift/ExperimentalFlags.swift:21-48",
+     "changed: litert-lm swift/ExperimentalFlags.swift:78-127",
+     "changed: litert-lm swift/ExperimentalFlags.swift:147-147",
+     "changed: litert-lm swift/ExperimentalFlags.swift:175-189",
+     "changed: litert-lm swift/ExperimentalFlags.swift:205-238",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-CFG-005",
+    "reasons": [
+     "changed: litert-lm swift/EmbeddingEngineConfig.swift:42-58",
+     "changed: litert-lm swift/EmbeddingEngineConfig.swift:83-95",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-CFG-006",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-CFG-009",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-CFG-010",
+    "reasons": [
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_opencl.cc:465-470",
+     "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_webgpu.cc:569-574",
+     "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-CFG-011",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-CFG-015",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   }
+  ],
+  "x-facts": [
+   {
+    "id": "X-FCT-001",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-CON-001",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   }
+  ],
+  "x-gaps": [
+   {
+    "id": "X-GAP-001",
+    "reasons": [
+     "changed: litert-lm runtime/core/tasks.cc:352-362",
+     "our tree no longer has the file: litert-lm js/packages/core/src/session_config.ts:104-105",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-002",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:637-689",
+     "changed: litert-lm runtime/core/tasks.cc:352-362",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-003",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:637-689",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-004",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-GAP-005",
+    "reasons": [
+     "changed: litert-lm runtime/core/tasks.cc:352-362",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-006",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:637-689",
+     "changed: litert-lm runtime/core/tasks.cc:352-362"
+    ]
+   },
+   {
+    "id": "X-GAP-007",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-GAP-008",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-009",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1053-1056"
+    ]
+   },
+   {
+    "id": "X-GAP-010",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1377-1432",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:711-760",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-607",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:778-850",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-011",
+    "reasons": [
+     "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-GAP-012",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-607",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-013",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-GAP-014",
+    "reasons": [
+     "changed: litert-lm c/conversation.cc:44-71",
+     "changed: litert-lm-shipped c/conversation.cc:43-70",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-015",
+    "reasons": [
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-016",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:867-903",
+     "changed: litert-lm swift/Conversation.swift:574-590",
+     "changed: litert-lm swift/Conversation.swift:478-521",
+     "changed: litert-lm-shipped swift/Conversation.swift:830-848",
+     "changed: litert-lm-shipped swift/Conversation.swift:579-592",
+     "changed: litert-lm-shipped swift/Conversation.swift:400-443",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-017",
+    "reasons": [
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-GAP-018",
+    "reasons": [
+     "changed: litert-lm swift/Conversation.swift:905-928",
+     "changed: litert-lm-shipped swift/Conversation.swift:850-872",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-019",
+    "reasons": [
+     "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.cc:66-91",
+     "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.h:41-72",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-020",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:501-572",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:663-709",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:578-645",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:735-776",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-021",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:761-783",
+     "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.cc:79-91",
+     "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:826-849",
+     "text names an old pin or branch",
+     "describes the shipped build, now our release"
+    ]
+   },
+   {
+    "id": "X-GAP-022",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1526-1559",
+     "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1391-1432",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:711-760",
+     "text names an old pin or branch"
+    ]
+   },
+   {
+    "id": "X-GAP-023",
+    "reasons": [
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:663-709",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:761-783",
+     "changed: litert-lm runtime/components/constrained_decoding/llg_constraint.cc:79-91",
+     "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:501-572"
+    ]
+   },
+   {
+    "id": "X-GAP-025",
+    "reasons": [
+     "describes the shipped build, now our release"
+    ]
+   }
+  ]
+ }
+}

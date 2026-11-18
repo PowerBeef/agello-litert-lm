@@ -8,9 +8,10 @@
 > **Out of scope:** the mechanisms in depth (each entry links the page that owns it); iOS memory
 > accounting ([apple-platform.md](apple-platform.md), [memory.md](memory.md)); building the runtime
 > ([litert-lm/build-and-release.md](litert-lm/build-and-release.md)).
-> **Pinned to:** LiteRT-LM `7b872544`, LiteRT `362759838`, ML Drift `15fa9e2`; what Agello ships:
-> LiteRT-LM `85b1a776` with Google's prebuilt v0.18.0 `CLiteRTLM.xcframework`; Agello `93122b647a`.
-> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift`; Agello ships release `agello-one-20261115` (`6da75396`); Agello `93122b647a`
+> and `a691212`.
+> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -36,8 +37,8 @@
 | Last error | The calling thread's message for its most recent failed C call; never cleared by a success. |
 | Task state | Where a queued prefill or decode stands: `kDone`, `kMaxNumTokensReached`, `kCancelled`, `kDependentTaskCancelled`, `kFailed`, ... ([litert-lm/engine-and-sessions.md](litert-lm/engine-and-sessions.md#task-lifecycle)). |
 | Chained task | A session's next task waits for its previous one; it inherits a cancelled or full end state instead of running. |
-| Documented build | agello-next (`7b872544` and the LiteRT and ML Drift pins). |
-| Shipped | What Agello runs: the Swift wrapper at `85b1a776` over Google's prebuilt v0.18.0 binary. |
+| Documented build | Our build: `main` at the pin above, LiteRT and ML Drift in its `agello/` folders. |
+| Shipped | What Agello runs since 2026-11-15: our release `agello-one-20261115`, its `CLiteRTLM.xcframework` built from `6da75396`, with the Swift wrapper from `main`'s `swift/` at `82b05ea1` (the same files as at the pin). Until 2026-10-28 Agello shipped Google's prebuilt v0.18.0 binary; an entry that names v0.18.0 describes that binary, as history. "Both" means our build and the release. |
 
 ## How it works
 
@@ -50,13 +51,10 @@
    the same thread. <!-- c:LM-CAPI-007 --> A failure that comes from C++ is recorded as
    `absl::Status::ToString()` (`"NOT_FOUND: ..."`); one the C layer detects itself records only its
    text. <!-- c:LM-CAPI-008 -->
-2. **Swift (documented build).** `LiteRTLMError.check` turns a non-OK status into the caller's error
+2. **Swift.** `LiteRTLMError.check` turns a non-OK status into the caller's error
    with the text `"<function> failed with status <code>: <message>"`, reading and clearing the
    thread's last error. <!-- c:LM-SWIFT-037 -->
-3. **Shipped wrapper.** C API 0.2: `litert_lm_engine_create` returns NULL on failure, the stream call
-   returns an `int`, and the code is read with `litert_lm_get_last_error_code()`, which the wrapper
-   exposes as `LiteRTLMError.getLastErrorCode()`. <!-- c:LM-CAPI-037 --> <!-- c:LM-SWIFT-039 -->
-4. **Streams.** The conversation stream turns a failed status into a last chunk whose error is
+3. **Streams.** The conversation stream turns a failed status into a last chunk whose error is
    `status.ToString()`, and a cancelled task into `"CANCELLED: Task cancelled"`.
    <!-- c:LM-CAPI-025 --> <!-- c:LM-CAPI-049 --> The session stream says `"Max number of tokens
    reached."` for a full KV cache and `"CANCELLED."` for a cancel ([`c/engine.cc:70-92`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.cc#L70-L92)).
@@ -68,8 +66,7 @@
 The enum has 17 values, 0 to 16, numerically identical to `absl::StatusCode`, frozen; treat unknown
 values as `kLiteRtLmStatusUnknown` ([`c/error_reporter.h:140-158`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/error_reporter.h#L140-L158)).
 <!-- c:LM-CAPI-005 --> Any C++ status outside 0–16 becomes `kLiteRtLmStatusUnknown`.
-<!-- c:LM-CAPI-006 --> The same enum exists in the shipped v0.18.0 header, but its functions mostly
-return pointers and `int`s instead.
+<!-- c:LM-CAPI-006 -->
 
 | Code | Name | Seen in this stack when | What to do |
 | --- | --- | --- | --- |
@@ -82,7 +79,7 @@ return pointers and `int`s instead.
 | 6 | `kLiteRtLmStatusAlreadyExists` | not raised by LiteRT-LM's own code paths described here | read the message |
 | 7 | `kLiteRtLmStatusPermissionDenied` | not raised by LiteRT-LM's own code paths described here | |
 | 8 | `kLiteRtLmStatusResourceExhausted` | a full KV cache, only with the conversation option `return_error_on_max_tokens_reached` (not settable from C or Swift) | |
-| 9 | `kLiteRtLmStatusFailedPrecondition` | a prompt that doesn't fit the remaining KV cache (executor check); in v0.18.0, constrained decoding in a build without the FST provider | see [KV full](#the-reply-stops-or-the-next-message-answers-nothing) |
+| 9 | `kLiteRtLmStatusFailedPrecondition` | a prompt that doesn't fit the remaining KV cache (executor check) | see [KV full](#the-reply-stops-or-the-next-message-answers-nothing) |
 | 10 | `kLiteRtLmStatusAborted` | not raised by LiteRT-LM's own code paths described here | |
 | 11 | `kLiteRtLmStatusOutOfRange` | a response or batch index past the end ([litert-lm/c-api.md](litert-lm/c-api.md#status-codes-out-parameters-and-the-last-error)) | |
 | 12 | `kLiteRtLmStatusUnimplemented` | a container of another major version; `TOP_K` or `GREEDY` on the CPU sampler; an unregistered data processor | use `TOP_P` with k 1 for greedy |
@@ -97,7 +94,7 @@ component's status passes through unchanged. Sources for the rows: the entries b
 
 ### `LiteRTLMError` (Swift)
 
-Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:19-27`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/LiteRTLMError.swift#L19-L27)).
+Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:19-27`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/LiteRTLMError.swift#L19-L27)).
 <!-- c:LM-SWIFT-036 --> The full list is in
 [generated/swift-api-inventory.md](generated/swift-api-inventory.md); the cases you meet:
 
@@ -112,14 +109,14 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 | `config(.multipleSystemMessages)` | both `systemMessage` and an initial system message, or two initial ones <!-- c:LM-SWIFT-006 --> | keep one |
 | `conversation(.invalidResponse(_))` | a failed native send, an error chunk (including `CANCELLED: Task cancelled`), or a reply without content or channels | see [cancel](#the-next-message-fails-with-cancelled-after-a-cancel) and [KV full](#the-reply-stops-or-the-next-message-answers-nothing) |
 | `conversation(.failedToStartStream(status:message:))` | `litert_lm_conversation_send_message_stream` refused to start; the only case that keeps the numeric status <!-- c:LM-SWIFT-014 --> | read the message |
-| `conversation(.recurringToolCallLimitExceeded(limit: 25))` | the 25th reply of a `sendMessage` tool loop still calls tools <!-- c:LM-SWIFT-012 --> | answer without tools, or use the stream path |
+| `conversation(.recurringToolCallLimitExceeded(limit:))` | the 25th reply of a `sendMessage` tool loop still calls tools <!-- c:LM-SWIFT-012 -->, or a stream's tool rounds reach `maxToolRounds` (25 unless the caller passes another) <!-- c:LM-SWIFT-017 --> | answer without tools, or pass a larger `maxToolRounds` to the stream |
 | `conversation(.responseFormatNotEnabled)` | a `ResponseFormat` on a conversation created without `enableResponseFormat` <!-- c:LM-SWIFT-030 --> | create it with `enableResponseFormat: true` |
 | `conversation(.notAlive)` | a stream's tool round ran after its conversation was released (our weak-reference patch) <!-- c:LM-SWIFT-021 --> | keep the conversation while it streams |
 | `conversation(.benchmarkNotEnabled / .benchmarkInfoUnavailable)` | benchmark data asked for without `ExperimentalFlags.enableBenchmark` at call time, or at engine creation | set the flag before `initialize()` |
 | `conversation(.toolExecutionError(name:error:))` | upstream's wrapper rethrew tool errors; with our patch nothing throws it <!-- c:LM-SWIFT-024 --> | |
 | `tool(.notFound(name:))` | the model called an unregistered tool; our patch answers it to the model instead <!-- c:LM-SWIFT-023 --> | |
 | `message(.invalidContent / .failedToConvertToJson)` | a JSON reply with no content, channels or tool calls | |
-| `modelInfo(.failedToLoadModel(_))` | `ModelInfo(throwingModelPath:)` couldn't read the file | check the path; in the documented build the non-throwing accessors return fallbacks instead <!-- c:LM-SWIFT-040 --> |
+| `modelInfo(.failedToLoadModel(_))` | `ModelInfo(throwingModelPath:)` couldn't read the file | check the path; in our wrapper the non-throwing accessors return fallbacks instead <!-- c:LM-SWIFT-040 --> |
 
 ### Loading an engine
 
@@ -135,8 +132,7 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Where.** [`runtime/engine/engine_factory.h:88-110`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_factory.h#L88-L110).
 - **Do.** Use the regular `gemma-4-E*-it.litertlm` files; the `-gpu` files also lack vision, audio
   and the MTP drafter. <!-- c:MOD-E2B-058 -->
-- **Applies to.** The documented build. Google's v0.18.0 binary contains the artisan executor's
-  symbols; whether it runs a `-gpu` file on iOS hasn't been tried.
+- **Applies to.** Both: the release's engine settings and engine factory are the pin's.
 
 #### "Audio backend constraint mismatch"
 
@@ -175,10 +171,10 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Cause.** LiteRT-LM compiles the LLM GPU-only; a node the ML Drift delegate doesn't take has no
   CPU fallback. <!-- c:RT-RUN-015 --> <!-- c:RT-DLG-011 --> The delegate's log line "Following
   operations are not supported by GPU delegate" names them.
-- **Where.** [`litert/runtime/compiled_model.cc:1185-1198`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/litert/runtime/compiled_model.cc#L1185-L1198).
+- **Where.** [`litert/runtime/compiled_model.cc:1185-1198`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/litert/runtime/compiled_model.cc#L1185-L1198).
 - **Do.** A model exported with an op or composite ML Drift doesn't know needs a re-export or a
   delegate change ([litert/ml-drift-delegate.md](litert/ml-drift-delegate.md#partitioning-which-nodes-run-on-the-gpu)).
-- **Applies to.** The documented build; the same check exists upstream.
+- **Applies to.** Both; the same check exists upstream.
 
 #### "Failed to create OpenCL context." in the log
 
@@ -213,11 +209,11 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   <!-- c:X-TRB-001 -->
 - **Where.** [`runtime/util/litert_lm_loader.cc:404-410`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_loader.cc#L404-L410),
   [`runtime/components/model_resources_litert_lm.cc:128-136`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/model_resources_litert_lm.cc#L128-L136),
-  [`runtime/executor/litert_compiled_model_executor_utils.cc:1294-1322`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1294-L1322),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:739-764`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L739-L764),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:292-302`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L292-L302);
-  v0.18.0: [`runtime/executor/litert_compiled_model_executor_utils.cc:1193-1220`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/litert_compiled_model_executor_utils.cc#L1193-L1220),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:285-297`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L285-L297).
+  [`runtime/executor/litert_compiled_model_executor_utils.cc:1298-1326`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1298-L1326),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:811-836`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L811-L836),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:295-305`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L295-L305);
+  the release: [`runtime/executor/litert_compiled_model_executor_utils.cc:1299-1326`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/litert_compiled_model_executor_utils.cc#L1299-L1326),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:293-305`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/llm_litert_compiled_model_executor.cc#L293-L305).
 - **Do.** Validate every new engine with a generation before using it. Agello sends "Hi" with
   `maxOutputTokens` 1 on a throwaway conversation <!-- c:LM-SWIFT-058 -->, and retries the same
   configuration once after 750 ms when that validation fails, to let the previous engine's mappings
@@ -229,12 +225,11 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Symptom.** A warning at the first decode; telemetry records `sampler = cpu (GPU sampler
   unavailable)`.
 - **Cause.** Our build doesn't link Google's closed Metal TopK sampler, so the sampler factory falls
-  back to the CPU `TopPSampler`; the shipped binary contains the sampler's symbols.
-  <!-- c:LM-CMP-018 --> <!-- c:LM-EXE-019 -->
-- **Where.** [`runtime/components/sampler_factory.cc:764-790`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/components/sampler_factory.cc#L764-L790).
+  back to the CPU `TopPSampler`. <!-- c:LM-CMP-018 --> <!-- c:LM-EXE-019 -->
+- **Where.** [`runtime/components/sampler_factory.cc:764-790`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/sampler_factory.cc#L764-L790).
 - **Do.** Nothing; each step reads the 524,288 bytes of FP16 logits back to the CPU
   ([litert-lm/components.md](litert-lm/components.md#sampling-cost-on-the-cpu)).
-- **Applies to.** The documented build.
+- **Applies to.** Both: the release's sampler factory is the pin's.
 
 #### A file without `LlmMetadataProto` crashes the load
 
@@ -245,14 +240,18 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Do.** Check files with `litertlm_peek` before shipping them.
 - **Applies to.** Both.
 
-#### The model reports no thinking, no tools and no context
+#### The model reports no thinking and no tools
 
-- **Symptom.** `ModelInfo` says `thinking=false tools=false maxContext=0` for E4B.
+- **Symptom.** `ModelInfo` says `thinking=false tools=false` for E4B; runtimes before our
+  `cc97925b` (2026-11-14) also said `maxContext=0`.
 - **Cause.** The E files don't set `supports_thinking` or `supports_function_calling`, so both read
   false; both work. <!-- c:MOD-E2B-048 --> <!-- c:MOD-E4B-052 --> Without `max_num_tokens` in the
-  metadata, `GetModelInfo` reads the whole main section to find the context, but refuses sections
-  over 2 GiB: E4B's (2,260,043,376 bytes) reads 0, E2B's (818 MB, read into memory) reads 32,003.
-  <!-- c:MOD-E2B-049 -->
+  metadata, `GetModelInfo` infers the context from the prefill masks of the main section. Our build
+  and the release first read growing prefixes of the section until one holds the whole graph (ours:
+  `cc97925b`), so E4B's files, whose 62-63 MB graph comes before the weights, report 32,003; E2B's
+  section (818 MB) keeps its weights inline, so the whole of it is read into memory, and it reports
+  32,003 too. Before that commit the whole-section read of Google's E4B file (2,260,043,376 bytes)
+  was refused as over 2 GiB and reported 0. <!-- c:MOD-E2B-049 -->
 - **Do.** Don't gate features on these flags; with E2B, call `ModelInfo` before loading the engine
   or cache its result.
 - **Applies to.** Both.
@@ -290,9 +289,10 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   <!-- c:RT-DLG-052 --> <!-- c:RT-DLG-053 -->. A weight cache loaded from disk that lacks some
   tensors leaves them uncached and prepares them on every load (ours reports
   `weight_cache_rebuild`). <!-- c:RT-DLG-060 -->
-- **Do.** Give each engine configuration a cache folder of its own and each runtime build its own
-  set, as Agello's `EngineCache` does: `kv-all-<build>` for ours, `kv-<n>` with two sizes kept for
-  Google's, `:nocache` for one-off engines. <!-- c:X-MEM-014 --> Never hand an engine the cache root.
+- **Do.** Give each runtime build a cache folder of its own (with our content key one folder serves
+  every context size) and delete the others, as Agello's `EngineCache` does: one `kv-all-<build>`
+  folder plus `embedding-<build>`, everything else removed at the next load, and `:nocache` for
+  one-off engines. <!-- c:X-MEM-014 --> Never hand an engine the cache root.
   Sizes and keys: [memory.md](memory.md#engine-caches-on-disk).
 - **Applies to.** Both; the content key and the anomaly are ours.
 
@@ -310,26 +310,29 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   callback treats it like `kDone`, and the send completes with an empty reply and no error; nothing
   is evicted from the cache, which never drops tokens by itself. <!-- c:X-TRB-003 -->
   <!-- c:LM-EXE-066 -->
-- **Where.** [`runtime/core/tasks.cc:96-110`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L96-L110),
-  [`runtime/framework/resource_management/threaded_execution_manager.cc:304-324`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L304-L324),
-  [`runtime/conversation/conversation.cc:800-822`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L800-L822),
+- **Where.** [`runtime/core/tasks.cc:96-110`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L96-L110),
+  [`runtime/framework/resource_management/threaded_execution_manager.cc:307-327`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L307-L327),
+  [`runtime/conversation/conversation.cc:847-869`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L847-L869),
   [`runtime/conversation/internal_callback_util.cc:318-343`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/internal_callback_util.cc#L318-L343).
 - **Do.** Keep every send inside the room left in the cache, and after a full cache start a new
-  conversation from saved history. Agello checks on each chat send: `fitContext` throws
-  `messageTooLong` when the system preamble, the message's estimate, a reply reserve
-  (min(`maxNumTokens` / 3, 512 + the thinking budget)) and a 64-token margin exceed the window
-  (otherwise it trims and reseeds the history when the conversation is too full); `runSend` caps the
-  reply at the room left minus a 64-token margin and throws `contextFull` below 96 tokens; when any
-  tool is offered (on-device tools or `web_search`), `ToolBudget.plan` splits the room (a quarter per
-  generation, an eighth per tool result counted as 3 bytes per token, at most two calls); and a
-  streaming guard cancels the reply (`replyTruncated`) when emitted bytes plus tool result bytes
-  exceed the room (3 bytes per token). <!-- c:X-TRB-002 --> Agello's
-  skill records that overflowing the cache corrupted the native heap with the shipped binary; in the
-  documented build's code decode stops at the limit and an oversized prefill is refused (next
-  entry); the one path that addresses positions past the end is an MTP round
-  ([MTP near the end of the cache](#mtp-near-the-end-of-the-cache)), and whether it explains that
-  corruption is an open question.
-- **Applies to.** The traced chain: the documented build. Agello's guards: both.
+  conversation from saved history. Agello (`a691212`) checks on each chat send, with the window
+  set to the positions the runtime allocates. `fitContext` counts what the cache will hold once the
+  message is prefilled (the conversation's tokens plus the rendered message counted by the model's
+  tokenizer; images and audio estimated); when that, a reply reserve (min(`maxNumTokens` / 3,
+  `maxNumTokens` / 4 + the thinking budget)) and a 64-token margin exceed the window, it rebuilds the
+  conversation with the newest history that fits, and throws `messageTooLong` when the message
+  doesn't fit even alone. `runSend` caps the reply at the window minus that count and a 64-token
+  margin, and throws `contextFull` below 96 tokens. When any tool is offered (on-device tools or
+  `web_search`), `ToolBudget.plan` splits the room: an eighth per tool result (in estimated tokens),
+  at most two calls, the first round at most half the room plus the thinking budget, and the later
+  rounds what is left; a streaming guard then cancels the reply (`replyTruncated`) when the estimated
+  tokens emitted plus those of the tool results exceed the room. <!-- c:X-TRB-002 --> Agello's
+  skill records that overflowing the cache corrupted the native heap with Google's v0.18.0 binary,
+  which Agello shipped until 2026-10-28; in our build and the release decode stops at the limit, an
+  oversized prefill is refused (next entry), and since 2026-10-24 no MTP round runs past the end
+  ([MTP near the end of the cache](#mtp-near-the-end-of-the-cache)), the one path that did.
+- **Applies to.** Both: the release's stop check, task chaining and conversation callbacks are the
+  pin's. Agello's guards: both.
 
 #### "Input token ids are too long" or "Prefill input length exceeds available state entries"
 
@@ -338,8 +341,8 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Cause.** `Tasks::Prefill` rejects an input whose own length is at least `max_num_tokens`; it
   doesn't add the tokens already in the cache. <!-- c:LM-ENG-075 --> The executor then refuses a
   prefill that doesn't fit the remaining positions. <!-- c:LM-EXE-060 -->
-- **Where.** [`runtime/core/tasks.cc:560-576`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L560-L576),
-  [`runtime/executor/litert_compiled_model_executor_utils.cc:511-521`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L511-L521).
+- **Where.** [`runtime/core/tasks.cc:575-591`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L575-L591),
+  [`runtime/executor/litert_compiled_model_executor_utils.cc:511-521`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L511-L521).
 - **Do.** Count the conversation's tokens plus the new input against the allocated context; load a
   larger context for long inputs. A Gemma 4 conversation prefills its whole history with the first
   message when it was created with prior messages. <!-- c:LM-CNV-022 -->
@@ -355,10 +358,10 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 
 #### MTP near the end of the cache
 
-- **Symptom.** None observed with the documented build. Agello's skill records native heap corruption
-  after a KV overflow with the shipped binary; this entry lists what in the code can address positions
-  past the allocated context N (positions 0 to N - 1).
-- **Cause.** Traced in the agello-next and v0.18.0 sources:
+- **Symptom.** None observed with our builds. Agello's skill records native heap corruption after a
+  KV overflow with Google's v0.18.0 binary, which Agello shipped until 2026-10-28; this entry lists
+  what in the code can address positions past the allocated context N (positions 0 to N - 1).
+- **Cause.** Traced in our build and the release Agello ships:
   - *Prefill can't.* The executor charges each work group its whole signature length against the
     positions left and refuses what doesn't fit, so no prefill, the channel filter's refill included,
     writes past N; with E4B's `prefill_128` and `prefill_1024`, every prefill fails when fewer than 128
@@ -366,47 +369,52 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   - *Plain decode can't.* For the E files `max_num_tokens` equals N <!-- c:LM-EXE-003 -->, a plain step
     writes only position `current_step - 1`, and decode stops once `current_step` reaches
     `max_num_tokens`. <!-- c:X-GAP-009 -->
-  - *An MTP round can.* Nothing on the MTP path compares the verify positions p..p+3 with N. A primed
-    round can reach position N + 1, and a priming round right after a prefill that filled the cache can
-    reach N + 3. <!-- c:X-GAP-010 --> On the GPU in our build the key and value writes there are
-    dropped: `add_values_to_cache` skips positions at or beyond `cache_size`, which LiteRT rewrites to
+  - *An MTP round doesn't, since 2026-10-24.* Decode runs a round only when its verify positions
+    p..p+3 end below N (`MtpRoundFitsCache`, ours: `3fa97211`); near the end it decodes a plain step
+    instead and counts `mtp_skipped_cache_end`. Before that commit a primed round could reach position
+    N + 1, and a priming round right after a prefill that filled the cache N + 3. <!-- c:X-GAP-010 -->
+    B5's long rounds on `verify_8` check their own 8 positions against N
+    ([`runtime/executor/llm_litert_mtp_drafter.cc:1351-1360`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.cc#L1351-L1360)).
+    On the GPU in our build key and value writes past the cache are also dropped: `add_values_to_cache` skips positions at or beyond `cache_size`, which LiteRT rewrites to
     N. <!-- c:RT-DLG-024 --> <!-- c:RT-RUN-012 --> <!-- c:X-GAP-011 --> The verify run's attention mask
-    is filled on the CPU without that bound: for a causal mask, row k is filled up to column p + k + 1,
-    so the last row ends p + 4 - N bytes past the 4N-byte `BOOL[1, 1, 4, N]` tensor, at most 2 bytes in
-    a primed round and 4 in a priming round. <!-- c:X-GAP-012 --> Where those bytes land depends on the
-    buffer: when no GPU consumer registers requirements for a BOOL mask, LiteRT's compiled model falls
+    is filled on the CPU without that bound (for a causal mask, row k up to column p + k + 1), so the
+    guard is what keeps it inside the 4N-byte `BOOL[1, 1, 4, N]` tensor; before it the last row ended
+    p + 4 - N bytes past it, at most 2 bytes in a primed round and 4 in a priming round.
+    <!-- c:X-GAP-012 --> Where those bytes landed depended on the buffer: when no GPU consumer registers requirements for a BOOL mask, LiteRT's compiled model falls
     back to host memory, which LiteRT allocates with the buffer size plus `XNN_EXTRA_BYTES` and a zeroed
     tail (16 bytes when LiteRT is built without its CPU path, XNNPACK's own value otherwise). Which
     buffer type the verify mask gets on Metal, and what a write past a Metal buffer's tensor size hits,
     were not traced. <!-- c:X-GAP-013 -->
-- **Where.** [`runtime/executor/litert_compiled_model_executor_utils.cc:508-637`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L508-L637),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:2015-2028`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L2015-L2028),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:99-114`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L99-L114),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:1053-1056`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1053-L1056),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:1281-1306`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1281-L1306),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:1377-1432`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1377-L1432),
-  [`runtime/executor/llm_litert_mtp_drafter.cc:576-607`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L576-L607),
-  [`runtime/executor/llm_litert_mtp_drafter.cc:711-760`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L711-L760),
-  [`runtime/executor/litert_compiled_model_executor_utils.cc:792-916`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L792-L916),
-  [`runtime/executor/litert_compiled_model_executor_utils.cc:169-180`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L169-L180),
+- **Where.** [`runtime/executor/litert_compiled_model_executor_utils.cc:508-637`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L508-L637),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:2336-2349`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L2336-L2349),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:102-117`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L102-L117),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:1125-1130`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1125-L1130),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:1355-1380`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1355-L1380),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:1417-1432`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1417-L1432),
+  [`runtime/executor/llm_litert_mtp_drafter.h:66-77`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.h#L66-L77),
+  [`runtime/executor/llm_litert_mtp_drafter.cc:1167-1215`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.cc#L1167-L1215),
+  [`runtime/executor/llm_litert_mtp_drafter.cc:1303-1340`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.cc#L1303-L1340),
+  [`runtime/executor/litert_compiled_model_executor_utils.cc:796-920`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L796-L920),
+  [`runtime/executor/litert_compiled_model_executor_utils.cc:169-180`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L169-L180),
   [`ml_drift_delegate/delegate/composite/add_values_to_cache_kernel.cc:119-142`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/composite/add_values_to_cache_kernel.cc#L119-L142),
   [`litert/runtime/tensor_buffer.cc:276-290`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/litert/runtime/tensor_buffer.cc#L276-L290);
-  v0.18.0: [`runtime/executor/llm_litert_mtp_drafter.cc:648-680`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_mtp_drafter.cc#L648-L680),
-  [`runtime/executor/litert_compiled_model_executor_utils.cc:794-811`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/litert_compiled_model_executor_utils.cc#L794-L811),
-  [`runtime/executor/litert_compiled_model_executor_utils.cc:471-600`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/litert_compiled_model_executor_utils.cc#L471-L600).
+  the release: [`runtime/executor/llm_litert_mtp_drafter.cc:616-648`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/llm_litert_mtp_drafter.cc#L616-L648),
+  [`runtime/executor/litert_compiled_model_executor_utils.cc:900-917`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/litert_compiled_model_executor_utils.cc#L900-L917),
+  [`runtime/executor/litert_compiled_model_executor_utils.cc:508-637`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/litert_compiled_model_executor_utils.cc#L508-L637).
 - **Do.** Stop each reply a few positions before N and leave at least 128 positions for any prefill.
-  Agello (93122b6) starts a chat reply only when `maxNumTokens` minus the tokens in use, the input
-  estimate and a 64-token margin leaves at least 96 tokens, and caps the reply at that room (at a
-  quarter of it when tools are offered). <!-- c:X-TRB-002 --> When `maxNumTokens` is below 32,003, so
-  that it equals E4B's allocated context (the defaults 8,192 and 4,096 are), and with exact counts, a
-  send's prefill has at least its input plus 160 positions free, more than the at most input + 127 that
-  E4B's `prefill_128` runs need, and a reply without tool calls stops decoding 64 positions before the
-  end of the window plus at most one MTP round's tokens. A manual KV-cache size of 32,768 (the
-  Stepper's top when the app memory limit reads at least 6.5 GB) allocates only 32,000 positions, and
-  the margin no longer holds. <!-- c:X-GAP-024 -->
-- **Applies to.** The traced code: both sources. The dropped KV writes: the documented build (the GPU
-  delegate in Google's v0.18.0 binary isn't in our sources). Attention reads past N on the GPU (the
-  verify `param_tensor` ends at p + 4) weren't traced.
+  Agello (`a691212`) starts a chat reply only when `maxNumTokens` minus the tokens the cache will
+  hold after the message's prefill and a 64-token margin leaves at least 96 tokens, and caps the
+  reply at that room (a share of it when tools are offered). <!-- c:X-TRB-002 --> Its `maxNumTokens`
+  is always what the runtime allocates (32,000 for a 32K or 64K request with the published file), and
+  the window is no longer a setting, so with exact counts a send's prefill has at least its input plus
+  160 positions free, more than the at most input + 127 that E4B's `prefill_128` runs need, and a
+  reply without tool calls stops decoding 64 positions before the end of the window plus at most one
+  MTP round's tokens. At Agello `93122b6` (2026-10-15) a manual KV-cache size of 32,768, the
+  Stepper's top, allocated only 32,000 positions while the budget counted 32,768, so the margin
+  didn't hold. <!-- c:X-GAP-024 -->
+- **Applies to.** Both: the guard is in the release too. The dropped KV writes: both (our GPU
+  delegate). Before the guard, attention reads past N on the GPU (the verify `param_tensor` ended at
+  p + 4) weren't traced.
 
 #### "Visual token budget (N) cannot be larger than the engine's max vision tokens per image (280)"
 
@@ -432,7 +440,7 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Cause.** Without single-turn template support (the E files' template), each message prefills the
   difference between the full render with it and the render without it, and fails when the new
   render doesn't start with the old one. <!-- c:LM-CNV-021 -->
-- **Where.** [`runtime/conversation/conversation.cc:308-313`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L308-L313).
+- **Where.** [`runtime/conversation/conversation.cc:313-318`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L313-L318).
 - **Do.** Use the file's template; a custom template must render history the same way whatever
   follows it.
 - **Applies to.** Both.
@@ -443,82 +451,90 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   come out as JSON too.
 - **Cause.** `Conversation` keeps the constraint it creates and passes it to every later decode.
   <!-- c:LM-CNV-071 -->
-- **Where.** [`runtime/conversation/conversation.cc:389-407`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L389-L407).
+- **Where.** [`runtime/conversation/conversation.cc:394-412`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L394-L412).
 - **Do.** One conversation per constrained request, as Agello's JSON helpers do. <!-- c:LM-CNV-079 -->
-- **Applies to.** The documented build (the shipped source wasn't traced for this).
+- **Applies to.** Both: the release's `conversation.cc` keeps the constraint the same way.
 
 #### JSON-constrained replies break with MTP on
 
 - **Symptom.** With speculative decoding on, JSON-schema helpers return text that breaks the schema.
 - **Cause.** Agello's observation on device (its `helperJSON` comment says MTP-drafted tokens
-  bypassed the JSON mask), with the shipped binary. <!-- c:LM-SWIFT-059 --> In the documented build,
-  every token an MTP round emits is the argmax of the verifier's logits after any constraint mask,
-  and the drafter builds mask runners for both its drafter and verifier, so the mechanism there isn't
-  established. <!-- c:LM-EXE-024 --> <!-- c:LM-CMP-052 --> Tracing the constraint state across a
-  round shows the mechanism, the same in agello-next and the v0.18.0 source:
-  1. `LlgConstraint::ComputeNext` commits the token into the llguidance object of the state it is given
-     and returns a copy that shares that object; only `Start()` clones a fresh one. All states derived
-     from one `Start()` are one mutable matcher. <!-- c:X-GAP-019 -->
-  2. The drafting loop masks each draft correctly, then commits it. By verification, the verified state
-     and the three draft states all point to the matcher after d1, d2 and d3, so verifier rows 0 to 2
-     are masked for the position after d3, not their own; only row 3 is right. <!-- c:X-GAP-020 -->
-  3. After acceptance, the verified state becomes draft state n (the same matcher) and the bonus token is
-     committed on top: the matcher holds d1, d2, d3 and the bonus whatever n is. That is right only when
-     all 3 drafts are accepted; after a rejection, later masks start from a state with rejected drafts in
-     it, and the bonus commit can fail, failing the decode with `InternalError` ("Failed to commit
-     token"). <!-- c:X-GAP-021 -->
+  bypassed the JSON mask; it now says the grammar states shared one matcher across a round), with
+  Google's v0.18.0 binary, which it then shipped. <!-- c:LM-SWIFT-059 --> In both builds every token
+  an MTP round emits is the argmax of the verifier's logits after any constraint mask, and the drafter
+  builds mask runners for both its drafter and verifier, so the drafted tokens alone don't explain it. <!-- c:LM-EXE-024 --> <!-- c:LM-CMP-052 --> Tracing the constraint state across a
+  round shows the mechanism, in the release Agello ships (whose `llg_constraint.cc` is Google's); our
+  build fixes it (ours: `1382157b`, 2026-11-17):
+  1. In the release, `LlgConstraint::ComputeNext` commits the token into the llguidance object of the
+     state it is given and returns a copy that shares that object; only `Start()` clones a fresh one.
+     All states derived from one `Start()` are one mutable matcher. In our build `ComputeNext` clones
+     the matcher and commits into the clone, and each state keeps the mask computed for it.
+     <!-- c:X-GAP-019 -->
+  2. The drafting loop masks each draft correctly, then commits it. In the release, by verification
+     the verified state and the three draft states all point to the matcher after d1, d2 and d3, so
+     verifier rows 0 to 2 are masked for the position after d3, not their own; only row 3 is right.
+     In our build each row's state is its own. <!-- c:X-GAP-020 -->
+  3. After acceptance, the verified state becomes draft state n and the bonus token is committed on
+     top. In the release that is the one matcher, holding d1, d2, d3 and the bonus whatever n is: right
+     only when all 3 drafts are accepted; after a rejection, later masks start from a state with
+     rejected drafts in it, and the bonus commit can fail, failing the decode with `InternalError`
+     ("Failed to commit token"). In our build draft state n holds only d1 to dn. <!-- c:X-GAP-021 -->
   4. Priming is right: the priming step is masked by `ConstrainedDecoder`'s own state, and `Draft` then
      starts from a fresh `Start()` plus the priming token. `ConstrainedDecoder::UpdateState` is not
-     called in MTP rounds at all; it advances only on plain steps, and with MTP on the priming step is
-     the only one in a decode. <!-- c:X-GAP-022 -->
+     called in MTP rounds at all; it advances only on plain steps, which with MTP on are the priming
+     step and the plain steps the cache-end guard forces; what the latter mask, from a state that
+     missed the rounds' tokens, wasn't traced. <!-- c:X-GAP-022 -->
 
-  So the drafts are masked from the right states, but a rejection's bonus token is picked under the
-  mask of the position after d3, and a rejected draft stays committed in the matcher, so later masks
-  come from a wrong state: a constrained reply with MTP on can leave the grammar. This is consistent
-  with the symptoms Agello recorded on device (garbled output or "compute_mask() called after stop"),
-  though Agello's comment blames the drafted tokens. MTP must stay off for constrained conversations at
-  the pin too, and it is a correctness bug to report upstream. <!-- c:X-GAP-023 -->
-  ([`runtime/components/constrained_decoding/llg_constraint.cc:66-91`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/constrained_decoding/llg_constraint.cc#L66-L91),
-  [`runtime/components/constrained_decoding/llg_constraint.h:41-72`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/constrained_decoding/llg_constraint.h#L41-L72),
-  [`runtime/executor/llm_litert_mtp_drafter.cc:501-572`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L501-L572),
-  [`runtime/executor/llm_litert_mtp_drafter.cc:663-709`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L663-L709),
-  [`runtime/executor/llm_litert_mtp_drafter.cc:761-783`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L761-L783),
-  [`runtime/executor/llm_litert_compiled_model_executor.cc:1526-1559`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1526-L1559),
+  So in the release the drafts are masked from the right states, but a rejection's bonus token is
+  picked under the mask of the position after d3, and a rejected draft stays committed in the matcher,
+  so later masks come from a wrong state: a constrained reply with MTP on can leave the grammar. This
+  is consistent with the symptoms Agello recorded on device (garbled output or "compute_mask() called
+  after stop"), though Agello's comment blames the drafted tokens, and MTP must stay off for
+  constrained conversations with the release. Our build fixes both faults: each state has its own
+  matcher, and each state's mask is computed once and kept, so llguidance is never asked for a
+  position's mask twice ("compute_mask() called after stop"). <!-- c:X-GAP-023 -->
+  ([`runtime/components/constrained_decoding/llg_constraint.cc:80-128`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/constrained_decoding/llg_constraint.cc#L80-L128),
+  [`runtime/components/constrained_decoding/llg_constraint.h:41-85`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/constrained_decoding/llg_constraint.h#L41-L85),
+  [`runtime/executor/llm_litert_mtp_drafter.cc:922-1005`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.cc#L922-L1005),
+  [`runtime/executor/llm_litert_mtp_drafter.cc:1254-1300`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.cc#L1254-L1300),
+  [`runtime/executor/llm_litert_mtp_drafter.cc:1480-1500`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_mtp_drafter.cc#L1480-L1500),
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:1670-1700`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1670-L1700),
   [`runtime/components/constrained_decoding/constrained_decoder.cc:108-122`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/constrained_decoding/constrained_decoder.cc#L108-L122);
-  v0.18.0: [`runtime/executor/llm_litert_mtp_drafter.cc:578-645`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_mtp_drafter.cc#L578-L645),
-  [`runtime/executor/llm_litert_mtp_drafter.cc:826-849`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_mtp_drafter.cc#L826-L849),
-  [`runtime/components/constrained_decoding/llg_constraint.cc:79-91`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/components/constrained_decoding/llg_constraint.cc#L79-L91)).
-- **Do.** Turn MTP off for constrained conversations (`enableSpeculativeDecoding: false`), as Agello
-  does; plain-text helpers keep it. This holds for agello-next too.
-- **Applies to.** Observed with the shipped binary; the traced mechanism is in both sources (not run
-  on device with the documented build).
+  the release: [`runtime/executor/llm_litert_mtp_drafter.cc:540-610`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/llm_litert_mtp_drafter.cc#L540-L610),
+  [`runtime/executor/llm_litert_mtp_drafter.cc:808-826`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/executor/llm_litert_mtp_drafter.cc#L808-L826),
+  [`runtime/components/constrained_decoding/llg_constraint.cc:79-91`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/constrained_decoding/llg_constraint.cc#L79-L91)).
+- **Do.** With the release, turn MTP off for constrained conversations (`enableSpeculativeDecoding:
+  false`), as Agello does unless `AGELLO_JSON_MTP=1`; plain-text helpers keep it. Our build lets them
+  speculate.
+- **Applies to.** Observed with Google's v0.18.0 binary; the traced mechanism is in the release;
+  fixed in our build (not yet in a release).
 
 #### Reasoning fills the context
 
 - **Symptom.** Think turns use more of the KV cache than their answers.
 - **Cause.** The channel filter removes reasoning from the cache only when
   `filter_channel_content_from_kv_cache` is on; the Swift wrapper passes the flag only when it is set,
-  and the C++ default is on. <!-- c:LM-CNV-057 --> In the documented build the filter rewinds right
-  after a reply and refills it without its reasoning <!-- c:LM-CNV-052 -->; v0.18.0 does it lazily, at
-  the next user message. <!-- c:LM-CNV-054 -->
+  and the C++ default is on. <!-- c:LM-CNV-057 --> The filter rewinds right after a reply and refills
+  it without its reasoning, in our build and the release alike. <!-- c:LM-CNV-052 -->
 - **Do.** Set `ExperimentalFlags.filterChannelContentFromKvCache = true` explicitly, as Agello does.
   <!-- c:LM-CNV-058 -->
-- **Applies to.** Both, with the timing difference above.
+- **Applies to.** Both.
 
 #### Sampling settings are ignored
 
 - **Symptom.** Temperature, top-k or top-p of a conversation seem to have no effect.
-- **Cause.** The executor creates its sampler once, from the parameters of the first session that
-  samples, and keeps it for every session of the engine. <!-- c:LM-ENG-062 --> With MTP on, every
-  token an MTP round emits is greedy; only the priming step uses the session's sampler.
-  <!-- c:LM-EXE-024 --> Agello's one-token validation (default parameters) is the first sampling on
-  each engine.
-- **Do.** Make the first conversation that samples on a new engine carry the wanted `SamplerConfig`.
-  In Agello that is the validation probe <!-- c:X-CFG-007 -->, so it should pass the chat's sampler.
-  Expect greedy output from MTP rounds. <!-- c:LM-EXE-024 --> The effect on Agello's chat is derived
-  from code <!-- c:LM-ENG-062 --> and not yet observed in a run.
-- **Applies to.** Both (v0.18.0's sampler has the same early return; its MTP priming differs
-  <!-- c:LM-EXE-026 -->).
+- **Cause.** With MTP on, every token an MTP round emits is greedy; only the priming step uses the
+  session's sampler. <!-- c:LM-EXE-024 --> The executor still creates its sampler once, from the
+  first session that samples, but since 2026-10-24 (ours: `f1b88286`) it hands the sampler the active
+  session's parameters and random state before each sample, so each session samples with its own; a
+  sampler that runs decode on its own inputs keeps the first session's configuration.
+  <!-- c:LM-ENG-062 --> Before that commit, Agello's one-token validation (default parameters, no
+  sampler config <!-- c:X-CFG-007 -->) fixed greedy sampling for every conversation of the engine.
+  ([`runtime/executor/llm_litert_compiled_model_executor.cc:1995-2017`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1995-L2017))
+- **Do.** Expect greedy output from MTP rounds <!-- c:LM-EXE-024 -->; for sampled text, turn MTP off
+  for that conversation.
+- **Applies to.** Both: the release has the same sampler hand-over and MTP priming
+  <!-- c:LM-EXE-026 -->.
 
 #### `getTokenCount()` reads 0 before the first message
 
@@ -527,10 +543,10 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Cause.** `GetTokenCount` returns the session's current step; with `prefill_preface_on_init`
   false (the default) nothing is prefilled at creation, and the preface and prior messages go in with
   the first message. <!-- c:X-TRB-004 --> <!-- c:LM-CAPI-034 -->
-- **Where.** [`runtime/conversation/conversation.cc:437-438`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L437-L438),
-  [`runtime/conversation/conversation.cc:889-891`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L889-L891).
+- **Where.** [`runtime/conversation/conversation.cc:442-443`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L442-L443),
+  [`runtime/conversation/conversation.cc:936-938`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L936-L938).
 - **Do.** Estimate the seeded history yourself until the first send (Agello's `pendingSeedTokens`).
-- **Applies to.** The documented build.
+- **Applies to.** Both: the release's `conversation.cc` creates and counts the same way.
 
 #### Text LoRA, CPU samplers and long embedding inputs
 
@@ -538,21 +554,23 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   one. <!-- c:LM-CMP-071 -->
 - **`TOP_K` or `GREEDY` on the CPU** returns `UNIMPLEMENTED`; greedy is `TOP_P` with k 1.
   <!-- c:LM-CMP-024 -->
-- **Embedding input too long** fails from Swift: the overflow strategy is always *error* there.
-  <!-- c:LM-SWIFT-042 --> Chunk inputs below the longest signature.
+- **Embedding input too long** fails by default: Swift's `EmbeddingOptions.inputOverflowStrategy`
+  left nil gets the C++ default, *error*; set it to `chunkAndAverage` or `truncate` (ours:
+  `4ca2cf33`), or chunk inputs below the longest signature. <!-- c:LM-SWIFT-042 -->
 - **Applies to.** Both.
 
 #### Tool calls
 
-- **Tool loop limit.** `sendMessage` stops after 25 rounds that still call tools.
-  <!-- c:LM-SWIFT-012 -->
+- **Tool loop limit.** `sendMessage` stops after 25 rounds that still call tools
+  <!-- c:LM-SWIFT-012 -->; a stream stops after `maxToolRounds` (25 unless the caller passes another).
+  <!-- c:LM-SWIFT-017 -->
 - **Tools run with `automaticToolCalling` false** on the stream path, which never checks the flag.
   <!-- c:LM-SWIFT-017 --> Don't register tools on conversations that mustn't call them.
 - **A failing tool ends the reply** with upstream's wrapper; our patch answers every call with a
   result or an error message instead. <!-- c:LM-SWIFT-024 --> <!-- c:LM-SWIFT-023 -->
 - **`fatalError` inside a tool**: a required `@ToolParam` read without a value.
   <!-- c:LM-SWIFT-026 --> Give parameters defaults or make them optional.
-- **Applies to.** Both wrappers carry our patch.
+- **Applies to.** Our wrapper, the one Agello vendors, carries our patch.
 
 ### Cancellation, helpers and threads
 
@@ -567,24 +585,27 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   <!-- c:X-TRB-005 --> <!-- c:LM-SWIFT-022 --> The cancelled turn's tokens also stay in the KV cache
   while the history drops them <!-- c:LM-CNV-081 -->, and both headers say a cancelled session or
   conversation is not reusable. <!-- c:LM-CNV-082 -->
-- **Where.** [`runtime/framework/resource_management/threaded_execution_manager.cc:304-324`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L304-L324),
+- **Where.** [`runtime/framework/resource_management/threaded_execution_manager.cc:307-327`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L307-L327),
   [`runtime/conversation/internal_callback_util.cc:302-308`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/internal_callback_util.cc#L302-L308),
   [`runtime/core/session_advanced.h:192-211`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/session_advanced.h#L192-L211).
 - **Do.** Treat a cancelled conversation as spent: create a new one from saved history, as Agello
   does. <!-- c:LM-SWIFT-060 --> While a helper runs, cancel the helper's conversation, never the kept
   chat.
-- **Applies to.** The traced chain: the documented build; Agello observed the same with the shipped
-  binary.
+- **Applies to.** Both: the release's files on this path are the pin's. Agello observed the same with
+  Google's v0.18.0 binary, which it shipped until 2026-10-28.
 
 #### A cancel doesn't stop the work at once
 
-- **Symptom.** After `cancel()`, the engine stays busy for a while; cancelling the Swift `Task` that
-  consumes a stream doesn't stop generation at all.
-- **Cause.** Cancellation is checked between decode steps and around prefill, not inside a running
-  prefill. <!-- c:LM-ENG-045 --> The Swift stream registers no `onTermination`; only
-  `Conversation.cancel()` reaches the runtime. <!-- c:LM-SWIFT-013 -->
-- **Do.** Call `cancel()` when the consumer stops (Agello checks `Task.isCancelled` on every chunk).
-- **Applies to.** Both.
+- **Symptom.** After `cancel()`, or after the Swift `Task` that iterates a stream is cancelled, the
+  engine stays busy for a while.
+- **Cause.** Cancellation is checked between decode steps and between a prefill's runs (ours:
+  `6cfd1a28`), not inside a run. <!-- c:LM-ENG-045 --> Cancelling the task that iterates a stream
+  before it ends reaches the runtime through the stream's `onTermination` handler, which calls
+  `Conversation.cancel()` once and leaves the conversation cancelled like `cancel()` (ours:
+  `4ca2cf33`). <!-- c:LM-SWIFT-013 -->
+- **Do.** Call `cancel()` when the consumer stops (Agello checks `Task.isCancelled` on every chunk),
+  and treat the conversation as spent after either kind of cancel.
+- **Applies to.** Both: the wrapper Agello vendors has the `onTermination` handler.
 
 #### A new conversation takes about 600 s to answer
 
@@ -595,24 +616,24 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   the session destructor waits up to 10 minutes for the task that is still finishing.
   <!-- c:LM-SWIFT-020 --> <!-- c:LM-ENG-027 --> Probe 9 measured 600.2 s before our fix and 0.111 s
   after. <!-- c:OUR-006 -->
-- **Where.** [`swift/Conversation.swift:830-840`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L830-L840).
+- **Where.** [`swift/ConversationStream.swift:109-117`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/ConversationStream.swift#L109-L117).
 - **Do.** Use our wrapper (the stream holds its conversation weakly) <!-- c:OUR-005 -->; never
   release the last reference to a conversation inside its own callback; cancel, wait for the last
   chunk, then delete.
-- **Applies to.** Both of our wrappers carry the fix; upstream's doesn't.
+- **Applies to.** Our wrapper, the one Agello vendors, carries the fix; upstream's doesn't.
 
 #### A helper wipes the chat, or a kept chat costs memory
 
-- **Symptom.** With Google's runtime, after a title or memory helper the chat must be reseeded; with
-  ours, memory rises by about one KV cache while a helper runs.
+- **Symptom.** Memory rises by about one KV cache while a title or memory helper runs; or, where the
+  chat isn't kept, it must be reseeded after the helper.
 - **Cause.** One engine has one live KV cache; switching sessions snapshots the outgoing one in our
   build and restores it when the chat next acquires the executor. <!-- c:LM-ENG-064 --> Agello keeps
-  the chat only on our runtime and only with one cache of headroom above its 400 MB stop line.
-  <!-- c:APL-015 --> Agello `6d389e6` restores it right after the helper with `getTokenCount()`.
+  the chat only when available memory covers the positions it holds in the KV cache (28,672 bytes
+  each) above its 400 MB stop line. <!-- c:APL-015 --> Agello `6d389e6` restores it right after the helper with `getTokenCount()`.
   <!-- c:LM-ENG-065 -->
 - **Do.** Ask whether the helper kept the conversation (`lastHelperKeptConversation`) and reseed
   only when it didn't. Sizes: [memory.md](memory.md#host-snapshots-of-kv-for-kept-conversations).
-- **Applies to.** Kept chats: our build only.
+- **Applies to.** Both: the snapshot path is in the release.
 
 #### Helpers wait, or decode slows with a heavy callback
 
@@ -624,10 +645,11 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 
 #### A CPU core spins while the GPU works
 
-- **Cause.** Agello sets `ExperimentalFlags.enableBenchmark`, which puts the engine in benchmark
-  mode, where GPU waits are active (busy-wait) in both builds; our passive-wait change applies only
-  outside benchmark mode. <!-- c:OUR-034 --> <!-- c:LM-EXE-038 -->
-- **Do.** A decision for Agello: collect statistics without benchmark mode to get passive waits.
+- **Cause.** The engine is in benchmark mode (`ExperimentalFlags.enableBenchmark`), where GPU waits
+  are active (busy-wait) in both builds; outside it our `645aaf65` asks for the passive wait. Agello
+  turned benchmark mode on until 2026-11-11 and has left it off since (its reply stats come from the
+  runtime's telemetry); its device probes still turn it on. <!-- c:OUR-034 --> <!-- c:LM-EXE-038 -->
+- **Do.** Leave benchmark mode off outside measurements.
 - **Applies to.** Both.
 
 ### Wrong output
@@ -679,11 +701,10 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
   first memory warning) <!-- c:APL-015 -->; keep the default context at 8K.
 - **Applies to.** Both.
 
-#### The app limit reads 6.4 GB, or the Settings stepper stops at 16,384
+#### The app limit reads 6.4 GB
 
 - **Cause.** Early in some runs, before the first engine load, footprint + available returned
-  6 GiB instead of 8 GiB. <!-- c:APL-001 --> <!-- c:APL-004 --> Agello's 32K ceiling needs 6.5·10⁹
-  bytes, so an early reading caps the stepper at 16,384. <!-- c:APL-014 --> The memory envelope test
+  6 GiB instead of 8 GiB. <!-- c:APL-001 --> <!-- c:APL-004 --> The memory envelope test
   read the limit once, so three runs used too little ballast. <!-- c:APL-025 -->
 - **Do.** Re-read the limit; don't cache it ([apple-platform.md](apple-platform.md#c1-86-gb-or-64-gb)).
 - **Applies to.** Agello on the iPhone 17 Pro.
@@ -693,13 +714,13 @@ Seven top-level cases, each wrapping a nested enum ([`swift/LiteRTLMError.swift:
 - **Cause.** Our source build's XNNPACK, before our patch, sized a per-channel scale array for the INT8
   K cache's matrix product as T × 4 × (2 × T) bytes, 512 MiB per 8K cache.
   <!-- c:RT-CPU-012 --> <!-- c:RT-CPU-013 --> Upstream XNNPACK `c72e2a4ae0` fixed it
-  <!-- c:RT-CPU-015 -->; our fork applies that diff to TensorFlow's pin <!-- c:RT-CPU-016 -->, after
+  <!-- c:RT-CPU-015 -->; our build applies that diff to TensorFlow's pin <!-- c:RT-CPU-016 -->, after
   which a CPU reply on the iPhone ran at 3.67 GB. <!-- c:RT-CPU-017 -->
 - **Do.** Keep the patch until TensorFlow's XNNPACK pin includes the fix. <!-- c:OUR-012 -->
-- **Applies to.** Our source build (fixed by our patch). Whether Google's v0.18.0 binary has the fix
-  isn't recorded; upstream's open `WORKSPACE` got it only with `c05e67a2`. <!-- c:OUR-012 -->
+- **Applies to.** Both: the release's `WORKSPACE` and patches are the pin's. Google's LiteRT-LM got
+  the fix only with `c05e67a2`, and we don't rebase onto it. <!-- c:OUR-012 -->
 
-#### Device tests show about 1.2 GB more than expected
+#### Device tests show about 1.3 GB more than expected
 
 - **Cause.** Before Agello `8bae20b`, the app hosting the tests loaded its own E4B engine next to the
   tests'. <!-- c:X-MEM-011 -->
@@ -713,15 +734,15 @@ device. Each one, with the runtime behavior behind it:
 
 | Rule | What breaks without it | Traced to |
 | --- | --- | --- |
-| Check the context before every send; cap the output | a full cache ends the session's work; the skill records heap corruption with the shipped binary | [KV full](#the-reply-stops-or-the-next-message-answers-nothing), [too long](#input-token-ids-are-too-long-or-prefill-input-length-exceeds-available-state-entries) |
+| Check the context before every send; cap the output | a full cache ends the session's work; the skill records heap corruption with Google's v0.18.0 binary, shipped until 2026-10-28 | [KV full](#the-reply-stops-or-the-next-message-answers-nothing), [too long](#input-token-ids-are-too-long-or-prefill-input-length-exceeds-available-state-entries) |
 | Reseed after every cancel | the next message is born cancelled | [cancel](#the-next-message-fails-with-cancelled-after-a-cancel) |
 | While a helper runs, cancel the helper, never the chat | the kept chat would be poisoned | [cancel](#the-next-message-fails-with-cancelled-after-a-cancel) |
 | Validate every new engine, retry once after 750 ms | a section that failed to map leaves an engine that fails every message | [validation](#the-engine-loads-but-every-message-fails-no-per-layer-embeddings-found-in-inputs) |
 | Set engine-level `ExperimentalFlags` before creating the engine | flags are read once at `initialize()` | [flags](#an-experimentalflags-setting-has-no-effect) |
-| Engine caches through `EngineCache`, never the root | per-size weight copies (Google's), stale programs across builds | [caches](#engine-caches-folders-that-grow-or-caches-from-another-build) |
+| Engine caches through `EngineCache`, never the root | per-size weight copies (with upstream's weight key), stale programs across builds | [caches](#engine-caches-folders-that-grow-or-caches-from-another-build) |
 | Only the patched model file | digits wrong past position 2,048 at FP16 | [#3913](#digits-repeat-or-shift-in-long-replies-3913) |
-| MTP off for JSON helpers | JSON broken on device | [MTP and JSON](#json-constrained-replies-break-with-mtp-on) |
-| Don't trust the file's `thinking` / `functionCalling` flags | features hidden that work | [capabilities](#the-model-reports-no-thinking-no-tools-and-no-context) |
+| MTP off for JSON helpers (with the release) | JSON broken on device | [MTP and JSON](#json-constrained-replies-break-with-mtp-on) |
+| Don't trust the file's `thinking` / `functionCalling` flags | features hidden that work | [capabilities](#the-model-reports-no-thinking-and-no-tools) |
 | Set `filterChannelContentFromKvCache = true` | reasoning stays in the cache | [reasoning](#reasoning-fills-the-context) |
 | `pendingSeedTokens` stands in for `getTokenCount()` | 0 before the first send | [token count](#gettokencount-reads-0-before-the-first-message) |
 | Stop replies below 400 MB available | jetsam | [memory](#the-app-is-terminated-for-memory) |
@@ -729,52 +750,49 @@ device. Each one, with the runtime behavior behind it:
 
 ## On Apple
 
-| Item | Documented build | Shipped (Google's v0.18.0 binary) |
+| Item | Our build | The release Agello ships (`agello-one-20261115`) |
 | --- | --- | --- |
-| Error reporting | C API 1.0.0: status codes, out-parameters | C API 0.2: pointers and `int`s, `litert_lm_get_last_error_code()` |
-| Sampler | CPU fallback (log warning) | Metal TopK sampler linked (not observed running) |
-| `-gpu` files | rejected | artisan executor present, untried |
-| KV snapshot restore | copied into the bound buffers | moved in as the live state; Agello reseeds |
-| Channel filter timing | right after the reply | at the next message |
-| XNNPACK | our patch | not pinned (see [litert/cpu-xnnpack.md](litert/cpu-xnnpack.md)) |
+| Error reporting | C API 1.0.0: status codes, out-parameters | the same (`c/` is the pin's) |
+| Sampler | CPU fallback (log warning) | the same |
+| `-gpu` files | rejected | rejected |
+| KV snapshot restore | copied into the bound buffers | the same |
+| Channel filter timing | right after the reply | the same |
+| MTP near the end of the cache | a plain step instead of a round | the same |
+| Constrained decoding with MTP | each state its own matcher: can speculate | one shared matcher: keep MTP off |
+| XNNPACK | our patch ([litert/cpu-xnnpack.md](litert/cpu-xnnpack.md)) | the same |
 
 ## Where in the code
 
 | Concept | Symbol | Citation |
 | --- | --- | --- |
 | Status codes | `LiteRtLmStatusCode` | [`c/error_reporter.h:140-158`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/error_reporter.h#L140-L158) |
-| Swift errors | `LiteRTLMError` | [`swift/LiteRTLMError.swift:19-27`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/LiteRTLMError.swift#L19-L27) |
+| Swift errors | `LiteRTLMError` | [`swift/LiteRTLMError.swift:19-27`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/LiteRTLMError.swift#L19-L27) |
 | Session stream end states | `CreateCallback` | [`c/engine.cc:70-92`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.cc#L70-L92) |
-| Conversation stream callback | `CreateConversationCallback` | [`c/conversation.cc:44-71`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71) |
-| Inherited end states | `ThreadedExecutionManager::CreateTask` | [`runtime/framework/resource_management/threaded_execution_manager.cc:304-324`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L304-L324) |
+| Conversation stream callback | `CreateConversationCallback` | [`c/conversation.cc:45-86`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/c/conversation.cc#L45-L86) |
+| Inherited end states | `ThreadedExecutionManager::CreateTask` | [`runtime/framework/resource_management/threaded_execution_manager.cc:307-327`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/threaded_execution_manager.cc#L307-L327) |
 | Conversation end states | `CreateInternalCallback` | [`runtime/conversation/internal_callback_util.cc:302-343`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/internal_callback_util.cc#L302-L343) |
-| Stop conditions | `ShouldStop` | [`runtime/core/tasks.cc:96-110`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L96-L110) |
-| Prompt too long | `Tasks::Prefill` | [`runtime/core/tasks.cc:560-576`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L560-L576) |
+| Stop conditions | `ShouldStop` | [`runtime/core/tasks.cc:96-110`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L96-L110) |
+| Prompt too long | `Tasks::Prefill` | [`runtime/core/tasks.cc:575-591`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/tasks.cc#L575-L591) |
 | No engine for a backend | `EngineFactory::CreateDefault` | [`runtime/engine/engine_factory.h:88-110`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_factory.h#L88-L110) |
 | Backend constraints | `ValidateBackendConstraint` | [`runtime/engine/engine_settings.cc:81-112`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L81-L112) |
-| Per-layer lookup skipped | `InitializeEmbeddingLookups` | [`runtime/executor/litert_compiled_model_executor_utils.cc:1294-1322`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1294-L1322) |
-| Text LoRA | `ResourceManager::CreateContextHandler` | [`runtime/framework/resource_management/resource_manager.cc:610-622`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/resource_manager.cc#L610-L622) |
-| First sampler wins | `InitializeSampler` | [`runtime/executor/llm_litert_compiled_model_executor.cc:1707-1712`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1707-L1712) |
-| Ops without CPU fallback | `LiteRtCompiledModelT::Create` | [`litert/runtime/compiled_model.cc:1185-1198`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/litert/runtime/compiled_model.cc#L1185-L1198) |
-| Weight cache rejection | `SerializationWeightCache::Load` | [`ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc:218-229`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc#L218-L229) |
-| Agello's guards | `fitContext`, `runSend`, `ContextBudget`, `ToolBudget` | `Agello/Inference/ChatEngine.swift:376-392`, `:618-640`, `:695-712`; `Agello/Inference/InferencePlanner.swift:48-110`, `:177-181`; `Agello/Inference/ToolHost.swift:52-62` (Agello `93122b647a`) |
+| Per-layer lookup skipped | `InitializeEmbeddingLookups` | [`runtime/executor/litert_compiled_model_executor_utils.cc:1298-1326`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1298-L1326) |
+| Text LoRA | `ResourceManager::CreateContextHandler` | [`runtime/framework/resource_management/resource_manager.cc:618-630`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/resource_manager.cc#L618-L630) |
+| First sampler wins | `InitializeSampler` | [`runtime/executor/llm_litert_compiled_model_executor.cc:1867-1872`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1867-L1872) |
+| Ops without CPU fallback | `LiteRtCompiledModelT::Create` | [`litert/runtime/compiled_model.cc:1185-1198`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/litert/runtime/compiled_model.cc#L1185-L1198) |
+| Weight cache rejection | `SerializationWeightCache::Load` | [`ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc:218-229`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc#L218-L229) |
+| Agello's guards | `fitContext`, `runSend`, `ContextBudget`, `ToolBudget` | `Agello/Inference/ChatEngine.swift:160-170`, `:475-523`, `:786-823`, `:916-923`; `Agello/Inference/InferencePlanner.swift:63-65`, `:97-102`, `:137-148`, `:231-234`, `:256-265`; `Agello/Inference/ToolHost.swift:69-88` (Agello `a691212`) |
 | Agello's validation | `validate`, the load loop | `Agello/Inference/ChatEngine.swift:180-216`, `:295-307` |
 
 ## Open questions
 
 - **Heap corruption on KV overflow.** Agello's skill records native heap corruption when the KV cache
-  overflowed with the shipped binary. Traced since ([MTP near the end of the cache](#mtp-near-the-end-of-the-cache)):
-  prefills and the filter's refill are refused rather than written past the end, and only an MTP round
-  addresses positions past N; its KV writes are dropped on our GPU path, and its CPU mask fill runs up
-  to 4 bytes past the verify mask. Open: which buffer type that mask gets on Metal, what the shipped
-  binary's GPU delegate does with positions past N, and whether either explains the corruption; not
-  reproduced.
-- **MTP and JSON on our build.** The mechanism is traced (shared llguidance state,
-  [JSON-constrained replies break with MTP on](#json-constrained-replies-break-with-mtp-on)); a device
-  run with MTP on and a JSON schema hasn't been done with the documented build.
-- **`-gpu` files on the shipped binary.** Whether Google's v0.18.0 binary runs an artisan file on
-  iOS hasn't been tried.
+  overflowed with Google's v0.18.0 binary, shipped until 2026-10-28. Traced since
+  ([MTP near the end of the cache](#mtp-near-the-end-of-the-cache)): prefills and the filter's refill
+  are refused rather than written past the end, and the one path that addressed positions past N, an
+  MTP round whose CPU mask fill ran up to 4 bytes past the verify mask, is guarded in our build and
+  the release since 2026-10-24. Whether that overrun explained the corruption was never reproduced.
+- **MTP and JSON at the cache's end.** Our build fixes the shared llguidance state
+  ([JSON-constrained replies break with MTP on](#json-constrained-replies-break-with-mtp-on)); what a
+  plain step the cache-end guard forces masks in a constrained decode wasn't traced.
 - **Cross-family program caches.** Whether a program cache restored on another GPU family fails
   validation or runs wrong kernels isn't verified ([litert/ml-drift-delegate.md](litert/ml-drift-delegate.md#open-questions)).
-- **Shipped conversation paths.** The KV-full and cancel chains above are traced in the documented
-  build; the v0.18.0 conversation code differs (lazy channel filter) and wasn't traced end to end.

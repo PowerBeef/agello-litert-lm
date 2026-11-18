@@ -13,9 +13,10 @@
 > context switch mechanics ([litert-lm/engine-and-sessions.md](litert-lm/engine-and-sessions.md));
 > the delegate's caches in depth ([litert/ml-drift-delegate.md](litert/ml-drift-delegate.md));
 > ML Drift's memory manager ([ml-drift/metal-backend.md](ml-drift/metal-backend.md)).
-> **Pinned to:** LiteRT-LM `7b872544`, LiteRT `362759838`, ML Drift `15fa9e2`; what Agello ships:
-> LiteRT-LM `85b1a776` with Google's prebuilt v0.18.0 `CLiteRTLM.xcframework`; Agello `93122b647a`.
-> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift`; Agello ships release `agello-one-20261115` (`6da75396`); Agello `93122b647a` (and
+> `a691212` where named).
+> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -24,17 +25,19 @@
   decoder and the MTP drafter), 1.01 GB of CPU embedding tables, 0.34 GB of vision and audio
   models. E2B's is 2.59 GB, with more in embedding tables (1.39 GB) than in GPU graphs (0.86 GB).
 - **The KV cache is the part that grows with the context:** 28,672 bytes per allocated position
-  for E4B, 9,216 for E2B, one bank, INT8. At 32K the runtime allocates 32,000 positions:
+  for E4B, 9,216 for E2B, one bank, INT8; in our build the caches are sparse, mapped in steps of
+  4,096 positions as the conversation fills them. At 32K the runtime allocates 32,000 positions:
   917,504,000 bytes for E4B (C9's "918 MB"), never the 939,524,096 that 32,768 would take.
 - **What Agello measured** on the iPhone 17 Pro (our build, nothing else loaded): 1.02, 1.24,
   1.86 and 2.85 GB of footprint right after loading E4B at 4K, 8K, 16K and 32K, and a high-water
-  mark of 4.81 GB during the 32K run (an 8,607-token prompt); Google's v0.18.0 binary loads within
-  0.26 GB of ours. The footprint grows about 1.0 GB more than the KV cache from 4K to 32K. The first
+  mark of 4.81 GB during the 32K run (an 8,607-token prompt), on 2026-10-15, before the sparse KV
+  caches. The footprint grows about 1.0 GB more than the KV cache from 4K to 32K. The first
   image adds about 1.3 GB.
 - **The app limit (C1)** on the iPhone 17 Pro with the increased-memory-limit entitlement is 8 GiB
   (shown as "8.6 GB"); readings taken early in a run sometimes return 6 GiB ("6.4 GB").
 - **On disk**, our runtime keeps one engine cache folder of about 2.5 GB for every context size;
-  Google's writes a new ~2.47 GB copy of the GPU weights per context size, which Agello bounds.
+  Google's runtime, which Agello shipped until 2026-10-28, wrote a new ~2.47 GB copy of the GPU
+  weights per context size.
 
 ## Concepts
 
@@ -112,7 +115,7 @@ both encoders run on the CPU whenever they are used. <!-- c:LM-EXE-029 --> The a
 CPU regardless (hard-coded in `EngineSettings::CreateDefault`, and marked `backend_constraint=cpu` in
 the file). <!-- c:LM-EXE-028 --> The token and per-layer embedders are compiled for the CPU on every
 platform but Android, and every text-token lookup is a CPU model run
-([`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298)).
+([`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-305`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L305)).
 <!-- c:LM-EXE-015 -->
 
 #### E2B
@@ -154,8 +157,8 @@ What the code says about each kind of section on Apple:
 - **GPU weights.** On the first load, ML Drift prepares the weights on the GPU, reads each prepared
   tensor back, writes the weight cache file, then loads the file again and re-creates every tensor
   from it, because on Apple file-backed, memory-mapped pages are preferred
-  ([`ml_drift_delegate/delegate/delegate_kernel.cc:539-566`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L539-L566),
-  [`ml_drift_delegate/delegate/delegate_kernel.cc:591-632`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L591-L632)).
+  ([`ml_drift_delegate/delegate/delegate_kernel.cc:539-566`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L539-L566),
+  [`ml_drift_delegate/delegate/delegate_kernel.cc:591-632`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L591-L632)).
   <!-- c:RT-DLG-057 --> On a warm load the weights are looked up in the cache as mapped data and
   wrapped in shared Metal buffers with `newBufferWithBytesNoCopy`
   ([`ml_drift_delegate/delegate/shared_memory_manager/shared_memory_manager.cc:506-530`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/shared_memory_manager/shared_memory_manager.cc#L506-L530),
@@ -163,8 +166,8 @@ What the code says about each kind of section on Apple:
   <!-- c:RT-DLG-058 --> So the decoder's GPU weights are pages of the weight cache file, not anonymous
   memory.
 - **The measured footprint agrees.** Right after loading E4B at 4K, our build's footprint on the
-  iPhone 17 Pro was 1.02 GB and Google's 1.09 GB, less than the 2,197.9 MB of decoder weights alone,
-  so most weight bytes are not in the footprint at that moment. <!-- c:X-MEM-008 --> How many weight
+  iPhone 17 Pro was 1.02 GB, less than the 2,197.9 MB of decoder weights alone, so most weight bytes
+  are not in the footprint at that moment. <!-- c:X-MEM-008 --> How many weight
   pages are resident while the GPU runs, and how iOS accounts file-backed pages wrapped as Metal
   buffers, isn't measured (open question).
 - **Vision and audio.** Their sections are mapped like the others; what the CPU path allocates for
@@ -224,7 +227,7 @@ exported, at 32,003 positions, would be 917,590,016 bytes, which also rounds to 
 - **One bank.** For files with a `param_tensor` input (both Gemma 4 E files), the static executor
   uses the `kGpuOptimizedInplace` policy on the GPU: the caches are created once as GPU output
   buffers, not as two ping-pong banks
-  ([`runtime/executor/llm_litert_compiled_model_executor.cc:2165-2180`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L2165-L2180)).
+  ([`runtime/executor/llm_litert_compiled_model_executor.cc:2525-2540`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L2525-L2540)).
   <!-- c:LM-EXE-017 -->
 - **At load, at full size.** The cache is sized by the allocated context when the engine is created,
   not by the filled length; `clear_kv_cache_before_prefill` (default true) zeroes the first bank once,
@@ -233,8 +236,22 @@ exported, at 32,003 positions, would be 917,590,016 bytes, which also rounds to 
   E files have none) or the smallest multiple of 4,096 above the prompt hint plus 1,023, which is
   4,096 through the C API. <!-- c:LM-EXE-005 --> Off Apple, a GPU file's own value above 4,096 is
   replaced by that formula; on Apple it is kept. <!-- c:LM-ENG-008 -->
-- **Kept after the last session.** Releasing the last session resets the executor's step without
-  freeing the KV buffers; they go with the engine. <!-- c:LM-ENG-098 -->
+- **Kept after the last session.** Releasing the last session resets the executor's step (and its
+  MTP and rewind state) without freeing the KV buffers; they go with the engine. With the sparse
+  caches below, the next conversation's first run gives back the mapped tiles past what it writes.
+  <!-- c:LM-ENG-098 -->
+- **Sparse in our build.** On a GPU with placement sparse buffers (`supportsPlacementSparse`, iOS and
+  macOS 26.4 and later), each KV cache tensor of 8,192 slots or more is replaced after creation by a
+  private placement sparse buffer of 16 KiB tiles, and an `MTL4CommandQueue` maps its tiles in steps
+  of 4,096 positions just before a run writes them; a conversation's first run unmaps the steps past
+  it, and unmapped tiles read zero, so the clear is skipped (ours: `12623257`, `d0b392a2`,
+  `cc97925b`; also in the release Agello ships;
+  [`runtime/executor/litert/state.cc:59-91`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L59-L91),
+  [`runtime/executor/litert/state.cc:351-448`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L351-L448),
+  [`runtime/util/metal_raw_buffer.mm:115-140`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/util/metal_raw_buffer.mm#L115-L140)).
+  So the KV cache's resident memory follows the filled length in 4,096-position steps, not the
+  allocated size above; the table above is the buffers' full size. `AGELLO_SPARSE_KV=0` keeps
+  ordinary caches. All measurements on this page from 2026-10-15 predate it.
 
 ### Activations and intermediate buffers
 
@@ -264,28 +281,37 @@ How ML Drift holds intermediates on Metal:
   ([ml-drift/metal-backend.md](ml-drift/metal-backend.md#memory)). <!-- c:MD-MTL-015 -->
 - Buffer-backed intermediates are packed at offsets in one buffer only when that plan totals at most
   128 MiB (and no more than the alternatives); otherwise each shared object gets its own buffer
-  ([`ml_drift/metal/memory_manager.mm:320-340`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L320-L340)).
+  ([`ml_drift/metal/memory_manager.mm:527-532`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L527-L532)).
   <!-- c:MD-MTL-012 --> At long contexts the softmax tensors above alone exceed 128 MiB.
-- The memory manager reuses buffers it already owns across models (the decode, prefill, verify and
-  drafter graphs), allocates only when none fits, and keeps every buffer until the manager is
-  destroyed. <!-- c:MD-MTL-013 --> So the buffers a long prefill needed stay allocated after it, which
-  is consistent with the footprint after a long reply staying above the load figure (measured
-  [below](#e4b-by-context-size-iphone-17-pro-idle-test-host)).
+- The memory manager takes, for each buffer a graph needs, the smallest one it already owns that
+  fits (in our build not one more than twice the size and over 16 MB larger; ours: `1f6e7f85`),
+  allocates only when none fits, and keeps the buffers until the manager is destroyed.
+  <!-- c:MD-MTL-013 --> In our build every prefill graph (64 positions or more per run) gets a pool of
+  its own instead, whose buffers, when they total 256 MB or more, are freed when another graph runs
+  and allocated again before the next prefill (ours: `b96dedea`), so a prompt's large buffers live
+  only while it is read; decode, verify and the drafter share one pool (ours: `d3730b60`, `d0b392a2`;
+  [`ml_drift/metal/memory_manager.mm:162-168`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L162-L168)).
+  The 2026-10-15 measurements [below](#e4b-by-context-size-iphone-17-pro-idle-test-host) predate
+  this: there the buffers a long prefill needed stayed allocated after it, which is consistent with
+  the footprint after a long reply staying above the load figure.
 - In prefill, ML Drift converts INT4 and INT8 weights per run (`weights_convert_*` nodes: INT8 on
-  Apple10, FP16 on older families), and on Apple10 converts the INT8 caches to FP16 for all 46
+  Apple10, FP16 on older families; in our build Apple10's `prefill_128` reads the INT4 weights in
+  place, ours: `80c07920`), and on Apple10 converts the INT8 caches to FP16 for all 46
   attention products of `prefill_1024` (only the 23 key products in `prefill_128`). <!-- c:MD-KRN-002 --> <!-- c:MD-KRN-003 --> <!-- c:MD-KRN-024 --> How much memory those converted copies
   take isn't recorded (open question).
 - A host read or write of a Metal tensor through a LiteRT lock allocates a host shadow of the
-  tensor's packed size on first lock and copies through it. <!-- c:RT-RUN-026 -->
+  tensor's packed size on first lock and copies through it, except for a packed buffer in shared
+  storage, which our build locks in place without a copy (ours: `89137792`). <!-- c:RT-RUN-026 -->
 
 **The CPU backend (not Agello's default).** Our source build's XNNPACK, before our patch, sized a
 per-channel scale array for the INT8 K cache's dequantizing matrix product at T × 4 × (2 × T) bytes,
 536,870,912 bytes at T = 8,192 for one cache, where the fix needs 65,536 bytes. <!-- c:RT-CPU-013 -->
-Our fork's WORKSPACE comment records 5.5 GB for E4B on the CPU without the patch (no raw record).
+Our build's WORKSPACE comment records 5.5 GB for E4B on the CPU without the patch (no raw record).
 <!-- c:RT-CPU-014 --> After the fix, a CPU reply on the iPhone 17 Pro ran with a 3.67 GB footprint
-and 4.92 GB still available. <!-- c:RT-CPU-017 --> Agello's notes say Google's binaries include the
-fix; the XNNPACK revision inside Google's v0.18.0 binary isn't pinned here, and upstream's open
-WORKSPACE pinned the unfixed XNNPACK `d89ef666` until `c05e67a2` (2026-10-14) <!-- c:OUR-012 -->
+and 4.92 GB still available. <!-- c:RT-CPU-017 --> Our tree still pins the unfixed XNNPACK
+`d89ef666` (through TensorFlow `a1179d3c`) and carries the fix as a patch; upstream's WORKSPACE moved
+past it at `c05e67a2` (2026-10-14), and since we don't rebase, the patch goes only when we move that
+pin ourselves <!-- c:OUR-012 -->
 ([litert/cpu-xnnpack.md](litert/cpu-xnnpack.md#open-questions)).
 
 ### Host snapshots of KV for kept conversations
@@ -293,24 +319,29 @@ WORKSPACE pinned the unfixed XNNPACK `d89ef666` until `c05e67a2` (2026-10-14) <!
 One engine has one executor and one live KV cache. When a session that isn't loaded takes the
 executor, `ResourceManager::AcquireExecutorWithContextHandler` saves the outgoing session's context
 (its token history, runtime state and a deep copy of the KV state) and loads the incoming one
-([`runtime/framework/resource_management/resource_manager.cc:745-800`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/resource_manager.cc#L745-L800)).
+([`runtime/framework/resource_management/resource_manager.cc:753-808`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/resource_manager.cc#L753-L808)).
 <!-- c:LM-ENG-048 --> <!-- c:LM-ENG-049 --> The details are on
 [litert-lm/engine-and-sessions.md](litert-lm/engine-and-sessions.md#context-switches-what-is-copied-and-where);
 what matters for memory:
 
-- **Where the copy lives.** In our build, when every state buffer is a shared `MTLBuffer` of about
-  the tensor's packed size, the snapshot copies the buffer's bytes as they are into host memory
-  ([`runtime/executor/litert/state.cc:305-320`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L320))
+- **Where the copy lives.** In our build the snapshot copies the caches by GPU blits into host
+  memory (ours: `12623257`); without a Metal command queue (or with `AGELLO_KV_BLIT=0`), when every
+  state buffer is a shared `MTLBuffer` of about the tensor's packed size, it copies the buffer's
+  bytes as they are
+  ([`runtime/executor/litert/state.cc:723-744`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L723-L744))
   (ours: `aec81cb7`). <!-- c:LM-ENG-051 --> That host memory is an anonymous private mapping of
   whole pages plus a header page, unmapped when the snapshot is freed
-  ([`runtime/util/metal_raw_buffer.mm:37-52`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/util/metal_raw_buffer.mm#L37-L52))
-  (ours: `585203d3`). <!-- c:LM-ENG-052 --> Upstream copies Metal buffers into new host
-  `TensorBuffer`s through a lock instead. <!-- c:LM-ENG-050 -->
-- **How big.** A snapshot holds the 48 cache tensors: for E4B at 16,384 positions, 469,762,048 bytes
-  of data, plus at most 48 × 64 KiB of buffer slack (the raw path accepts buffers up to 64 KiB
-  longer than the tensor) and one header page per buffer, so about 470 to 473 MB. Measured on the
-  Mac, the peak with a kept 16K conversation sat 472 MB above the no-helper control after our
-  orphan-snapshot change (944 MB before it, two copies). <!-- c:X-MEM-013 --> <!-- c:LM-ENG-060 -->
+  ([`runtime/util/metal_raw_buffer.mm:39-53`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/util/metal_raw_buffer.mm#L39-L53))
+  (ours: `585203d3`). <!-- c:LM-ENG-052 --> Otherwise it falls back to what upstream always does,
+  copying Metal buffers into new host `TensorBuffer`s through a lock. <!-- c:LM-ENG-050 -->
+- **How big.** A snapshot for a kept conversation holds only the filled positions plus a
+  16-position margin of each of the 48 cache tensors (ours: `37bdbbf5`,
+  [`runtime/executor/llm_litert_compiled_model_executor.cc:1757-1768`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L1757-L1768),
+  [`runtime/executor/litert/state.cc:652-668`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L652-L668)),
+  far less than the 469,762,048 bytes the caches hold at 16,384 allocated positions. Measured on the
+  Mac on 2026-10-15, when snapshots still copied whole buffers, the peak with a kept 16K
+  conversation sat 472 MB above the no-helper control after our orphan-snapshot change (944 MB
+  before it, two copies). <!-- c:X-MEM-013 --> <!-- c:LM-ENG-060 -->
 - **How long.** The kept session's snapshot stays until that session next acquires the executor;
   that acquisition copies it back into the live buffers and frees it. <!-- c:LM-ENG-064 --> During a
   switch toward a session holding a snapshot, the live cache and two snapshots coexist briefly.
@@ -320,20 +351,21 @@ what matters for memory:
   no-helper control with the first raw-snapshot build, 468 MB with the orphan skip and 0 MB with
   mapped snapshots; over 100 helper rounds, the raw-snapshot build crept from 2,796 to 2,910 MB while
   the mapped build stayed at 2,348–2,349 MB. <!-- c:OUR-021 --> <!-- c:OUR-022 --> On the iPhone
-  17 Pro, peaks at 16K and 32K fell from 4.02–4.13 GB and 5.88–5.93 GB to 3.59 and 4.93 GB once Agello
+  17 Pro (2026-10-15), peaks at 16K and 32K fell from 4.02–4.13 GB and 5.88–5.93 GB to 3.59 and 4.93 GB once Agello
   restored the kept conversation right after helpers (`footprintPeakGB`, which is read right after
   the reply, not a high-water mark; these runs include the test host's engine,
   [below](#earlier-reports-a-second-engine-in-the-test-host)); the after run also used a newer
   runtime build (`11beef01e805` instead of `2e54fbdb9ca9`), so the Agello change isn't the only
   difference ([F-078](facts.md#f-078)). <!-- c:LM-ENG-066 -->
 
-Agello keeps the chat across a helper only on a runtime with a build id (ours) and only when
-available memory is at least 28,672 × `maxNumTokens` + 400,000,000 bytes: 869,762,048 bytes at
-16,384. <!-- c:APL-015 --> At a 32K setting the rule counts 32,768 positions, 22,020,096 bytes more
-than the 917,504,000 the runtime allocates. <!-- c:X-MEM-016 --> With Google's v0.18.0 runtime,
-Agello releases the chat before a helper and reseeds it afterwards; that runtime's `RestoreState`
-moves a restored snapshot in as the live state instead of copying it into the bound buffers.
-<!-- c:LM-ENG-055 -->
+Agello (`a691212`) keeps the chat across a helper only when available memory is at least 28,672 ×
+the positions the chat holds + 400,000,000 bytes: 869,762,048 bytes with 16,384 positions held;
+short of that it releases the chat before the helper and reseeds it afterwards. <!-- c:APL-015 -->
+Since Agello `e084e1f` (2026-11-14) the rule counts filled positions, as the snapshot does, rather
+than `maxNumTokens`, which at a 32K setting counted 32,768 positions, 22,020,096 bytes more than the
+917,504,000 the runtime allocates. <!-- c:X-MEM-016 --> The restore copies the snapshot into the
+bound device buffers, since GPU delegates can't bind host buffers for in-place KV caches (Google's
+`76594366`, 2026-10-12, also in the release Agello ships). <!-- c:LM-ENG-055 -->
 
 ### Engine caches on disk
 
@@ -352,7 +384,7 @@ modification time and its size ([`runtime/executor/executor_settings_base.cc:384
 I/O tensor sizes, KV caches included, so each context size gets its own entry. <!-- c:RT-DLG-047 -->
 Upstream's weight cache key includes the same sizes, so every context size wrote a new copy of the
 same weights; ours (`97e06d36`) keys weights by the delegated nodes and their constant inputs
-([`serialization_weight_cache.cc:531-572`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc#L531-L572)).
+([`serialization_weight_cache.cc:531-572`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc#L531-L572)).
 <!-- c:RT-DLG-055 --> A weight cache written by another ML Drift build of the fully connected weight
 code is rejected ("Cache needs to be built again"), but the program cache key has no build or GPU
 identity. <!-- c:RT-DLG-052 --> <!-- c:RT-DLG-048 --> A `:nocache` directory disables both files. On the CPU backend, XNNPACK writes its own `.xnnpack_cache` file by the same
@@ -360,12 +392,13 @@ naming scheme. <!-- c:RT-CPU-009 -->
 
 #### What Agello keeps
 
-Agello's `EngineCache` (`Agello/Inference/EngineCache.swift:21-130`, Agello `93122b647a`) puts the
-caches under `Library/Caches/com.patricedery.agello.litertlm`. With a runtime that reports a build
-id (ours) it uses one folder for every context size, `kv-all-<id>`, plus `embedding-<id>`, and
-deletes other builds' folders; with Google's binary it uses `kv-<maxNumTokens>` and `embedding` and
-keeps the current context size's folder and the most recently used other one. One-off engines use
-`:nocache`. <!-- c:X-MEM-014 -->
+Agello's `EngineCache` (`Agello/Inference/EngineCache.swift:1-83`, Agello `a691212`) puts the
+caches under `Library/Caches/com.patricedery.agello.litertlm`: one folder for every context size,
+`kv-all-<id>`, plus `embedding-<id>`, with the id our runtime reports through
+`litert_lm_get_build_info`, and at each load it deletes everything else there, other builds' folders
+and the per-size folders of earlier versions included. One-off engines use `:nocache`.
+<!-- c:X-MEM-014 --> (Until Agello shipped our runtime, a runtime without a build id got one
+`kv-<maxNumTokens>` folder per size, two kept.)
 
 #### Measured sizes (probe 14)
 
@@ -385,8 +418,8 @@ LiteRT `aa05bd2d+2345ef8020f4`, ML Drift `55196d78+0485bb3ffab7`, as the build r
 `probes-p4` (build `c2a5c0a3df2a`: LiteRT-LM `5e946049`, LiteRT `31386317`, ML Drift `2184a7f7`),
 both in `results/mac/2026-10-15/agello/`. In each, every context size had its own folder
 (`kv-4096`, `kv-8192`, `kv-16384`) of 2.469–2.472 GB; no single `weight_cache.bin` grew. <!-- c:PRC-008 --> The folders
-written add up to about 2.47, 4.94 and 7.41 GB after the 8K, 4K and 16K loads <!-- c:PRC-008 -->, but `EngineCache`
-kept two at a time <!-- c:X-MEM-014 --> (the 16K row lists only `kv-4096` and `kv-16384`), so 7.41 GB was never on disk
+written add up to about 2.47, 4.94 and 7.41 GB after the 8K, 4K and 16K loads <!-- c:PRC-008 -->, but Agello's `EngineCache` of
+that time kept two at a time (the 16K row lists only `kv-4096` and `kv-16384`), so 7.41 GB was never on disk
 at once. **Measurement gap:** no record loads several
 context sizes into one directory under the upstream key, so how one weight cache file grows there
 (a section appended per new subgraph key) is not measured.
@@ -417,10 +450,11 @@ The iPhone 17 Pro's limit with Agello's entitlement is 8 GiB; early readings can
 <!-- c:APL-001 --> <!-- c:APL-004 --> The evidence and the resolution are on
 [apple-platform.md](apple-platform.md#c1-86-gb-or-64-gb).
 
-What Agello does with it: an 8,192-token default on devices with at least 7·10⁹ bytes of physical
-memory, a 32,768 ceiling in Settings when the limit is at least 6.5·10⁹ bytes (16,384 otherwise,
-which an early 6 GiB reading triggers), and a reply stopped when less than 400,000,000 bytes remain
-available. <!-- c:APL-023 --> <!-- c:APL-013 --> <!-- c:APL-014 --> <!-- c:APL-015 -->
+What Agello (`a691212`) does with it: a 65,536-token window requested on devices with at least
+11·10⁹ bytes of physical memory (32,000 positions with the published E4B file), stepped down at
+load to at most 16,384 tokens when less than 5.1·10⁹ bytes of room remain and to 8,192 below
+3.5·10⁹, and a reply stopped when less than 400,000,000 bytes remain available. The window isn't a
+setting. <!-- c:APL-023 --> <!-- c:APL-013 --> <!-- c:APL-015 -->
 
 ### What Agello measured
 
@@ -431,26 +465,25 @@ its default level).
 #### E4B by context size (iPhone 17 Pro, idle test host)
 
 Agello's calibration loads E4B at each size and sends a long prompt (1,285, 2,302, 4,398 and 8,607
-tokens), then a follow-up. `calibrate-host-idle.json` is our build `fc71d704a349`,
-`calibrate-google-host-idle.json` Google's v0.18.0 binary, both after the test host stopped loading
-its own engine:
+tokens), then a follow-up. `calibrate-host-idle.json` is our build `fc71d704a349`, after the test
+host stopped loading its own engine (before the sparse KV caches and the prefill pools above):
 
-| Allocated context | KV cache (MB) | Ours: after load / after the reply (GB) | Ours: high-water mark (MB) | Ours: graphics at the end (MB) | Google's: after load / after the reply (GB) |
-| --- | --- | --- | --- | --- | --- |
-| 4K | 117.4 | 1.019 / 1.305 | 1,462.2 | 519.7 | 1.095 / 1.334 |
-| 8K | 234.9 | 1.245 / 1.258 | 1,531.9 | 870.5 | 0.988 / 1.254 |
-| 16K | 469.8 | 1.862 / 1.995 | 2,503.0 | 1,616.5 | 1.648 / 1.981 |
-| 32K (32,000) | 917.5 | 2.853 / 3.851 | 4,809.4 | 2,730.0 | 2.862 / 3.856 |
+| Allocated context | KV cache (MB) | After load / after the reply (GB) | High-water mark (MB) | Graphics at the end (MB) |
+| --- | --- | --- | --- | --- |
+| 4K | 117.4 | 1.019 / 1.305 | 1,462.2 | 519.7 |
+| 8K | 234.9 | 1.245 / 1.258 | 1,531.9 | 870.5 |
+| 16K | 469.8 | 1.862 / 1.995 | 2,503.0 | 1,616.5 |
+| 32K (32,000) | 917.5 | 2.853 / 3.851 | 4,809.4 | 2,730.0 |
 
-<!-- c:X-MEM-005 --> <!-- c:X-MEM-006 --> "After load" is the footprint the test reads once the
+<!-- c:X-MEM-005 --> "After load" is the footprint the test reads once the
 engine is loaded, after Agello's one-token validation; "after the reply" is the report's
 `footprintPeakGB`, which despite its name is one footprint reading taken right after the first reply
 (`AgelloDeviceTests/CalibrationScenarioTests.swift:33-66`). The high-water mark is our telemetry's
 `peak_footprint_mb`, `task_vm_info`'s `ledger_phys_footprint_peak` read when the scenario is recorded
-([`agello/telemetry/agello/agello_telemetry.cc:676-690`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.cc#L676-L690)):
+([`agello/telemetry/agello/agello_telemetry.cc:772-790`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/telemetry/agello/agello_telemetry.cc#L772-L790)):
 a process-wide maximum, so because it rose in every scenario, each value was reached during that
 scenario's load, prompt or follow-up. "Graphics" is the graphics footprint at the same moment.
-At 32K, after the first reply, both builds left about 4.7 GB of the 8 GiB available.
+At 32K, after the first reply, 4.738 GB of the 8 GiB were still available.
 
 From 4K to 32K the footprint after load grows by more than the KV cache:
 
@@ -465,28 +498,26 @@ From 4K to 32K the footprint after load grows by more than the KV cache:
 attention tensors [above](#activations-and-intermediate-buffers)) are candidates, but nothing records
 which buffers they are.
 
-When the calibration reloads at the next size, the log records the previous engine's release: our
-build went from 1.15, 1.17 and 1.92 GB to 0.25–0.30 GB, Google's from 1.30, 1.15 and 1.90 GB to
-0.26–0.29 GB, with the engine object freed each time. <!-- c:X-MEM-010 -->
+When the calibration reloads at the next size, the log records the previous engine's release: the
+footprint went from 1.15, 1.17 and 1.92 GB to 0.25–0.30 GB, with the engine object freed each time.
+<!-- c:X-MEM-010 -->
 
 #### Images and audio
 
 The memory suite loads E4B at 8K and runs a text, an image, an audio, an 8K-prompt and a 16K turn
 (reloading at 16K), on top of ballast that simulates a smaller limit. In the first scenario of the
-idle-host runs (5.0 GB target), footprint minus ballast was as follows. Our run had no memory
-warnings; Google's had one from the text turn on.
+idle-host run (5.0 GB target), footprint minus ballast was as follows, with no memory warnings.
 
-| Step | Ours `fc71d704a349` (ballast 1.442 GB) | Google's v0.18.0 (ballast 3.590 GB) |
-| --- | --- | --- |
-| Loaded at 8K | 1.292 GB | 1.356 GB |
-| After the text turn | 1.347 GB | 1.402 GB |
-| After the image turn | 2.639 GB (+1.293) | 2.765 GB (+1.364) |
-| After the audio turn | 2.650 GB | 2.749 GB |
-| After the 8K prompt | 2.541 GB | 2.655 GB |
-| Reloaded at 16K, 16K prompt | 2.171 GB | 2.551 GB |
+| Step | Ours `fc71d704a349` (ballast 1.442 GB) |
+| --- | --- |
+| Loaded at 8K | 1.292 GB |
+| After the text turn | 1.347 GB |
+| After the image turn | 2.639 GB (+1.293) |
+| After the audio turn | 2.650 GB |
+| After the 8K prompt | 2.541 GB |
+| Reloaded at 16K, 16K prompt | 2.171 GB |
 
-<!-- c:X-MEM-009 --> The first image adds about 1.3 GB with either runtime, and it stays until the
-engine is reloaded. Agello runs the vision encoder and adapter on the CPU (4 threads)
+<!-- c:X-MEM-009 --> The first image adds about 1.3 GB, and it stays until the engine is reloaded. Agello runs the vision encoder and adapter on the CPU (4 threads)
 <!-- c:RT-CPU-024 -->; which of the encoder's weights, activations or CPU-side buffers make up the
 1.3 GB isn't recorded. Our run's ballast was sized from an early 6 GiB reading, so its effective
 limit was 7.147 GB, not 5.0 GB. <!-- c:APL-025 --> How the envelope scenarios ended at 3.5, 4.0 and
@@ -497,12 +528,10 @@ limit was 7.147 GB, not 5.0 GB. <!-- c:APL-025 --> How the envelope scenarios en
 Until Agello `8bae20b` (2026-10-15), the app hosting the device tests ran its normal UI, which loaded
 its own E4B engine next to the tests' engine; at `93122b647a` the app shows nothing while it hosts
 tests (`Agello/AgelloApp.swift:23-28`, `:55-63`; its comment says this keeps the app from warming
-up a second engine). Google's binary, measured both ways, shows the
-difference: after-load footprints of 2.252, 2.638, 2.876 and 4.349 GB at 4K to 32K before
-(`calibrate-cooled-google.json`) against 1.095, 0.988, 1.648 and 2.862 GB after. With our build
-`fc71d704a349`, after unloading the tests' engine at the start of the 3.5 and 4.0 GB envelope
-scenarios, `memory-host-engine-breakdown.json` records 1.41 and 1.85 GB of footprint, 0.76 GB of
-it graphics, against 0.12 and 0.49 GB in `memory-host-idle.json`. <!-- c:X-MEM-011 -->
+up a second engine). With our build `fc71d704a349`, after unloading the tests' engine at the start
+of the 3.5 and 4.0 GB envelope scenarios, `memory-host-engine-breakdown.json` (the host's engine
+loaded) records 1.41 and 1.85 GB of footprint, 0.76 GB of it graphics, against 0.12 and 0.49 GB in
+`memory-host-idle.json` (the host idle). <!-- c:X-MEM-011 -->
 <!-- c:APL-044 --> So every device memory figure recorded before that change, including
 `calibrate-ours`, `calibrate-cooled-*`, `memory-ours*`, `memory-google`, `memory-sim-a17*` and
 `calibrate-restore-after-helper`, includes the host's engine; comparisons between builds measured
@@ -511,7 +540,7 @@ the same way still hold.
 #### Mac
 
 The generated engine run (agello-bench, our build, native macOS on the Mac mini M6, E4B at 8K, MTP
-on) recorded a 1,556.1 MB footprint, 886.8 MB of it graphics (57.0%). <!-- c:APL-022 --> When the
+on) recorded an 890.4 MB footprint, 286 MB of it graphics (32.1%). <!-- c:APL-022 --> When the
 iPhone app runs on the Mac, its limit is the Mac's physical memory (16 GiB there), so Mac runs don't
 test the iPhone's limit. <!-- c:APL-019 -->
 
@@ -536,7 +565,7 @@ enabled, MTP on):
 | One `prefill_1024` softmax input (FP16) | 67.1 MB | 134.2 MB | 268.4 MB | 524.3 MB |
 | Footprint after load (measured) | 1.02 GB | 1.24 GB | 1.86 GB | 2.85 GB |
 | High-water mark with a long prompt (measured) | 1.46 GB | 1.53 GB | 2.50 GB | 4.81 GB |
-| Kept-conversation snapshot (ours) | 117.4 MB | 234.9 MB | 469.8 MB | 917.5 MB |
+| Kept-conversation snapshot (ours, at most: the filled positions) | 117.4 MB | 234.9 MB | 469.8 MB | 917.5 MB |
 | First image (measured at 8K) | | +1.29 GB | | |
 | Engine cache on disk (ours, shared) | | about 2.5 GB for all sizes | | |
 
@@ -545,14 +574,17 @@ The derived rows repeat the tables above; the measured ones are single runs at t
 
 ## On Apple
 
-| Item | Documented build (agello-next) | Shipped (Google's v0.18.0 binary) |
-| --- | --- | --- |
-| Model file | mapped, `MADV_DONTNEED` | same code |
-| GPU weights | file-backed pages of the weight cache | same delegate design; the LiteRT inside isn't pinned |
-| Weight cache key | content key: one copy for every context size | per-size key: one ~2.47 GB folder per context size in Agello |
-| Engine cache folders (Agello) | `kv-all-<id>`, `embedding-<id>` | `kv-<n>` (two kept), `embedding` |
-| KV snapshots | raw `MTLBuffer` copies into anonymous mappings; restored by copy | snapshot moved in as the live state; Agello doesn't keep the chat |
-| Footprint after load, 4K to 32K | 1.02 to 2.85 GB | 0.99 to 2.86 GB |
+What ships is our release `agello-one-20261115`; on memory it has our build's code:
+
+| Item | Our build and the release Agello ships |
+| --- | --- |
+| Model file | mapped, `MADV_DONTNEED` |
+| GPU weights | file-backed pages of the weight cache |
+| Weight cache key | content key: one copy for every context size |
+| Engine cache folders (Agello) | `kv-all-<id>`, `embedding-<id>` |
+| KV caches | sparse where the GPU has placement sparse buffers, mapped in 4,096-position steps |
+| KV snapshots | the filled positions, by GPU blits into anonymous mappings; restored by copy |
+| Footprint after load, 4K to 32K (2026-10-15, before sparse caches) | 1.02 to 2.85 GB |
 
 Everything here is measured on Apple GPUs with unified memory: Metal buffers count in the
 footprint, and no separate GPU memory exists to spill to.
@@ -576,12 +608,12 @@ Rows live in [configuration.md](configuration.md); the ones that move memory:
 | Symptom | Cause | What to do |
 | --- | --- | --- |
 | A 32K setting allocates less than expected | 32,003 or more becomes 32,000 positions | Expected; plan with 917.5 MB for E4B |
-| Footprint after load is ~1.2 GB higher in older device reports | The test host's own engine (before Agello `8bae20b`) | Compare only reports recorded the same way |
+| Footprint after load is ~1.3 GB higher in older device reports | The test host's own engine (before Agello `8bae20b`) | Compare only reports recorded the same way |
 | ~1.3 GB jump at the first image | The CPU vision path, held until the engine is reloaded | Budget for it; reload to release |
-| The cache folder holds several 2.47 GB copies (Google's runtime) | Per-size weight cache key | Agello keeps two sizes; our runtime shares one copy |
+| The cache folder holds several 2.47 GB copies (Google's runtime) | Per-size weight cache key | our runtime, which Agello ships, shares one copy |
 | Footprint stays above the load figure after a long prompt | ML Drift keeps the buffers it allocated until the engine is freed | Free the engine to release them |
 | "Cannot allocate memory" when re-creating an engine | Mappings of the previous engine still alive, or address space | Extended virtual addressing; release the old engine first ([troubleshooting.md](troubleshooting.md)) |
-| A CPU engine at 8K takes several GB | Unpatched XNNPACK in a source build (whether Google's v0.18.0 binary has the fix isn't pinned: [cpu-xnnpack.md](litert/cpu-xnnpack.md#open-questions)) | Our XNNPACK patch, or a TensorFlow pin past the fix |
+| A CPU engine at 8K takes several GB | Unpatched XNNPACK in a source build ([cpu-xnnpack.md](litert/cpu-xnnpack.md#open-questions)) | Our XNNPACK patch, or a TensorFlow pin past the fix |
 | The app limit reads 6.4 GB | An early reading | Re-read later; the limit is 8 GiB |
 
 ## Where in the code
@@ -590,20 +622,21 @@ Rows live in [configuration.md](configuration.md); the ones that move memory:
 | --- | --- | --- |
 | Section mapping | `LitertLmLoader::GetSectionBuffer` | [`runtime/util/litert_lm_loader.cc:379-400`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_loader.cc#L379-L400) |
 | `mmap` and `madvise` | `MemoryMappedFile::Create` | [`support/util/memory_mapped_file_posix.cc:132-145`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/support/util/memory_mapped_file_posix.cc#L132-L145) |
-| Embedders on the CPU | `EmbeddingLookupText` | [`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298) |
+| Embedders on the CPU | `EmbeddingLookupText` | [`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-305`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L305) |
 | Context magic number → 32,000 | `GetTargetNumber` | [`runtime/executor/magic_number_configs_helper.cc:243-271`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/magic_number_configs_helper.cc#L243-L271) |
-| KV allocation policy | `LlmLiteRtCompiledModelExecutorStatic::Create` | [`runtime/executor/llm_litert_compiled_model_executor.cc:2165-2180`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L2165-L2180) |
+| KV allocation policy | `LlmLiteRtCompiledModelExecutorStatic::Create` | [`runtime/executor/llm_litert_compiled_model_executor.cc:2525-2540`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_litert_compiled_model_executor.cc#L2525-L2540) |
 | INT8 caches as bytes | `AddValuesToCacheOperationParser` | [`ml_drift_delegate/delegate/composite/add_values_to_cache_parser.cc:86-120`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/composite/add_values_to_cache_parser.cc#L86-L120) |
-| Context switch | `ResourceManager::AcquireExecutorWithContextHandler` | [`runtime/framework/resource_management/resource_manager.cc:745-800`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/resource_manager.cc#L745-L800) |
-| Raw snapshot (ours) | `LitertState::DeepCopy` | [`runtime/executor/litert/state.cc:305-320`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L320) |
-| Snapshot memory (ours) | `AllocateSnapshotMemory` | [`runtime/util/metal_raw_buffer.mm:37-52`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/util/metal_raw_buffer.mm#L37-L52) |
-| Intermediates on Metal | `MemoryManager::AllocateMemoryForBuffers` | [`ml_drift/metal/memory_manager.mm:320-340`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L320-L340) |
+| Context switch | `ResourceManager::AcquireExecutorWithContextHandler` | [`runtime/framework/resource_management/resource_manager.cc:753-808`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/framework/resource_management/resource_manager.cc#L753-L808) |
+| Snapshot (ours) | `LitertState::DeepCopyImpl`, `BlitSnapshot` | [`runtime/executor/litert/state.cc:723-744`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L723-L744), [`runtime/executor/litert/state.cc:652-668`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L652-L668) |
+| Sparse KV caches (ours) | `LitertState::ConvertToSparseKv`, `SparseKvMapper` | [`runtime/executor/litert/state.cc:351-448`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert/state.cc#L351-L448) |
+| Snapshot memory (ours) | `AllocateSnapshotMemory` | [`runtime/util/metal_raw_buffer.mm:39-53`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/util/metal_raw_buffer.mm#L39-L53) |
+| Intermediates on Metal | `MemoryManager::AllocateMemoryForBuffers` | [`ml_drift/metal/memory_manager.mm:527-532`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L527-L532) |
 | Cache file names | `GetProgramCacheFile`, `GetWeightCacheFile` | [`runtime/executor/executor_settings_base.cc:384-430`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/executor_settings_base.cc#L384-L430) |
-| Weight cache build and reload | `DelegateKernel` | [`ml_drift_delegate/delegate/delegate_kernel.cc:539-566`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L539-L566), [`ml_drift_delegate/delegate/delegate_kernel.cc:591-632`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L591-L632) |
+| Weight cache build and reload | `DelegateKernel` | [`ml_drift_delegate/delegate/delegate_kernel.cc:539-566`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L539-L566), [`ml_drift_delegate/delegate/delegate_kernel.cc:591-632`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L591-L632) |
 | Mapped weights as Metal buffers | `TryRestoringSerializedTensor` | [`ml_drift_delegate/delegate/shared_memory_manager/shared_memory_manager_metal.h:243-267`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/shared_memory_manager/shared_memory_manager_metal.h#L243-L267) |
-| Content weight key (ours) | `GenerateContentModelIdentifier` | [`ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc:531-572`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc#L531-L572) |
-| Agello's cache folders | `EngineCache` | `Agello/Inference/EngineCache.swift:21-130` (Agello `93122b647a`) |
-| Agello's limits and policy | `MemoryProbe`, `DeviceProfile` | `Agello/Support/Diagnostics.swift:14-56`, `Agello/Inference/DeviceProfile.swift:16-77` |
+| Content weight key (ours) | `GenerateContentModelIdentifier` | [`ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc:531-572`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/serialization_weight_cache/serialization_weight_cache.cc#L531-L572) |
+| Agello's cache folders | `EngineCache` | `Agello/Inference/EngineCache.swift:1-83` (Agello `a691212`) |
+| Agello's limits and policy | `MemoryProbe`, `DeviceProfile` | `Agello/Support/Diagnostics.swift:14-56` (Agello `93122b647a`), `Agello/Inference/DeviceProfile.swift:40-69` (Agello `a691212`) |
 | Idle test host | `AgelloApp.hostsTests` | `Agello/AgelloApp.swift:23-28`, `:55-63` |
 
 ## Open questions

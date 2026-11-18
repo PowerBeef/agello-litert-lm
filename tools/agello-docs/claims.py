@@ -294,29 +294,31 @@ def cmd_check_verdicts(name, batch, ids):
 
 
 def merged(name):
-    verdicts = {}
+    """Claims with their verdicts applied batch by batch, in name order: a later verdict replaces the
+    verdict and note, and a later correction the text. A later "verified" confirms the claim as earlier
+    batches left it, corrections included (re-verification after a re-pin). Either verdict may give
+    corrected_sources, which replace the sources (a verified claim re-cited at a new pin);
+    original_text and original_sources keep what the research run wrote."""
+    claims = [dict(c) for c in load_claims(name)]
+    by_id = {c["id"]: c for c in claims}
     for f in sorted(glob.glob(os.path.join(VERDICTS_DIR, f"{name}.*.jsonl"))):
         batch = os.path.basename(f)[len(name) + 1:-6]
-        for r in read_jsonl(f, []):
-            verdicts[r.get("id")] = dict(r, batch=batch)
-    out = []
-    for c in load_claims(name):
-        c = dict(c)
-        v = verdicts.get(c["id"])
-        if v is None:
-            c["verdict"] = "unsampled" if c.get("tier") == "B" else "unverified"
-        else:
+        for v in read_jsonl(f, []):
+            c = by_id.get(v.get("id"))
+            if c is None:
+                continue
             c["verdict"] = v["verdict"]
-            c["verified_in"] = f"{name}.{v['batch']}"
+            c["verified_in"] = f"{name}.{batch}"
             c["verifier_note"] = v.get("note", "")
             if v["verdict"] == "corrected":
-                c["original_text"] = c["text"]
+                c.setdefault("original_text", c["text"])
                 c["text"] = v["corrected_text"]
-                if v.get("corrected_sources"):
-                    c["original_sources"] = c["sources"]
-                    c["sources"] = v["corrected_sources"]
-        out.append(c)
-    return out
+            if v["verdict"] in ("verified", "corrected") and v.get("corrected_sources"):
+                c.setdefault("original_sources", c["sources"])
+                c["sources"] = v["corrected_sources"]
+    for c in claims:
+        c.setdefault("verdict", "unsampled" if c.get("tier") == "B" else "unverified")
+    return claims
 
 
 def cmd_merge(name):

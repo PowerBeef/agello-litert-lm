@@ -9,9 +9,10 @@
 > classes, streaming detokenizer and stop-token detector ([../litert-lm/components.md](../litert-lm/components.md));
 > the container sections ([../litert-lm/file-format.md](../litert-lm/file-format.md)); the models
 > themselves ([gemma4-family.md](gemma4-family.md)).
-> **Pinned to:** LiteRT-LM `7b872544` (agello-next); model files and Hugging Face revisions in
-> `tools/agello-docs/pins.json`.
-> **Applies to:** all platforms. **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0` (LiteRT-LM at the root), Google's base `df6df5b8` for the
+> `models/gemma4` files our tree removed; Agello ships release `agello-one-20261115` (`6da75396`);
+> model files and Hugging Face revisions in `tools/agello-docs/pins.json`.
+> **Applies to:** all platforms. **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -22,10 +23,12 @@ The chat format is built from control tokens: `<|turn>` (105) / `<turn|>` (106) 
 `<|think|>` (98) to turn thinking on, `<|channel>` (100) / `<channel|>` (101) around the reasoning,
 and six tool tokens (46 to 51) plus `<|"|>` (52) for strings. Generation stops on 1 (`<eos>`), 106
 (`<turn|>`) or 50 (`<|tool_response>`). Four Jinja templates are in circulation: the one inside the
-published E2B/E4B files (the one Agello runs), a variant in the `-gpu` files, the newer canonical one
-in LiteRT-LM's repository, and Google's on Hugging Face. They agree on plain chats and differ around
-tool calls: the file template closes the model's turn after a tool call and reopens it after the
-tool response, which neither Google's template nor the paper's examples do.
+published E2B/E4B files (the one the release Agello ships runs), a variant in the `-gpu` files, the
+newer canonical one in Google's LiteRT-LM repository (removed from our tree), and Google's on
+Hugging Face. They agree on plain chats and differ around tool calls: the file template closes the
+model's turn after a tool call and reopens it after the tool response, which neither Google's
+template nor the paper's examples do. Our build edits the file template at load so the tool call's
+turn stays open (ours: `9a84a518`, [below](#how-litert-lm-applies-the-template)).
 
 ## Concepts
 
@@ -204,7 +207,7 @@ Rules from Google that a runtime has to follow (card "Best Practices", prompt pa
 | E2B, E4B (ours and Google's) and `-gpu` files, `LlmMetadata` | 2 | 1, 50, 106 |
 | Hugging Face `generation_config.json` of E2B-it, E4B-it, 12B-it, 26B-A4B-it, 31B-it and the 31B assistant | `bos_token_id` 2 | 1, 106, 50 |
 | `gemma-4-12B-it-assistant` `generation_config.json` | 2 | 1 |
-| LiteRT-LM `models/gemma4/LlmMetadataProto_12b.pbtext` | `<bos>` (by string) | 1, 106, 50 |
+| Google's LiteRT-LM `models/gemma4/LlmMetadataProto_12b.pbtext` (removed from our tree) | `<bos>` (by string) | 1, 106, 50 |
 
 <!-- c:MOD-TOK-026 -->
 
@@ -226,12 +229,12 @@ p 0.95 and temperature 1.0 ([e4b-gpu](../generated/models/e4b-gpu.md), section 0
 | --- | --- | --- |
 | **File template** (`a8c20bf5`) | `jinja_prompt_template` of the published E2B and E4B files, ours included; byte-identical to `chat_template.jinja` in the `litert-community` E2B and E4B repositories | LiteRT-LM unless overridden; Agello |
 | **GPU file template** (`f72275b3`) | the `-gpu` files | Google's artisan executor |
-| **Repository template** (`a6b935b2`) | LiteRT-LM `models/gemma4/chat_template_e2b_e4b.jinja`, also embedded in `LlmMetadataProto.pbtext` | files built from the repository metadata; none of the published files |
+| **Repository template** (`a6b935b2`) | Google's LiteRT-LM `models/gemma4/chat_template_e2b_e4b.jinja` (removed from our tree), also embedded in `LlmMetadataProto.pbtext` | files built from the repository metadata; none of the published files |
 | **Hugging Face template** (`9d795d4e`) | `chat_template.jinja` in `google/gemma-4-E2B-it` and `-E4B-it`, "Published: 2026-07-09" | Transformers |
 
 The labels are MD5 prefixes of the template text. <!-- c:MOD-TOK-030 -->
 For 12B, 26B-A4B and 31B, Hugging Face publishes one template (`f016bd4b`) that differs from the
-E2B/E4B one only in the empty thought block above, and LiteRT-LM's repository has a matching
+E2B/E4B one only in the empty thought block above, and Google's LiteRT-LM repository has a matching
 `chat_template.jinja` embedded in the 12B and 26B/31B metadata. <!-- c:MOD-TOK-022 -->
 
 The repository's README lists how its templates differ from Hugging Face's: tool responses in the
@@ -282,8 +285,8 @@ separators. <!-- c:MOD-TOK-041 -->
 
 LiteRT-LM's Swift wrapper builds exactly the shape the file template reads: a `tool` message whose
 `content` is a list of `{"type": "tool_response", "name", "response"}`
-([`swift/Conversation.swift:397-425`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L397-L425)),
-in agello-next and in the shipped wrapper. The Hugging Face template doesn't read
+([`swift/Conversation.swift:409-437`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Conversation.swift#L409-L437)),
+in our build and in the release Agello ships. The Hugging Face template doesn't read
 that shape: it collects only `text` parts of a tool message, so the same message renders as
 `<|tool_response>response:get_weather{value:<|"|><|"|>}<tool_response|>`, an empty response.
 <!-- c:MOD-TOK-043 --> Overriding the template with Google's Hugging Face one through
@@ -292,7 +295,7 @@ that shape: it collects only `text` parts of a tool message, so the same message
 **Media.** LiteRT-LM never feeds the placeholders to the model. The Gemma 4 processor splits the
 rendered text at `<|image|>`, `<start_of_image>`, `<|audio|>` and `<start_of_audio>`, and replaces each
 image placeholder with the text so far plus `<|image>`, the image's embeddings, and an image-end
-input ([`runtime/conversation/model_data_processor/gemma4_data_processor.cc:115-129`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/conversation/model_data_processor/gemma4_data_processor.cc#L115-L129),
+input ([`runtime/conversation/model_data_processor/gemma4_data_processor.cc:115-129`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/model_data_processor/gemma4_data_processor.cc#L115-L129),
 [`runtime/conversation/model_data_processor/multimodal_processor_helper.cc:115-188`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/multimodal_processor_helper.cc#L115-L188)).
 <!-- c:MOD-TOK-044 --> So with the file template an image costs `\n\n\n` (109) before `<|image>` and
 `\n\n` (108) after the image end, plus the image tokens (280 by default; claim LM-CNV-034).
@@ -301,11 +304,24 @@ input ([`runtime/conversation/model_data_processor/gemma4_data_processor.cc:115-
 
 Covered on [../litert-lm/conversation.md](../litert-lm/conversation.md); in short:
 
+0. In our build, for a Gemma 4 file and no `chatTemplate` override, `Conversation` edits the file's
+   template once at creation (`FixGemma4ToolTemplate`, ours: `9a84a518`, 2026-11-17, not in the
+   release Agello ships): a model message with tool calls ends with `<|tool_response>` instead of
+   `<turn|>\n`; the tool response leaves out its first `<|tool_response>`; the answer after a tool
+   response continues the model's turn without `<|turn>model\n`; and no generation prompt follows a
+   tool call. Any other template, or a piece not found exactly once, leaves the template as it is
+   ([`runtime/conversation/conversation.cc:160-182`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L160-L182),
+   [`runtime/conversation/agello_gemma4_template.cc:25-70`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/agello_gemma4_template.cc#L25-L70)).
+   <!-- c:MOD-TOK-036 --> <!-- c:MOD-TOK-037 --> The answer to a tool response also can't open with the
+   file's single-token stop tokens (`<eos>`, `<turn|>`) or `<|tool_response>`, suppressed for its
+   first token only (ours: `9a84a518`, `586e2e4c`;
+   [`runtime/conversation/conversation.cc:574-592`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L574-L592),
+   [`runtime/conversation/conversation.cc:724-737`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L724-L737)).
 1. `Conversation` renders the whole message list with minijinja (trailing newlines kept, blocks
    trimmed) and prefills only the difference from the previous render (claims LM-CNV-018, LM-CNV-021).
 2. Thinking on adds `enable_thinking` to the template inputs and makes the session track the
-   `thought` channel ([`runtime/conversation/conversation.cc:360-388`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L360-L388)).
-3. After a reply with reasoning, agello-next rewinds to the end of the prefill and refills the reply
+   `thought` channel ([`runtime/conversation/conversation.cc:365-393`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L365-L393)).
+3. After a reply with reasoning, our build rewinds to the end of the prefill and refills the reply
    rendered without it (claims LM-CNV-050, LM-CNV-052).
 
 Step 3 applies to tool-call replies too: the thought before a tool call leaves the KV cache before
@@ -423,7 +439,8 @@ The model answers "You're welcome." (`3048 236789 500 8349 236761`) and `<turn|>
 message shape (an OpenAI-style `tool` message with `tool_call_id`), renders the tool turn as one model
 turn: `<|turn>model\n<|tool_call>call:get_weather{city:<|"|>Paris<|"|>}<tool_call|><|tool_response>response:get_weather{…}<tool_response|>18 °C and sunny.<turn|>\n`,
 and its generation prompt after the tool response is `<|channel>thought\n` when thinking is on.
-LiteRT-LM's repository template renders the same turn structure. <!-- c:MOD-TOK-036 -->
+Google's LiteRT-LM repository template renders the same turn structure, and so does the file
+template as our build edits it, without the `<|channel>thought\n` prompt. <!-- c:MOD-TOK-036 -->
 <!-- c:MOD-TOK-037 --> Compared with the file template, Google's form has no `<turn|>\n` (106, 107)
 after the tool call and no `<|turn>model\n` (105, 4368, 107) before the answer.
 
@@ -433,7 +450,8 @@ Nothing here depends on the platform: the tokenizer and template run inside `CLi
 macOS as anywhere else. What Agello does with them:
 
 - **The file template.** Agello sets no `chatTemplate`, so its chats use the template inside the E4B
-  file (Agello `Agello/Inference/ChatEngine.swift` lines 309-334 at `93122b6`). <!-- c:MOD-TOK-053 -->
+  file, unchanged in the release Agello ships and with the tool-call edits in our build (Agello
+  `Agello/Inference/ChatEngine.swift` lines 309-334 at `93122b6`). <!-- c:MOD-TOK-053 -->
 - **Thinking per conversation.** It passes a `ThinkingConfig` when thinking is on, which puts
   `<|think|>` at the top of the system turn for the conversation's life (claim LM-CNV-025 and
   conversation.md, "Per-message thinking toggles"). <!-- c:MOD-TOK-053 -->
@@ -443,8 +461,11 @@ macOS as anywhere else. What Agello does with them:
 - **Reseeds are plain text.** When Agello recreates a conversation it replays saved turns as plain
   user and model text messages, so earlier tool calls and responses are not rendered in their Gemma 4
   form after a reseed. <!-- c:MOD-TOK-054 -->
-- **The shipped build is the same here.** The template, the stop tokens and the tool-message shape
-  come from the file and the Swift wrapper, which are the same for v0.18.0 and agello-next.
+- **What ships differs here in the template's tool-call edits and the stop token's embedding.** The
+  stop tokens and the tool-message shape come from the file and the Swift wrapper, the same in our
+  build and the release Agello ships; the tool-call edits (ours: `9a84a518`), the first-token rule
+  after a tool response and the pending stop token's embedding lookup (ours: `a82611eb`) are in our
+  build only.
 
 ## Settings
 
@@ -464,18 +485,20 @@ The rows live in [../configuration.md](../configuration.md).
   encoded as the control token. A pasted document or a web page that contains such strings can end a
   turn or open a tool call in the prompt the model sees. Nothing in LiteRT-LM escapes them.
 - **The file template differs from Google's around tools.** It closes the model turn after a tool
-  call with `<turn|>\n` and opens a new `<|turn>model\n` for the answer after a tool response, and it
-  doesn't keep thoughts within a tool-calling turn. Google's current template, its prompt page and
-  LiteRT-LM's own repository template do neither. Whether this changes E4B's tool use was not measured.
-- **The KV cache doesn't always hold the render.** After a tool call without reasoning nothing is
-  refilled: the cache holds what was generated (ending at the stop token), while later renders contain
-  `<turn|>\n` after the call and `<|turn>model\n` before the answer. Traced in the code: the stop
-  token is written at the next prefill from an id-and-zeros row instead of its embedding
-  <!-- c:X-GAP-003 -->, and when `<turn|>` was the last token of its decode step or MTP round (so it
-  is the pending token), the `\n` after it is never written <!-- c:X-GAP-002 -->; after a reply that is
-  only a tool call and stopped on `<|tool_response>` or `<turn|>` as the last token of its step or MTP
-  round, the tool response follows the stop token's slot directly, and the answer follows
-  `<tool_response|>` without `<|turn>model\n` <!-- c:X-GAP-006 --> ([../litert-lm/conversation.md](../litert-lm/conversation.md#what-the-kv-cache-holds-at-a-turn-boundary)).
+  call with `<turn|>\n` and opens a new `<|turn>model\n` for the answer after a tool response (our
+  build edits both away at load), and it doesn't keep thoughts within a tool-calling turn. Google's
+  current template, its prompt page and Google's LiteRT-LM repository template do neither. Whether this changes E4B's tool use was not measured.
+- **The KV cache doesn't always hold the render.** After a reply without reasoning nothing is
+  refilled: the cache holds what was generated, ending at the stop token, which the next prefill
+  writes first. Traced in the code: in our build that token gets its own embedding (ours:
+  `a82611eb`), while the release Agello ships writes it from an id-and-zeros row
+  <!-- c:X-GAP-003 -->; after `<turn|>`, the `\n` the file template puts after it is never written, in
+  both <!-- c:X-GAP-002 -->. After a reply that is only a tool call, in our build, whose edited
+  template renders the call ending `<tool_call|><|tool_response>`, a call that stopped on
+  `<|tool_response>` leaves the cache holding the render (one that stopped on `<turn|>` leaves that
+  token where the render has `<|tool_response>`); in the release, the cache holds `<tool_call|>`, the
+  stop token's slot, then the tool response, and the answer follows `<tool_response|>` without the
+  `<|turn>model\n` later renders have <!-- c:X-GAP-006 --> ([../litert-lm/conversation.md](../litert-lm/conversation.md#what-the-kv-cache-holds-at-a-turn-boundary)).
 - **Template overrides need LiteRT-LM's message shapes.** A template written for Transformers
   (OpenAI-style tool messages, `tool_call_id`, `reasoning_content`) silently drops data from
   LiteRT-LM's messages, as the empty tool response above shows.
@@ -492,11 +515,11 @@ The rows live in [../configuration.md](../configuration.md).
 | Empty `bos_token` for templates | `PromptTemplateInput` | [`runtime/components/prompt_template.h:94-98`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/prompt_template.h#L94-L98) |
 | minijinja environment | `create_env` | [`runtime/components/rust/minijinja_template.rs:177-192`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/rust/minijinja_template.rs#L177-L192) |
 | Start and stop tokens from metadata | `SessionConfig::MaybeUpdateAndValidate` | [`runtime/engine/engine_settings.cc:749-768`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L749-L768) |
-| Media placeholders | `Gemma4DataProcessor::ToInputDataVectorImpl`, `ProcessMultimodalPrompt` | [`gemma4_data_processor.cc:115-129`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/conversation/model_data_processor/gemma4_data_processor.cc#L115-L129), [`multimodal_processor_helper.cc:115-188`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/multimodal_processor_helper.cc#L115-L188) |
+| Media placeholders | `Gemma4DataProcessor::ToInputDataVectorImpl`, `ProcessMultimodalPrompt` | [`gemma4_data_processor.cc:115-129`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/model_data_processor/gemma4_data_processor.cc#L115-L129), [`multimodal_processor_helper.cc:115-188`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/multimodal_processor_helper.cc#L115-L188) |
 | Reply to message (tool-call parsing) | `ResponseTextToMessage` | [`runtime/conversation/model_data_processor/data_utils.cc:86-108`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/data_utils.cc#L86-L108) |
 | Tool declaration JSON (Swift) | `Tool.getSchema` | [`swift/Tool.swift:224-273`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/Tool.swift#L224-L273) |
-| Tool response message (Swift) | `handleToolCalls` | [`swift/Conversation.swift:397-425`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L397-L425) |
-| Render difference per turn | `GetSingleTurnTextFromFullHistory` | [`runtime/conversation/conversation.cc:292-315`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L292-L315) |
+| Tool response message (Swift) | `handleToolCalls` | [`swift/Conversation.swift:409-437`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/Conversation.swift#L409-L437) |
+| Render difference per turn | `GetSingleTurnTextFromFullHistory` | [`runtime/conversation/conversation.cc:297-320`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L297-L320) |
 | Repository templates and their tests | `chat_template_e2b_e4b.jinja`, `chat_template_test` | [`models/gemma4/chat_template_e2b_e4b.jinja:123-199`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/models/gemma4/chat_template_e2b_e4b.jinja#L123-L199), [`models/gemma4/BUILD:27-60`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/models/gemma4/BUILD#L27-L60) |
 | Template text in each file | `jinja_prompt_template` | [e4b-ours](../generated/models/e4b-ours.md), [e4b-gpu](../generated/models/e4b-gpu.md), section 0 |
 
@@ -506,8 +529,8 @@ The rows live in [../configuration.md](../configuration.md).
   (two turns, a tool call) would show the IDs the model actually emits and confirm what the code trace
   says the KV cache holds at each boundary
   ([../litert-lm/conversation.md](../litert-lm/conversation.md#what-the-kv-cache-holds-at-a-turn-boundary)).
-- **Does the file template hurt tool use?** Compare E4B with the file template and with LiteRT-LM's
-  repository template (which matches Google's turn structure and reads LiteRT-LM's message shapes)
+- **Does the file template hurt tool use?** Compare E4B with the file template and with Google's
+  LiteRT-LM repository template (which matches Google's turn structure and reads LiteRT-LM's message shapes)
   on Agello's tool scenarios. Not done.
 - **Thoughts within a tool-calling turn.** Google says to keep them; LiteRT-LM removes them. The filter
   is set per conversation (C++) or process-wide (Swift `ExperimentalFlags`), with no per-turn switch.

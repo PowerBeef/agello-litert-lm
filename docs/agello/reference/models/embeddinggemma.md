@@ -11,19 +11,22 @@
 > ([../litert-lm/components.md](../litert-lm/components.md#embedding-lookups)), the ML Drift delegate
 > ([../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md)), the Gemma 4 chat models
 > ([gemma4-family.md](gemma4-family.md)) and the tokenizer ([tokenizer-and-chat-format.md](tokenizer-and-chat-format.md)).
-> **Pinned to:** LiteRT-LM `7b872544` (shipped wrapper `85b1a776`); model files and configs at the
+> **Pinned to:** `main` `b7b856a0` (LiteRT-LM at the root); Agello ships release `agello-one-20261115`
+> (`6da75396`); model files and configs at the
 > revisions in `tools/agello-docs/pins.json` (`google/embeddinggemma-2` `914f7f89`,
-> `litert-community/embeddinggemma-2-text-270m-litert-lm` `9be6e8b9`); Agello `93122b647a`.
-> **Applies to:** all platforms (model), Apple (Agello). **Last verified:** 2026-10-15
+> `litert-community/embeddinggemma-2-text-270m-litert-lm` `9be6e8b9`); Agello `a691212` (and
+> `93122b647a` where named).
+> **Applies to:** all platforms (model), Apple (Agello). **Last verified:** 2026-11-17
 
 ## Summary
 
 - EmbeddingGemma 2 is Google DeepMind's multimodal embedding model: text, images, video and audio
   into one 768-dimensional space, 740M parameters in total, of which the text model is 270M. <!-- c:MOD-EMB-001 -->
   Agello uses only the text part, through litert-community's `embeddinggemma-2-text-270m`
-  `.litertlm` file (164,626,432 bytes, INT4 weights), downloaded from the repository's `main` branch:
-  Agello pins no revision for it, and `main` was `9be6e8b9`, the revision documented here, on
-  2026-10-15. <!-- c:MOD-EMB-002 -->
+  `.litertlm` file (164,626,432 bytes, INT4 weights) at revision `9be6e8b9`, the revision documented
+  here: Agello's catalog pins that revision and the file's SHA-256 (since Agello `7787a98`,
+  2026-10-16), and checks both before using a download; at `93122b647a` it downloaded `main`, which
+  was `9be6e8b9` on 2026-10-15. <!-- c:MOD-EMB-002 -->
 - The text model is a 24-layer bidirectional encoder (width 512, 4 query heads, 5 sliding layers to
   1 global), with per-layer embeddings computed from the input embeddings rather than looked up and
   a 512 → 768 projection of each token's final state; Sentence Transformers then mean-pools and
@@ -34,9 +37,10 @@
 - Trained context 8,192 tokens; exported signatures up to 8,192; but the file's metadata sets
   `max_input_length: 1024`, so by default LiteRT-LM loads only the 128-1,024 signatures and rejects
   longer inputs. Agello keeps that default. <!-- c:MOD-EMB-004 -->
-- Agello embeds passages as `title: {name} | text: {passage}` and queries as
-  `task: search result | query: {query}`, keeps 256 of the 768 dimensions, and stores each vector as
-  256 float16 values (512 bytes). <!-- c:MOD-EMB-005 -->
+- Agello (`a691212`) embeds passages as `title: {name} | text: {passage}` and queries as
+  `task: search result | query: {query}`, keeps all 768 dimensions (256 until 2026-11-16), asks the
+  runtime to truncate an over-long input, and stores each vector as 768 float16 values (1,536 bytes).
+  <!-- c:MOD-EMB-005 -->
 - Two things to know: on the GPU, LiteRT-LM runs the encoder with FP16 activations, which the model
   card warns against for the original checkpoint (not measured against an FP32 reference here); and
   the exported graphs' sliding-window masks differ from the Hugging Face implementation for inputs
@@ -333,8 +337,8 @@ Section 0 (`EmbeddingMetadata`): `embedding_model_type.embedding_gemma_v2` with 
 `<|audio>`/`<audio|>`; BOS token ID 2; EOS token ID 1; a miniaudio front end (16 kHz mono, frame
 320, hop 160, FFT 512, 128 mel bins to 8 kHz); `max_input_length: 1024`; no `min_input_length` and no
 `min_runtime_version`. <!-- c:MOD-EMB-047 --> The media fields are unused by this text-only file.
-LiteRT-LM's canonical metadata for the family, `models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext`,
-has the same values (plus some fields spelled out at their defaults) and `max_input_length: 1024` [`models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext:56`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext#L56); its README describes it as the setting
+Google's canonical metadata for the family, `models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext`
+(at our base; our tree removed the `models/` folder), has the same values (plus some fields spelled out at their defaults) and `max_input_length: 1024` [`models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext:56`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext#L56); its README describes it as the setting
 for 140 visual tokens (1,260 patches). <!-- c:MOD-EMB-048 -->
 
 ### How LiteRT-LM runs it
@@ -366,7 +370,7 @@ sequenceDiagram
    when the caller set none [`runtime/engine/embedding_engine_settings.cc:266-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine_settings.cc#L266-L298). The text encoder's activation type comes from the caller,
    else from the section's `prefer_activation_type`, else FLOAT16 when the backend is the GPU
    [`runtime/engine/embedding_engine_settings.cc:183-208`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine_settings.cc#L183-L208); `SetCommonGpuOptions` turns any activation type but FLOAT32 (and no mixed precision)
-   into GPU precision `kFp16` [`runtime/executor/litert_compiled_model_executor_utils.cc:1017-1031`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1017-L1031). For this file on the GPU that means FP16 activations. <!-- c:MOD-EMB-049 -->
+   into GPU precision `kFp16` [`runtime/executor/litert_compiled_model_executor_utils.cc:1021-1035`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1021-L1035). For this file on the GPU that means FP16 activations. <!-- c:MOD-EMB-049 -->
 2. **Which signatures load.** With either bound set, `SelectTextEncoderSignatures` keeps the
    signatures sorted by length from the smallest up to the first one at least `max_input_length`
    long (skipping any shorter than `min_input_length`) [`runtime/core/embedding_engine_impl.cc:334-352`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L334-L352) [`runtime/executor/model_signature_utils.cc:202-236`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/model_signature_utils.cc#L202-L236), and the executor
@@ -398,68 +402,71 @@ sequenceDiagram
    executor ("Batch inference isn't supported yet"); a batch saves call overhead, not GPU work
    [`runtime/core/embedding_engine_impl.cc:1655-1694`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L1655-L1694) [`runtime/executor/embedding_litert_compiled_model_executor.cc:598-610`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/embedding_litert_compiled_model_executor.cc#L598-L610). <!-- c:MOD-EMB-055 -->
 
-The shipped v0.18.0 sources have the same defaults: metadata input-length bounds, FLOAT16 on the GPU,
-and the `kError` overflow strategy [`runtime/engine/embedding_engine_settings.cc:266-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/engine/embedding_engine_settings.cc#L266-L298) [`runtime/engine/embedding_engine_settings.cc:183-208`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/engine/embedding_engine_settings.cc#L183-L208) [`runtime/engine/embedding_engine.h:31-51`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/engine/embedding_engine.h#L31-L51). <!-- c:MOD-EMB-056 -->
+The release Agello ships has the same defaults: metadata input-length bounds, FLOAT16 on the GPU,
+and the `kError` overflow strategy [`runtime/engine/embedding_engine_settings.cc:266-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine_settings.cc#L266-L298) [`runtime/engine/embedding_engine_settings.cc:183-208`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine_settings.cc#L183-L208) [`runtime/engine/embedding_engine.h:31-51`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine.h#L31-L51). <!-- c:MOD-EMB-056 -->
 
 What the Swift API exposes is on [../litert-lm/swift-api.md](../litert-lm/swift-api.md#embeddingengine):
-`EmbeddingEngineConfig` has `maxInputLength` (passed to the C setter only when non-nil) but no
-activation type, and `EmbeddingOptions` has no overflow strategy [`swift/EmbeddingEngineConfig.swift:42-58`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58) [`swift/EmbeddingEngine.swift:102-107`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngine.swift#L102-L107) [`swift/EmbeddingEngineConfig.swift:62-94`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L62-L94);
-the C API has a setter for the activation type that the Swift wrapper never calls [`c/embedding_engine.h:240-254`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/embedding_engine.h#L240-L254). <!-- c:MOD-EMB-057 -->
+`EmbeddingEngineConfig` has `maxInputLength` (passed to the C setter only when non-nil) and, in our
+build only, `activationDataType` (ours: `1a90cdb4`, passed to the C API's activation-type setter
+only when set; the release Agello ships has no activation type), and `EmbeddingOptions` has an
+`inputOverflowStrategy`, `nil` for the C++ `kError` (ours, in both) [`swift/EmbeddingEngineConfig.swift:50-68`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngineConfig.swift#L50-L68) [`swift/EmbeddingEngine.swift:108-113`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngine.swift#L108-L113) [`swift/EmbeddingEngineConfig.swift:70-125`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngineConfig.swift#L70-L125)
+[`swift/EmbeddingEngine.swift:68-133`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngine.swift#L68-L133) [`c/embedding_engine.h:240-254`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/embedding_engine.h#L240-L254). <!-- c:MOD-EMB-057 -->
 The Swift `EmbeddingResponse` carries only the vector, not the input length, truncation or chunk
-count of the C++ response [`swift/EmbeddingEngineConfig.swift:96-105`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L96-L105) [`runtime/engine/embedding_engine.h:53-63`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine.h#L53-L63).
+count of the C++ response [`swift/EmbeddingEngineConfig.swift:124-133`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngineConfig.swift#L124-L133) [`runtime/engine/embedding_engine.h:53-63`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/embedding_engine.h#L53-L63).
 
 ### How Agello uses it
 
-Agello `93122b647a` (`Agello/Knowledge/`, `Agello/ModelHub/ModelCatalog.swift`):
+Agello `a691212` (`Agello/Knowledge/`, `Agello/ModelHub/ModelCatalog.swift`; lines at that commit):
 
 | What | Agello | Where |
 | --- | --- | --- |
-| File | `litert-community/embeddinggemma-2-text-270m-litert-lm`, `embeddinggemma-2-text-270m.litertlm`, expected size 164,626,432 bytes, revision `main` (not a commit) | `ModelCatalog.swift:44-53`, `:13` |
-| Engine | `EmbeddingEngine` with `EmbeddingEngineConfig(modelPath:backend:cacheDir:)`: tries `.gpu`, then `.cpu()`; loads on first use | `Embedding.swift:76-94` |
-| Options | `EmbeddingOptions(normalize: true, outputSize: 256)`; special tokens and overflow strategy left at their defaults | `Embedding.swift:23`, `:33` |
-| Documents | `title: {document name, or none} \| text: {passage}`, in `computeEmbeddingBatch` calls of 8 | `Embedding.swift:41-53`, `:67-70` |
-| Queries | `task: search result \| query: {query}` | `Embedding.swift:55-60`, `:72-74` |
-| Index identifier | `embeddinggemma-2-text-270m@256`: a document indexed with a different identifier is re-indexed; chat search vectors store no identifier and are not | `Embedding.swift:24` |
-| Storage | 256 float16 values per vector (`VectorIndex.encode`), decoded to float32 for search | `Embedding.swift:137-149` |
-| Search | brute-force dot product with `vDSP_dotpr` over unit vectors, sorted | `Embedding.swift:151-173` |
-| Passages | about 1,600 characters with 200 characters of overlap ("~400 tokens of English at ~4 characters per token") | `Chunker.swift:12-19` |
-| Chats | title and first 6 turns, at most 1,500 characters, embedded with `title: none` | `KnowledgeBase.swift:171-181`, `:195-212` |
-| Web passages | embedded with title `none` and ranked against the question | `Web/WebContext.swift:270-275` |
-| Related chats | cosine ≥ 0.60 and ≥ 0.08 above the median chat (`sorted[count / 2]`, 3 or more chats); thresholds commented as calibrated on device for the 256-dimension embedder | `Embedding.swift:25-29`, `KnowledgeBase.swift:226-236` |
-| Engine cache | `Library/Caches/com.patricedery.agello.litertlm/embedding` (`embedding-<build id>` for builds that report one); the current build's folder is kept when caches are trimmed | `EngineCache.swift:26-38`, `:115-121` |
+| File | `litert-community/embeddinggemma-2-text-270m-litert-lm`, `embeddinggemma-2-text-270m.litertlm`, 164,626,432 bytes, revision `9be6e8b9` and its SHA-256 (since Agello `7787a98`; `main` at `93122b647a`) | `ModelCatalog.swift:53-63` |
+| Engine | `EmbeddingEngine` with `EmbeddingEngineConfig(modelPath:backend: .gpu, cacheDir:)`, tried twice on the GPU, no CPU fallback (search falls back to keywords); loads on first use | `Embedding.swift:120-161` |
+| Options | `EmbeddingOptions(normalize: true, outputSize: 768, inputOverflowStrategy: .truncate)`; special tokens at their default | `Embedding.swift:44`, `:64-67` |
+| Documents | `title: {document name cut to 80 characters, or none} \| text: {passage}`, in `computeEmbeddingBatch` calls of 8 | `Embedding.swift:69-90`, `:111-114` |
+| Queries | `task: search result \| query: {query}` | `Embedding.swift:92-101`, `:116-118` |
+| Index identifier | `embeddinggemma-2-text-270m@768`: a document indexed with a different identifier is re-indexed, and a chat vector of another length is re-embedded | `Embedding.swift:46`; `KnowledgeBase.swift:145-149`, `:242-252` |
+| Storage | 768 float16 values per vector (`VectorIndex.encode`), decoded to float32 for search | `Embedding.swift:206-218` |
+| Search | per document, one `vDSP_mmul` of its passage matrix with the query, then the best rows; chats by `vDSP_dotpr`, sorted; unit vectors | `Embedding.swift:233-285`, `KnowledgeBase.swift:302-314` |
+| Passages | 1,600 units with 200 of overlap, a unit being an estimated quarter token ("~400 tokens: 1,600 characters of English at ~4 characters per token") | `Chunker.swift:12-41` |
+| Chats | title and first 6 turns (error turns left out), at most 1,500 characters, embedded with `title: none` | `KnowledgeBase.swift:230-240`, `:257-275` |
+| Web passages | embedded with title `none` and ranked against the question | `Web/WebContext.swift:591-606` |
+| Related chats | cosine ≥ 0.60 and ≥ 0.07 above the median chat (`sorted[count / 2]`, 3 or more chats); thresholds commented as calibrated by probe 33 at 768 dimensions (0.08 at 256) | `Embedding.swift:47-53`, `KnowledgeBase.swift:287-299` |
+| Engine cache | `Library/Caches/com.patricedery.agello.litertlm/embedding-<build id>` (`unknown` without one); the current build's folder is kept when caches are trimmed | `EngineCache.swift:9-39` |
 
 <!-- c:MOD-EMB-058 --> <!-- c:MOD-EMB-059 --> <!-- c:MOD-EMB-060 --> <!-- c:MOD-EMB-061 -->
 
 **Matches the card.** The two prompt formats are the card's retrieval pair (`SearchQuery` /
-`Document` with a title), truncation to 256 is one of the trained Matryoshka dimensions, and the
-engine re-normalizes after truncating. Chat titles are not passed as the title field: chats use
+`Document` with a title), and Agello keeps the full 768 dimensions, normalized by the engine (until
+2026-11-16 it truncated to 256, one of the trained Matryoshka dimensions, re-normalized after
+truncating). Chat titles are not passed as the title field: chats use
 `title: none` with the title inside the text. <!-- c:MOD-EMB-062 -->
 
-**Storage arithmetic.** Google's full output is 768 float32 values, 3,072 bytes; Agello keeps 256
-values as float16, 512 bytes: a sixth of the 768-dimension float32 size by dimension count alone
-(3,072 / 1,024 = 3 for the truncation, × 2 for float16). <!-- c:MOD-EMB-063 --> The float16
+**Storage arithmetic.** Google's full output is 768 float32 values, 3,072 bytes; Agello keeps the
+768 values as float16, 1,536 bytes, half of that (at 256 dimensions it was 512 bytes, a sixth).
+<!-- c:MOD-EMB-063 --> The float16
 rounding of unit-length components moves a cosine score by at most about 2⁻¹¹ ≈ 0.0005 (each
 normal float16 value has a relative rounding error ≤ 2⁻¹¹, and Σ|qᵢ dᵢ| ≤ 1 for unit vectors),
-far below the 0.08 margin Agello uses for related chats. <!-- c:MOD-EMB-064 -->
+far below the 0.07 margin Agello uses for related chats. <!-- c:MOD-EMB-064 -->
 
-**Token budget.** Agello sets no `maxInputLength`, so the file's 1,024 applies: a passage plus its
-prompt must stay under 1,023 SentencePiece tokens of text (1,024 with BOS and EOS). The chunker
-counts characters, not tokens. <!-- c:MOD-EMB-065 --> At its own estimate of 4 characters per token a
-1,600-character passage is about 400 tokens; it would pass 1,022 tokens only at under about 1.6
-characters per token (1,600 / 1,022 ≈ 1.57), which dense scripts or code can approach, and a long
-file name adds to the title field. The token count of real passages wasn't measured.
+**Token budget.** Agello sets no `maxInputLength`, so the file's 1,024 applies: the engine reads a
+passage plus its prompt up to 1,022 SentencePiece tokens of text (1,024 with BOS and EOS), and Agello
+asks it to truncate anything longer rather than fail. The chunker sizes passages by an estimate of
+tokens (quarter-token weights: digits and ideographs count about a token each), not by the
+tokenizer. <!-- c:MOD-EMB-065 --> At its estimate a passage is about 400 tokens; how many real
+passages pass 1,022 tokens, and so lose their end, wasn't measured.
 
 **What a failure does.** `KnowledgeBase.index` embeds all of a document's passages in one call
-chain; if any batch throws (an over-long passage, for one), the document stays unindexed and the
-error is logged; because `search` uses vectors only when every document in scope is indexed with the
-current embedder, a single failed document sends that search to the keyword (BM25) ranking, and
-each search retries the indexing. <!-- c:MOD-EMB-066 --> A query that fails to embed also falls back
-to keywords.
+chain; if it throws, the error is logged and the document is marked as failed for that embedder: it
+is searched by keywords (BM25-style) and not indexed again until the user asks to. `search` ranks
+each document by meaning when it is indexed with the current embedder and the rest by keywords, and
+interleaves the two rankings. <!-- c:MOD-EMB-066 --> A query that fails to embed sends every
+document to keywords.
 
 **Measured (Agello probe 3, `ProbeScenarioTests.test03_EmbeddingGemma`).** The probe loads the
 file on the GPU with Agello's cache directory, embeds four short passages as
 `title: none | text: …` and one query as `task: search result | query: How tall is the tallest
-mountain?` at 256 dimensions, and times one filler passage with the `title: none | text: ` prefix:
+mountain?` at 256 dimensions (still, at `a691212`, although the app now keeps 768), and times one filler passage with the `title: none | text: ` prefix:
 `CalibrationScenarioTests.filler(bytes: 1_800)`, which comes to 1,827 bytes (at least 1,800; about
 400 tokens per the test's comment). <!-- c:MOD-EMB-067 -->
 
@@ -479,7 +486,7 @@ iPhone 18 Pro, with 85 MB of memory on the GPU (as of 2026-10-15). <!-- c:MOD-EM
 ## On Apple
 
 - **Embedder on the CPU, encoder on the GPU.** LiteRT-LM compiles the token embedder with the CPU
-  accelerator on every platform except Android [`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298), so on iOS and macOS each token's
+  accelerator on every platform except Android [`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-305`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L305), so on iOS and macOS each token's
   embedding is one CPU model run; the text encoder runs on the backend the engine was created with,
   the Metal GPU through the ML Drift delegate when `.gpu` succeeds [`runtime/executor/embedding_litert_compiled_model_executor.cc:182-216`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/embedding_litert_compiled_model_executor.cc#L182-L216). <!-- c:MOD-EMB-072 -->
 - **FP16 on the GPU.** With no activation type from the caller or the file, the GPU encoder runs in
@@ -506,27 +513,27 @@ Rows for [../configuration.md](../configuration.md):
 
 | Setting | Layer | Default | Effect | Agello |
 | --- | --- | --- | --- | --- |
-| `EmbeddingEngineConfig.backend` | Swift | `.cpu()` | backend of the text encoder | `.gpu`, then `.cpu()` |
+| `EmbeddingEngineConfig.backend` | Swift | `.cpu()` | backend of the text encoder | `.gpu` (tried twice) |
 | `EmbeddingEngineConfig.cacheDir` | Swift | the model's folder | program and weight caches | its own `embedding` folder |
 | `EmbeddingEngineConfig.maxInputLength` | Swift → C → settings | nil: the file's `max_input_length` (1,024) | which signatures load, so the longest input | not set |
 | `min_input_length` | C / settings, metadata | unset | drops signatures shorter than it | — |
-| activation data type | C / settings | GPU: FLOAT16; else unset | GPU precision | not settable from Swift |
+| activation data type | C / settings; Swift `EmbeddingEngineConfig.activationDataType` in our build | GPU: FLOAT16; else unset | GPU precision | not set |
 | `EmbeddingOptions.normalize` | Swift / C / C++ | true | L2 normalization after truncation | true |
-| `EmbeddingOptions.outputSize` | Swift / C / C++ | none (768) | Matryoshka truncation | 256 |
+| `EmbeddingOptions.outputSize` | Swift / C / C++ | none (768) | Matryoshka truncation | 768 (256 until 2026-11-16) |
 | `EmbeddingOptions.insertSpecialTokens` | Swift / C / C++ | true | BOS 2 and EOS 1 around the input | default |
-| `input_overflow_strategy` | C / C++ | `kError` | longer inputs: error, truncate, or chunk and average | not settable from Swift |
+| `input_overflow_strategy` | C / C++; Swift `EmbeddingOptions.inputOverflowStrategy` (ours) | `kError` | longer inputs: error, truncate, or chunk and average | `.truncate` |
 
 ## Limits and failure modes
 
 | Situation | What happens | Evidence |
 | --- | --- | --- |
-| Input over 1,024 tokens (with BOS/EOS) at the default | InvalidArgument from the executor; in Agello the document isn't indexed and search falls back to keywords | steps 2 and 5; `KnowledgeBase.swift:114-142`, `:261-293` |
+| Input over 1,024 tokens (with BOS/EOS) at the default | InvalidArgument from the executor; Agello asks for truncation instead, so the passage loses its end | steps 2 and 5; `Embedding.swift:64-67` (Agello `a691212`) |
 | `maxInputLength` set above 8,192 | engine creation fails | [`runtime/executor/model_signature_utils.cc:202-236`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/model_signature_utils.cc#L202-L236) |
 | `outputSize` above 768 or negative | InvalidArgument | [`runtime/core/embedding_engine_impl.cc:1589-1624`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L1589-L1624) |
 | Chunk-and-average on long inputs (C/C++ only) | the average of unnormalized chunk vectors, normalized afterwards; chunks are hard cuts, BOS only on the first and EOS only on the last | [`runtime/executor/embedding_litert_compiled_model_executor.cc:550-583`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/embedding_litert_compiled_model_executor.cc#L550-L583) <!-- c:MOD-EMB-075 --> |
 | Inputs of 514-1,024 tokens (with BOS and EOS) | sliding layers see the whole input, unlike the `transformers` implementation | [The attention masks](#the-attention-masks) |
-| Changing the dimension or the model | vectors aren't comparable across dimensions; Agello's identifier includes `@256`, so a change re-indexes documents (chat search vectors carry no identifier); its 0.60/0.08 thresholds are commented as calibrated on device for 256 dimensions | `Embedding.swift:20-29` <!-- c:MOD-EMB-076 --> |
-| Model file at `main` changes on Hugging Face | Agello's download expects 164,626,432 bytes; a file of a different size fails `ModelStore`'s size check; a same-size replacement would be accepted, since only the size is checked. Probe 3 and the `KnowledgeScenarioTests` threshold calibration don't record the model revision they ran with. | `ModelCatalog.swift:13`, `:44-53` <!-- c:MOD-EMB-058 --> <!-- c:MOD-EMB-002 --> <!-- c:MOD-EMB-068 --> <!-- c:MOD-EMB-076 --> |
+| Changing the dimension or the model | vectors aren't comparable across dimensions; Agello's identifier includes the dimension (`@768`), so a change re-indexes documents, and a chat vector of another length is re-embedded; its 0.60/0.07 thresholds are commented as calibrated by probe 33 at 768 dimensions | `Embedding.swift:46-53`, `KnowledgeBase.swift:242-252` (Agello `a691212`) <!-- c:MOD-EMB-076 --> |
+| Model file changes on Hugging Face | Since Agello `7787a98` (2026-10-16) the catalog pins revision `9be6e8b9` and the file's SHA-256, and `ModelStore` checks the size and the SHA-256 before using a download (`ModelCatalog.swift:53-63`, `ModelStore.swift:454-470` at `a691212`), so a new file at `main` doesn't reach Agello. At `93122b647a` it downloaded `main` and checked only the size (164,626,432 bytes), so a same-size replacement would have been accepted. Probe 3 and the `KnowledgeScenarioTests` threshold calibration don't record the model revision they ran with. | `ModelCatalog.swift:13`, `:44-53` <!-- c:MOD-EMB-058 --> <!-- c:MOD-EMB-002 --> <!-- c:MOD-EMB-068 --> <!-- c:MOD-EMB-076 --> |
 | Prompts omitted | still works, lower quality (card) | card |
 
 ## Where in the code
@@ -545,15 +552,15 @@ Rows for [../configuration.md](../configuration.md):
 | Overflow handling | `ComputeEmbedding` | [`runtime/executor/embedding_litert_compiled_model_executor.cc:520-549`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/embedding_litert_compiled_model_executor.cc#L520-L549) [`runtime/executor/embedding_litert_compiled_model_executor.cc:550-583`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/embedding_litert_compiled_model_executor.cc#L550-L583) |
 | Special tokens | `EmbeddingEngineImpl::InsertSpecialTokens` | [`runtime/core/embedding_engine_impl.cc:1260-1318`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L1260-L1318) |
 | Truncation and normalization | `ComputeEmbeddingInternal`, `L2Norm` | [`runtime/core/embedding_engine_impl.cc:1589-1624`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L1589-L1624) [`runtime/core/embedding_engine_impl.cc:245-262`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/embedding_engine_impl.cc#L245-L262) |
-| GPU precision | `SetCommonGpuOptions` | [`runtime/executor/litert_compiled_model_executor_utils.cc:1017-1031`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1017-L1031) |
+| GPU precision | `SetCommonGpuOptions` | [`runtime/executor/litert_compiled_model_executor_utils.cc:1021-1035`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1021-L1035) |
 | Section hints | `LitertLmLoader` section items | [`runtime/util/litert_lm_loader.cc:164-176`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/util/litert_lm_loader.cc#L164-L176) |
-| Swift configuration | `EmbeddingEngineConfig`, `EmbeddingOptions` | [`swift/EmbeddingEngineConfig.swift:42-58`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58) [`swift/EmbeddingEngineConfig.swift:62-94`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L62-L94) |
-| Swift initialization | `EmbeddingEngine.initialize` | [`swift/EmbeddingEngine.swift:67-123`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngine.swift#L67-L123) |
+| Swift configuration | `EmbeddingEngineConfig`, `EmbeddingOptions` | [`swift/EmbeddingEngineConfig.swift:50-68`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngineConfig.swift#L50-L68) [`swift/EmbeddingEngineConfig.swift:70-125`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngineConfig.swift#L70-L125) |
+| Swift initialization | `EmbeddingEngine.initialize` | [`swift/EmbeddingEngine.swift:68-133`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/swift/EmbeddingEngine.swift#L68-L133) |
 | C activation setter | `litert_lm_embedding_engine_settings_set_activation_data_type` | [`c/embedding_engine.h:240-254`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/embedding_engine.h#L240-L254) |
 | C input-length setters | `litert_lm_embedding_engine_settings_set_max_input_length` / `_min_` | [`c/embedding_engine.h:196-222`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/embedding_engine.h#L196-L222) |
-| Agello embedder | `LiteRTEmbedder`, `VectorIndex` | Agello `Agello/Knowledge/Embedding.swift` at `93122b647a` |
-| Agello indexing and search | `KnowledgeBase.index`, `.search`, `.indexChats` | Agello `Agello/Knowledge/KnowledgeBase.swift` at `93122b647a` |
-| Agello passages | `Chunker` | Agello `Agello/Knowledge/Chunker.swift` at `93122b647a` |
+| Agello embedder | `LiteRTEmbedder`, `VectorIndex` | Agello `Agello/Knowledge/Embedding.swift` at `a691212` |
+| Agello indexing and search | `KnowledgeBase.index`, `.search`, `.indexChats` | Agello `Agello/Knowledge/KnowledgeBase.swift` at `a691212` |
+| Agello passages | `Chunker` | Agello `Agello/Knowledge/Chunker.swift` at `a691212` |
 
 ## Open questions
 
@@ -563,12 +570,10 @@ Rows for [../configuration.md](../configuration.md):
   sequences? Not verified; a comparison against `transformers` output would settle it.
 - **FP16 on the GPU.** Does the GPU path's FP16 encoder lose quality compared with FP32 (the CPU, or
   `litert_lm_embedding_engine_settings_set_activation_data_type` with FLOAT32)? Not measured.
-- **Tokens per passage.** How many tokens Agello's 1,600-character passages actually take, by
-  language, and whether any real document exceeds 1,022. Not measured.
+- **Tokens per passage.** How many tokens Agello's passages (1,600 quarter-token units) actually
+  take, by language, and how often a real one exceeds 1,022 and is truncated. Not measured.
 - **BOS/EOS in the reference.** Whether the Sentence Transformers pipeline also wraps the input in
   `<bos>` … `<eos>` as LiteRT-LM does was not checked (the tokenizer config doesn't say).
 - **The 130M / 140M split.** The card doesn't define it; the reading above is ours.
 - **No EmbeddingGemma 2 paper.** Training details (Matryoshka losses, distillation, data) are known
   only for the first model (arXiv 2509.20354v3).
-- **Shipped binary.** The defaults above come from the v0.18.0 sources; Agello's probe ran on our
-  builds only, not on Google's prebuilt binary.

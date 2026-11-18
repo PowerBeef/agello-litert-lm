@@ -1,0 +1,1131 @@
+{
+ "agent": "g",
+ "pages": [
+  "contributing.md",
+  "patches.md",
+  "stack.md",
+  "tools.md",
+  "versions.md"
+ ],
+ "claims": [
+  {
+   "group": "lm-build",
+   "id": "LM-VER-001",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped Package.swift:34-56",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped version.bzl:15-22",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped c/engine.h:826-828",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-006",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped c/error_reporter.h:183-185",
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-007",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped swift/Engine.swift:148-150",
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-014",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-015",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-016",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-017",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-018",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/ExperimentalFlags.swift:205-225",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-019",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm-shipped schema/core/litertlm_header.h:36-38",
+    "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_core.py:25-27",
+    "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_builder.py:1494-1497",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-023",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-026",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "cites generated/kernels-by-family.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-027",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/version-matrix.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-028",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-build",
+   "id": "LM-VER-029",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped swift/Conversation.swift:15-20",
+    "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+    "changed: litert-lm-shipped Package.swift:36-50",
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped swift/Conversation.swift:15-20",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/Conversation.swift:386-409",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/Conversation.swift:781-784",
+    "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+    "changed: litert-lm swift/Conversation.swift:835-837",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-007",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/Conversation.swift:781-784"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-010",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-011",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "unreadable: litert ml_drift_delegate/delegate/buffer_handler_metal.mm:320-326"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-012",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-013",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-014",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "unreadable: litert ml_drift_delegate/delegate/gpu_backend_metal_litert.mm:15-15"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-015",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-017",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/patch-log.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-024",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-025",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped .github/README.md:7-13",
+    "file gone: litert-lm-shipped .github/README.md:15-21",
+    "changed: litert-lm-shipped swift/Conversation.swift:798-800",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-026",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped .github/README.md:23-28",
+    "changed: litert-lm WORKSPACE:517-527",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-031",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "OUR-033",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/composite/bounded_attention_test.cc:130-234",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert CONTRIBUTING.md:5-25",
+    "our tree no longer has the file: litert CONTRIBUTING.md:27-40"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert GOVERNANCE.md:3-17",
+    "our tree no longer has the file: litert GOVERNANCE.md:19-36",
+    "our tree no longer has the file: litert GOVERNANCE.md:38-57"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-006",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: ml-drift CONTRIBUTING.md:1-32"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-015",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/Conversation.swift:15-20",
+    "cites generated/patch-log.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-016",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-017",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-018",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "our tree no longer has the file: litert-lm .github/CODEOWNERS:1-9",
+    "our tree no longer has the file: ml-drift CONTRIBUTING.md:1-32"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-019",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "our tree no longer has the file: litert-lm .github/CODEOWNERS:1-9"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-021",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "our tree no longer has the file: litert CONTRIBUTING.md:42-46",
+    "our tree no longer has the file: litert CONTRIBUTING.md:84-86"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-022",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-025",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "ours",
+   "id": "PRC-026",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm c/conversation.cc:640-672",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-004",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-005",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-006",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:963-1001",
+    "changed: litert-lm runtime/core/tasks.cc:560-593",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-007",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/delegate_metal.mm:157-168",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-008",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/Conversation.swift:906-922",
+    "changed: litert-lm-shipped swift/Conversation.swift:850-866",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-010",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-STK-011",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-001",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-002",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm agello/telemetry/agello/agello_telemetry.h:102-145",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm runtime/engine/litert_lm_main.cc:92-151",
+    "our tree no longer has the file: litert-lm runtime/engine/litert_lm_advanced_main.cc:55-56",
+    "our tree no longer has the file: litert-lm runtime/engine/litert_lm_advanced_main.cc:257-286",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-006",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/Package.swift:6-9",
+    "changed: litert-lm-shipped Package.swift:35-55",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-007",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/Sources/agello-bench/main.swift:5-28",
+    "file gone: litert-lm-shipped tools/agello-bench/Sources/agello-bench/main.swift:134-135",
+    "file gone: litert-lm-shipped tools/agello-bench/README.md:31-34",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-010",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "our tree no longer has the file: litert-lm python/litert_lm_builder/litertlm_peek_main.py:37-51",
+    "our tree no longer has the file: litert-lm python/litert_lm_builder/BUILD:285-290"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-011",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm schema/model_info/model_info_cli.cc:24-48"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-012",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:1-11",
+    "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:151-157",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-013",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/Sources/BenchKit/Bench.swift:55-58",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-014",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/Sources/BenchKit/EngineTelemetry.swift:4-18",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-015",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/Sources/agello-bench/main.swift:164-166",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-016",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/compare.py:1-13",
+    "file gone: litert-lm-shipped tools/agello-bench/compare.py:52-54",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-stack",
+   "id": "X-TLS-017",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/agello-bench/telemetry.py:1-9",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  }
+ ],
+ "links": [
+  {
+   "page": "contributing.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L15-L20",
+   "status": "changed"
+  },
+  {
+   "page": "contributing.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L15-L20",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L493-L508",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L517-L527",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1375",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/Package.swift#L36-L50",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/swift/Conversation.swift#L15-L20",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/Conversation.swift#L386-L409",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/Conversation.swift#L781-L784",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/swift/Conversation.swift#L798-L800",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L835-L837",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/buffer_handler_metal.mm#L320-L326",
+   "status": "unreadable"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/gpu_backend_metal_litert.mm#L15",
+   "status": "unreadable"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/bounded_attention_test.cc#L130-L234",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/.github/README.md#L7-L13",
+   "status": "file gone"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/.github/README.md#L15-L21",
+   "status": "file gone"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/.github/README.md#L23-L28",
+   "status": "file gone"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L835-L837",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L15-L20",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L493-L508",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L517-L527",
+   "status": "changed"
+  },
+  {
+   "page": "patches.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1375",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L640-L672",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L963-L1001",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L560-L593",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L157-L168",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L906-L922",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/swift/Conversation.swift#L850-L866",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L640-L672",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L44-L71",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L963-L1001",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L157-L168",
+   "status": "changed"
+  },
+  {
+   "page": "stack.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L906-L922",
+   "status": "changed"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L1-L11",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L151-L157",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Package.swift#L6-L9",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/agello-bench/main.swift#L5-L28",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/README.md#L31-L34",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/agello-bench/main.swift#L134-L135",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/BenchKit/Bench.swift#L55-L58",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/BenchKit/EngineTelemetry.swift#L4-L18",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/agello-bench/main.swift#L164-L166",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/compare.py#L1-L13",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/compare.py#L52-L54",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/telemetry.py#L1-L9",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.h#L102-L145",
+   "status": "changed"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1368-L1374",
+   "status": "changed"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1368-L1374",
+   "status": "changed"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L151-L157",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/agello-bench/main.swift#L5-L28",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/agello-bench/Sources/BenchKit/Bench.swift#L55-L58",
+   "status": "file gone"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.h#L102-L145",
+   "status": "changed"
+  },
+  {
+   "page": "tools.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1368-L1374",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/Package.swift#L34-L56",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/swift/Engine.swift#L148-L150",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/engine.h#L826-L828",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/Package.swift#L35-L57",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/c/error_reporter.h#L183-L185",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L205-L217",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/schema/core/litertlm_header.h#L36-L38",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/python/litert_lm_builder/litertlm_core.py#L25-L27",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L499-L501",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L525-L527",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L499-L527",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/version.bzl#L15-L22",
+   "status": "changed"
+  },
+  {
+   "page": "versions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/Package.swift#L34-L56",
+   "status": "changed"
+  }
+ ],
+ "batches": [
+  "lm-build.z-repin-g",
+  "ours.z-repin-g",
+  "x-stack.z-repin-g"
+ ]
+}

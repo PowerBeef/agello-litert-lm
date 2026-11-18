@@ -10,10 +10,11 @@
 > ([tokenizer-and-chat-format.md](tokenizer-and-chat-format.md)), the container format
 > ([../litert-lm/file-format.md](../litert-lm/file-format.md)), the executors that run the graphs
 > ([../litert-lm/executors.md](../litert-lm/executors.md)), the memory budget ([../memory.md](../memory.md)).
-> **Pinned to:** LiteRT-LM `7b872544` (documented build) and `85b1a776` (shipped wrapper, v0.18.0 sources);
-> `google/gemma-4-E2B-it` revision `3e22461f`; `litert-community/gemma-4-E2B-it-litert-lm` revision `b3ca0d2f`.
+> **Pinned to:** `main` `b7b856a0` (LiteRT-LM at the root) for runtime citations; Agello ships release
+> `agello-one-20261115` (`6da75396`); `google/gemma-4-E2B-it` revision `3e22461f`;
+> `litert-community/gemma-4-E2B-it-litert-lm` revision `b3ca0d2f`.
 > **Applies to:** all platforms for the model and the file; Apple for the parts about Agello.
-> **Last verified:** 2026-10-15
+> **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -369,7 +370,7 @@ soft tokens of 768. <!-- c:MOD-E2B-040 --> E2B's vision adapter is a FLOAT32 pro
 
 The file's `gemma4` metadata gives `max_num_patches: 2520` with 16 × 16 patches, and LiteRT-LM's
 `ModelInfo` turns that into a maximum vision budget of 2,520 / 3² = 280 tokens
-([`schema/model_info/model_info.cc:839-847`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L839-L847)). The model card lists budgets of 70, 140, 280, 560 and 1,120 tokens;
+([`schema/model_info/model_info.cc:839-847`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L839-L847)). The model card lists budgets of 70, 140, 280, 560 and 1,120 tokens;
 the exported file covers only 70, 140 and 280. <!-- c:MOD-E2B-042 --> The reconciliation of the
 budgets that appear in different documents (contradiction C2) is on [gemma4-e4b.md](gemma4-e4b.md).
 
@@ -398,13 +399,16 @@ fields:
   `LlmMetadata` fields 11 and 12, which the E2B (and E4B) file doesn't set, so both read false even
   though the model reasons and calls tools; Agello's planner deliberately ignores them.
   <!-- c:MOD-E2B-048 -->
-- **Context.** With no `max_num_tokens`, `ModelInfo` falls back to reading the main graph to find the
-  mask's last dimension, but only if the section is at most 2 GiB; it reads the whole section into
-  memory to parse it. For E2B (818,275,184 bytes) that means an 818 MB read and a reported context of
-  32,003 (a "dynamic" magic number); for E4B (2,260,043,376 bytes, over 2,147,483,648) the read is
-  refused and the context is 0. The same code is in v0.18.0, which Agello ships.
-  <!-- c:MOD-E2B-049 --> Sources: [`schema/model_info/model_info.cc:63-67`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L63-L67), [`schema/model_info/model_info.cc:566-570`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L566-L570), [`schema/model_info/model_info.cc:1007-1024`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1007-L1024), [`schema/model_info/model_info.cc:1351-1355`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1351-L1355);
-  shipped: [`schema/model_info/model_info.cc:1007-1024`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/schema/model_info/model_info.cc#L1007-L1024).
+- **Context.** With no `max_num_tokens`, `ModelInfo` falls back to the main graph's prefill masks
+  and takes the largest last dimension. In our build and the release Agello ships it first reads
+  growing prefixes of the section (16, 64 and 256 MiB, 1 GiB) until one verifies as the graph's
+  flatbuffer, then the whole section as before, which it refuses above 2 GiB (ours: `cc97925b`).
+  E2B's main section (818,275,184 bytes) holds its weights inline, so no prefix verifies and the
+  whole 818 MB read reports a context of 32,003 (a "dynamic" magic number); the E4B files' graphs
+  (62.1 and 63.1 MB, weights after the graph) verify on the 64 MiB prefix, so E4B now reports 32,003
+  too, where v0.18.0's whole read of its 2,260,043,376 bytes was refused and left the context at 0.
+  <!-- c:MOD-E2B-049 --> Sources: [`schema/model_info/model_info.cc:63-67`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L63-L67), [`schema/model_info/model_info.cc:566-570`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L566-L570), [`schema/model_info/model_info.cc:1010-1049`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L1010-L1049), [`schema/model_info/model_info.cc:962-1006`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L962-L1006), [`schema/model_info/model_info.cc:1374-1378`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L1374-L1378);
+  the release: [`schema/model_info/model_info.cc:1010-1049`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/schema/model_info/model_info.cc#L1010-L1049).
 
 ### Differences from E4B
 
@@ -456,28 +460,26 @@ response, with thinking enabled, it emits `<|channel>thought\n` as the generatio
 regular template emits no generation prompt after a tool response); the E2B and E4B `-gpu` templates
 are identical to each other. <!-- c:MOD-E2B-055 -->
 
-**Which engine runs them.** At agello-next `7b872544`, when `EngineSettings::CreateDefault` finds a
+**Which engine runs them.** In our build, when `EngineSettings::CreateDefault` finds a
 `tf_lite_artisan_text_decoder` section it switches a GPU backend to `GPU_ARTISAN`
 ([`runtime/engine/engine_settings.cc:217-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L217-L232)).
 `EngineFactory`'s preferred engines for `GPU_ARTISAN` are `kAdvancedLegacyTfLite` and `kLegacyTfLite`
 ([`runtime/engine/engine_factory.h:202-206`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_factory.h#L202-L206)),
 but the only registered engine is `kAdvancedLiteRTCompiledModel`
-([`runtime/core/engine_advanced_impl.cc:1103-1108`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L1103-L1108)),
+([`runtime/core/engine_advanced_impl.cc:1106-1111`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L1106-L1111)),
 so `EngineFactory::CreateDefault`, which the C API uses, fails with "No available engine for backend"
 ([`runtime/engine/engine_factory.h:88-121`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_factory.h#L88-L121),
 [`c/engine.cc:1044-1047`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/engine.cc#L1044-L1047)).
 The compiled-model executor factory would reject `GPU_ARTISAN` as "Unsupported backend" anyway
 ([`runtime/executor/llm_litert_compiled_model_executor_factory.cc:315-331`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/llm_litert_compiled_model_executor_factory.cc#L315-L331)).
-So our build can't run the E2B or E4B `-gpu` files with a GPU backend. <!-- c:MOD-E2B-056 --> The artisan path lives in Google's closed code: Google's prebuilt v0.18.0 iOS
-binary, which Agello ships, defines 166 symbols matching the GPU-artisan markers (ours 29,
-[../generated/binaries.md](../generated/binaries.md)), among them `odml::infra::LlmGpuArtisanExecutor`,
-and its strings include "Constructing legacy EngineImpl" and "Loading ArtisanTextDecoder model".
-Whether that binary actually runs a `-gpu` file on an iPhone has not been
-tried.
+So our build can't run the E2B or E4B `-gpu` files with a GPU backend. <!-- c:MOD-E2B-056 --> The
+artisan path lives in Google's closed code, which our build doesn't link (29 symbols match the
+GPU-artisan markers in ours, [../generated/binaries.md](../generated/binaries.md)).
 
 **Why Agello doesn't use them.**
 
-1. Our build rejects them (above), and the shipped binary's artisan path is untested and closed.
+1. Our build rejects them (above), and so does the release Agello ships (the same engine code);
+   the artisan path exists only in Google's closed binary.
 2. They drop the features Agello uses beyond text: no vision, audio or MTP drafter sections.
 3. Our #3913 fix can't be applied: `patch_rope.py` edits only the `tf_lite_prefill_decode` and
    `tf_lite_mtp_drafter` sections, and the artisan decoder is neither. <!-- c:MOD-E2B-060 -->
@@ -563,7 +565,8 @@ the chat's conversation only when `availableBytes` is at least 28,672 × `maxNum
 bytes (or `availableBytes` is 0). It reserves nothing; for E2B (9,216 bytes per position) that
 free-memory threshold would count about 3.1 times the KV copy E2B needs. <!-- c:MOD-E2B-051 --> `applyCapabilities`
 lowers `maxNumTokens` to `ModelInfo`'s `maxContextTokens` when that is positive: for E2B's file that
-would be 32,003 (allocated as 32,000), for E4B's it does nothing. <!-- c:MOD-E2B-052 -->
+would be 32,003 (allocated as 32,000); for E4B's, whose window our runtime now reads, it lowers a
+32,768 request to 32,003, also allocated as 32,000. <!-- c:MOD-E2B-052 -->
 
 In memory, reading only the files (not measured): Google's E2B main graph carries 777,983,264 bytes
 of weights inline, against 2,197.9 MB of weights after the graph in Google's E4B main graph; its KV
@@ -571,7 +574,7 @@ cache needs 9,216 instead of 28,672 bytes per position. In both files the text e
 100,663,296 bytes) and the per-layer embedder (E2B: 1,174,405,120 bytes) are separate sections that
 LiteRT-LM loads from the memory-mapped file and, on iOS and macOS (every platform but Android, where
 NPU is also allowed), runs on the CPU
-([`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298)).
+([`runtime/components/embedding_lookup/embedding_lookup_text.cc:292-305`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L305)).
 <!-- c:MOD-E2B-070 --> Resident memory depends on how the delegate stores those weights on the GPU and
 on how many embedding rows are touched; [../memory.md](../memory.md) owns the budget.
 
@@ -602,16 +605,16 @@ audio backends and `enable_speculative_decoding`; see [../configuration.md](../c
 | Concept | Symbol | Citation |
 | --- | --- | --- |
 | Artisan detection | `EngineSettings::CreateDefault` | [`runtime/engine/engine_settings.cc:217-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L217-L232) |
-| Artisan detection (shipped v0.18.0) | `EngineSettings::CreateDefault` | [`runtime/engine/engine_settings.cc:194-211`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/engine/engine_settings.cc#L194-L211) |
+| Artisan detection | `EngineSettings::CreateDefault` | [`runtime/engine/engine_settings.cc:215-232`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L215-L232) |
 | Engine types per backend | `EngineFactory` preference table | [`runtime/engine/engine_factory.h:196-206`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_factory.h#L196-L206) |
-| The only engine registered | `LITERT_LM_REGISTER_ENGINE` | [`runtime/core/engine_advanced_impl.cc:1103-1108`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L1103-L1108) |
+| The only engine registered | `LITERT_LM_REGISTER_ENGINE` | [`runtime/core/engine_advanced_impl.cc:1106-1111`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L1106-L1111) |
 | Backends the executor accepts | `CreateLlmLiteRtCompiledModelExecutor` | [`runtime/executor/llm_litert_compiled_model_executor_factory.cc:315-331`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/llm_litert_compiled_model_executor_factory.cc#L315-L331) |
 | Default sampler without `sampler_params` | `MaybeUpdateAndValidate` | [`runtime/engine/engine_settings.cc:417-432`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L417-L432) |
 | Context target from `maxNumTokens` | `GetTargetNumber` | [`runtime/executor/magic_number_configs_helper.cc:259-271`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/magic_number_configs_helper.cc#L259-L271) |
-| Thinking and tool flags | `LoadLlmMetadataProtoIfPresent` | [`schema/model_info/model_info.cc:899-902`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L899-L902) |
-| Vision budget from `max_num_patches` | `CalculateMaxVisionTokenBudget` | [`schema/model_info/model_info.cc:839-847`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L839-L847) |
-| 2 GiB read limit | `kMaxVisionSectionSize` | [`schema/model_info/model_info.cc:63-67`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L63-L67) |
-| Context from the main graph | `InferContextTokensFallbackIfMissing`, `ExtractContextTokensFromTfliteBuffer` | [`schema/model_info/model_info.cc:1007-1024`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1007-L1024), [`schema/model_info/model_info.cc:961-993`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L961-L993) |
+| Thinking and tool flags | `LoadLlmMetadataProtoIfPresent` | [`schema/model_info/model_info.cc:899-902`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L899-L902) |
+| Vision budget from `max_num_patches` | `CalculateMaxVisionTokenBudget` | [`schema/model_info/model_info.cc:839-847`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L839-L847) |
+| 2 GiB read limit | `kMaxVisionSectionSize` | [`schema/model_info/model_info.cc:63-67`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L63-L67) |
+| Context from the main graph | `InferContextTokensFallbackIfMissing`, `ExtractContextTokensFromTfliteBuffer` | [`schema/model_info/model_info.cc:1010-1049`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L1010-L1049), [`schema/model_info/model_info.cc:962-1006`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L962-L1006) |
 | Agello catalog | `ModelCatalog`, `ModelID` | `Agello/ModelHub/ModelCatalog.swift`, `Agello/Inference/ChatTypes.swift` (Agello `93122b6`) |
 | Agello KV and context policy | `DeviceProfile.kvBytesPerToken`, `InferencePlanner.applyCapabilities` | `Agello/Inference/DeviceProfile.swift`, `Agello/Inference/InferencePlanner.swift` (Agello `93122b6`) |
 
@@ -623,8 +626,7 @@ audio backends and `enable_speculative_decoding`; see [../configuration.md](../c
 - **Tensor names not read.** The page's assignment of INT2, INT4 and INT8 to individual weights comes
   from exact tensor counts and byte totals, not from tensor names; the E2B file isn't on this Mac.
 - **Artisan section.** The layout, quantization and rotary computation inside
-  `tf_lite_artisan_text_decoder` are unknown, as is whether Google's v0.18.0 binary runs it on iOS and
-  what `gpu_artisan_weights_version` does.
+  `tf_lite_artisan_text_decoder` are unknown, as is what `gpu_artisan_weights_version` does.
 - **`-web` file.** The `-web.litertlm` file has the `-gpu` file's byte size, and the card describes
   the web model as text-only; whether the two files are identical was not checked.
 - **Card benchmark file.** Google's table lists a 2,583 MB model; the pinned file is 2,588.1 MB, so

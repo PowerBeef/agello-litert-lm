@@ -1,0 +1,977 @@
+{
+ "agent": "f",
+ "pages": [
+  "apple-platform.md",
+  "configuration.md",
+  "memory.md",
+  "facts.md",
+  "models/embeddinggemma.md",
+  "models/gemma4-e2b.md",
+  "models/gemma4-e4b.md",
+  "models/gemma4-family.md",
+  "models/tokenizer-and-chat-format.md"
+ ],
+ "claims": [
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-014",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:117-145",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-035",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:117-145",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-050",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-051",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-061",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-062",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-063",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-064",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-065",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-072",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-074",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-075",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-077",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "file gone: litert-lm-shipped tools/model-surgery/inspect_e4b.py:117-145",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-082",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-049",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm schema/model_info/model_info.cc:1007-1024",
+    "changed: litert-lm schema/model_info/model_info.cc:961-993",
+    "changed: litert-lm-shipped schema/model_info/model_info.cc:1007-1024",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-050",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-051",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-052",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm schema/model_info/model_info.cc:1007-1024",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-056",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-057",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/binaries.md, regenerated at the new pin",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-065",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-070",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-FAM-040",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-FAM-059",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto_12b.pbtext:1-60",
+    "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto.pbtext:1-62",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-022",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto_12b.pbtext:1-60"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-026",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto_12b.pbtext:1-60"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-030",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/chat_template_e2b_e4b.jinja:123-199"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-031",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/BUILD:27-60",
+    "our tree no longer has the file: litert-lm models/gemma4/LlmMetadataProto.pbtext:1-62"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-032",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/README.md:1-36"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-033",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/README.md:1-36"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-036",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/chat_template_e2b_e4b.jinja:123-199"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-037",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/gemma4/chat_template_e2b_e4b.jinja:123-199"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-042",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-045",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-053",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-054",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-embedding",
+   "id": "MOD-EMB-048",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm models/embeddinggemma2/EmbeddingMetadataProto_vision140.pbtext:56-56"
+   ]
+  },
+  {
+   "group": "mod-embedding",
+   "id": "MOD-EMB-056",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "mod-embedding",
+   "id": "MOD-EMB-057",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/EmbeddingEngineConfig.swift:42-58",
+    "changed: litert-lm swift/EmbeddingEngine.swift:67-123"
+   ]
+  },
+  {
+   "group": "mod-embedding",
+   "id": "MOD-EMB-072",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/components/embedding_lookup/embedding_lookup_text.cc:292-298"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-022",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-034",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-035",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-037",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-043",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/kernels-by-family.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-046",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-047",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-048",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/ExperimentalFlags.swift:189-203"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-053",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-057",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-058",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-060",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-061",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped Package.swift:35-55",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-064",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-066",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-068",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: ml-drift ml_drift/metal/environment.mm:28-32",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-071",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-072",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "apple",
+   "id": "APL-073",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm agello/telemetry/agello/agello_telemetry.cc:676-690"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-006",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-013",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert/state.cc:305-320",
+    "changed: litert-lm runtime/util/metal_raw_buffer.mm:37-52"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped swift/Engine.swift:88-130",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped swift/Engine.swift:208-265",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-003",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/Conversation.swift:478-487",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/ExperimentalFlags.swift:21-48",
+    "changed: litert-lm swift/ExperimentalFlags.swift:78-127",
+    "changed: litert-lm swift/ExperimentalFlags.swift:147-147",
+    "changed: litert-lm swift/ExperimentalFlags.swift:175-189",
+    "changed: litert-lm swift/ExperimentalFlags.swift:205-238",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm swift/EmbeddingEngineConfig.swift:42-58",
+    "changed: litert-lm swift/EmbeddingEngineConfig.swift:83-95",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-006",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-010",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_opencl.cc:465-470",
+    "our tree no longer has the file: litert ml_drift_delegate/delegate/delegate_webgpu.cc:569-574",
+    "changed: ml-drift ml_drift/common/gpu_info.cc:1365-1376",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-011",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-config",
+   "id": "X-CFG-015",
+   "tier": "B",
+   "verdict_now": "unsampled",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "x-facts",
+   "id": "X-FCT-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  }
+ ],
+ "links": [
+  {
+   "page": "apple-platform.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L189-L203",
+   "status": "changed"
+  },
+  {
+   "page": "apple-platform.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1376",
+   "status": "changed"
+  },
+  {
+   "page": "apple-platform.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/Package.swift#L35-L55",
+   "status": "changed"
+  },
+  {
+   "page": "apple-platform.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L106",
+   "status": "changed"
+  },
+  {
+   "page": "apple-platform.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1376",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1317-L1332",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L159-L179",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/swift/Conversation.swift#L478-L487",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L21-L48",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L78-L127",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L175-L189",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L205-L238",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L21-L48",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L83-L95",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1317-L1332",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L159-L179",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L493-L540",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/workspace_status.sh#L20-L33",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1376",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L205-L238",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/workspace_status.sh#L20-L33",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L21-L48",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/ExperimentalFlags.swift#L205-L238",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "configuration.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L83-L95",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L320-L340",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L320",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/util/metal_raw_buffer.mm#L37-L52",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.cc#L676-L690",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L320",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/util/metal_raw_buffer.mm#L37-L52",
+   "status": "changed"
+  },
+  {
+   "page": "memory.md",
+   "url": "https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L320-L340",
+   "status": "changed"
+  },
+  {
+   "page": "models/embeddinggemma.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "models/embeddinggemma.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L62-L94",
+   "status": "changed"
+  },
+  {
+   "page": "models/embeddinggemma.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "models/embeddinggemma.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L42-L58",
+   "status": "changed"
+  },
+  {
+   "page": "models/embeddinggemma.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngineConfig.swift#L62-L94",
+   "status": "changed"
+  },
+  {
+   "page": "models/embeddinggemma.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/swift/EmbeddingEngine.swift#L67-L123",
+   "status": "changed"
+  },
+  {
+   "page": "models/gemma4-e2b.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1007-L1024",
+   "status": "changed"
+  },
+  {
+   "page": "models/gemma4-e2b.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/schema/model_info/model_info.cc#L1007-L1024",
+   "status": "changed"
+  },
+  {
+   "page": "models/gemma4-e2b.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "models/gemma4-e2b.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L1007-L1024",
+   "status": "changed"
+  },
+  {
+   "page": "models/gemma4-e2b.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L961-L993",
+   "status": "changed"
+  },
+  {
+   "page": "models/gemma4-e4b.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L117-L145",
+   "status": "file gone"
+  },
+  {
+   "page": "models/gemma4-e4b.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L117-L145",
+   "status": "file gone"
+  }
+ ],
+ "batches": [
+  "apple.z-repin-f",
+  "mod-e2b.z-repin-f",
+  "mod-e4b.z-repin-f",
+  "mod-embedding.z-repin-f",
+  "mod-family.z-repin-f",
+  "x-config.z-repin-f",
+  "x-facts.z-repin-f",
+  "x-memory.z-repin-f"
+ ]
+}

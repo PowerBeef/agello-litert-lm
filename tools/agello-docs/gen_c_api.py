@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """generated/c-api-inventory.md: every declaration in LiteRT-LM's public C headers, from clang's AST.
 
-Reads the agello-next worktree, which must be checked out at the pin. One section per header:
+Reads the checkout, whose c/ must be the pin's. One section per header:
 functions (signature, comment, permalink), enums (constants and values), typedefs and opaque types.
 """
 import json
@@ -56,12 +56,10 @@ def decls(path):
 
 def main():
     root = common.repo(KEY)["path"]
-    head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    if head != common.repo(KEY)["pin"]:
-        sys.exit(f"{root} is at {head[:10]}, not the pin {common.repo(KEY)['pin'][:10]}")
-    dirty = subprocess.run(["git", "-C", root, "status", "--porcelain", "c/"], capture_output=True, text=True).stdout
-    if dirty.strip():
-        sys.exit(f"uncommitted changes in c/: {dirty}")
+    # clang reads the checkout: its c/ must be the pin's (later commits may change only other folders).
+    differs = subprocess.run(["git", "-C", root, "diff", "--quiet", common.repo(KEY)["pin"], "--", "c/"])
+    if differs.returncode != 0:
+        sys.exit(f"{root}/c/ differs from the pin {common.repo(KEY)['pin'][:10]}: check out the pin first")
 
     md = [common.gen_header("gen_c_api.py", [KEY]), "# LiteRT-LM C API inventory\n\n"]
     version = [l for l in open(os.path.join(root, "c/engine.h")) if "LITERT_LM_C_API_VERSION" in l and "#define" in l]

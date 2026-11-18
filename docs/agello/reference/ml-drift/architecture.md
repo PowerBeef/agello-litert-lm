@@ -7,9 +7,10 @@
 > the Metal runtime that compiles and runs a `GpuModel` ([metal-backend.md](metal-backend.md)), how
 > LiteRT partitions a model and calls ML Drift ([../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md)),
 > other GPU APIs ([../other-platforms.md](../other-platforms.md)).
-> **Pinned to:** ML Drift `15fa9e2` (Google's `1b18771` plus 8 commits of ours), LiteRT `362759838`,
-> LiteRT-LM `7b872544`
-> **Applies to:** Apple (iOS, macOS) unless a section says otherwise. **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift` (Google's `1b18771` plus our commits); Agello ships release `agello-one-20261115`
+> (`6da75396`)
+> **Applies to:** Apple (iOS, macOS) unless a section says otherwise. **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -24,26 +25,27 @@ What matters for Agello:
 - Kernel choices depend on the **Apple GPU family**, which ML Drift derives from the Metal device
   *name*, not from `MTLGPUFamily`. A19/A19 Pro and M5/M6 are Apple10 and, with MSL 4.0, get
   `ConvAppleMPP`, the prefill convolution that reaches the GPU Neural Accelerators; Apple9 and below
-  use simdgroup-matrix convolutions. A name ML Drift doesn't know falls back to Apple1.
+  use simdgroup-matrix convolutions. A name ML Drift's table doesn't know takes, in our build, the
+  highest family the Metal device supports (ours: `e5e4c6eb`); Google's code leaves it at Apple1.
 - Precision is FP16 (`CalculationsPrecision::kF16`) in our configuration: LiteRT-LM asks for FP16
   and the Metal delegate maps it to F16 data and F16 math.
 - Our `AGELLO_SIMULATE_APPLE_GPU` switch (ours: `ef08a67858`) makes ML Drift choose another Apple
   GPU's kernels on this device, which is how [../generated/kernels-by-family.md](../generated/kernels-by-family.md)
   was produced. It changes choices, not hardware.
-- What Agello ships (Google's prebuilt v0.18.0 binary, built by Google on 2026-10-06) contains an ML
-  Drift build, but none of our ML Drift commits.
+- The release Agello ships (`agello-one-20261115`) is our build, with our ML Drift commits up to
+  2026-11-14; the later ones (G1, B5's row tiling, the softmax fix at every window) are only in `main`.
 
 ## Concepts
 
 | Term | What it is | Where |
 | --- | --- | --- |
 | `GraphFloat32` | ML Drift's input graph: a DAG of `Node`s (an `Operation`: a type string plus `std::any` attributes) and `Value`s (a `ValueId`, a `TensorRef<BHWC>` and optional quantization parameters). Values without a producer are inputs; outputs are the values without a consumer plus any values registered as known graph outputs | [`ml_drift/common/model.h:48-76`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/model.h#L48-L76), [`ml_drift/common/model.cc:50-73`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/model.cc#L50-L73) |
-| `GpuInfo` | What ML Drift knows about the GPU: vendor, API, per-vendor info (`AppleInfo`), API info (`MetalInfo`), supported wave sizes and wave (simdgroup) matrix operations | [`ml_drift/common/gpu_info.h:938-1062`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_info.h#L938-L1062) |
-| `AppleInfo` | Apple GPU type (`AppleGpu`: A7 … A20 Pro, M1 … M6) and family (`Family::kApple1` … `kApple10`) | [`ml_drift/common/gpu_info.h:271-332`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_info.h#L271-L332) |
+| `GpuInfo` | What ML Drift knows about the GPU: vendor, API, per-vendor info (`AppleInfo`), API info (`MetalInfo`), supported wave sizes and wave (simdgroup) matrix operations | [`ml_drift/common/gpu_info.h:943-1067`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.h#L943-L1067) |
+| `AppleInfo` | Apple GPU type (`AppleGpu`: A7 … A20 Pro, M1 … M6) and family (`Family::kApple1` … `kApple10`) | [`ml_drift/common/gpu_info.h:271-337`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.h#L271-L337) |
 | `CreateGpuModelInfo` | The build request: `precision`, default `storage_type`, `hints`, and tensors the caller provides (`predefined`, `external_immutable_tensors`, `external_mutable_tensors`) | [`ml_drift/common/gpu_model.h:62-113`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model.h#L62-L113) |
 | `GpuModel` | The result: input and output ids (with their TFLite tensor references), `nodes`, tensor descriptors for runtime tensors (`tensors`) and constants (`const_tensors`), and shared `subgraphs` | [`ml_drift/common/gpu_model.h:121-128`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model.h#L121-L128) |
 | `GpuNode` | One GPU dispatch: a `GPUOperation`, input and output `ValueId`s, a debug `name` (fused nodes read `a -> b -> c`), optional-node tags and a subgraph id | [`ml_drift/common/gpu_model.h:38-60`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model.h#L38-L60) |
-| `GPUOperation` | A kernel: generated source (`code_`), `Arguments` (`args_`), work-group size (default 8×4×1), grid mapping, FLOP count; `IsLinkable()` is true for elementwise operations, which can be fused into a producer | [`ml_drift/common/task/gpu_operation.h:97-191`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/task/gpu_operation.h#L97-L191) |
+| `GPUOperation` | A kernel: generated source (`code_`), `Arguments` (`args_`), work-group size (default 8×4×1), grid mapping, FLOP count; `IsLinkable()` is true for elementwise operations, which can be fused into a producer | [`ml_drift/common/task/gpu_operation.h:97-191`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/task/gpu_operation.h#L97-L191) |
 | `TensorDescriptor` | A tensor's data type, storage type, layout and shape; the backend allocates memory from it | [`ml_drift/common/task/tensor_desc.h:41-53`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/task/tensor_desc.h#L41-L53) |
 | `TensorStorageType` | `kBuffer`, `kImageBuffer`, `kTexture2D`, `kTexture3D`, `kTextureArray`, `kSingleTexture2D` | [`ml_drift/common/task/tensor_desc.h:41-49`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/task/tensor_desc.h#L41-L49) |
 | `CalculationsPrecision` | `kF32` (F32 data and math), `kF16` (F16 data and math), `kF32F16` (F16 data; convolution-like operations accumulate in F32) | [`ml_drift/common/precision.h:25-35`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/precision.h#L25-L35) |
@@ -62,7 +64,7 @@ The structures, briefly:
   ([../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md)).
 - A `GpuModel` node's input and output counts must equal its operation's source and destination
   tensor names; `GetGpuModel` checks this before returning.
-  [`ml_drift/common/gpu_model_builder.cc:3949-3963`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L3949-L3963)
+  [`ml_drift/common/gpu_model_builder.cc:3973-3987`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L3973-L3987)
 
 ### Precision
 
@@ -83,10 +85,10 @@ On Apple, the Metal delegate maps LiteRT's precision option to a calculation pre
 default picks `kF16` when the GPU rounds to nearest (every Apple GPU of family Apple4 or newer) and
 `kF32F16` otherwise; an explicit FP16 request gives `kF16`, FP32 gives `kF32`, and "FP16 with FP32
 accumulation" gives `kF32F16`. <!-- c:MD-ARC-028 -->
-[`ml_drift_delegate/delegate/delegate_metal.mm:369-385`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L369-L385)
+[`ml_drift_delegate/delegate/delegate_metal.mm:374-390`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L374-L390)
 LiteRT-LM requests FP16 for every activation type except FLOAT32, so ML Drift runs Gemma at `kF16`
 in our build. <!-- c:MD-ARC-029 -->
-[`runtime/executor/llm_executor_settings_utils.cc:92-96`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_executor_settings_utils.cc#L92-L96)
+[`runtime/executor/llm_executor_settings_utils.cc:92-96`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_executor_settings_utils.cc#L92-L96)
 Which activation type LiteRT-LM uses per model is on [../litert-lm/executors.md](../litert-lm/executors.md).
 
 ### Tensor storage
@@ -94,7 +96,7 @@ Which activation type LiteRT-LM uses per model is on [../litert-lm/executors.md]
 The storage type decides how a tensor is laid out in GPU memory and which accessors a kernel uses.
 The delegate passes `GetStorageType()` as the default: `kBuffer` if the delegate option
 `use_buffer_storage_type` is set, otherwise the backend's fastest type.
-[`ml_drift_delegate/delegate/delegate_kernel.h:115-122`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_kernel.h#L115-L122)
+[`ml_drift_delegate/delegate/delegate_kernel.h:118-125`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.h#L118-L125)
 On Metal the fastest type is `kTexture2D` for Apple1 and Apple2 GPUs and `kBuffer` for every newer
 family. <!-- c:MD-ARC-014 --> [`ml_drift/metal/metal_spatial_tensor.mm:478-485`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_spatial_tensor.mm#L478-L485)
 Values with fewer than 4 channels are switched to `kSingleTexture2D` on Metal when the shape fits
@@ -120,10 +122,11 @@ Every step up to `GpuModel` is backend-neutral C++ and runs synchronously on the
 initializes the delegate kernel, during model load (which LiteRT-LM thread that is:
 [../stack.md](../stack.md)). Steps G and H are on [metal-backend.md](metal-backend.md).
 
-The fork LiteRT-LM builds is pinned in `WORKSPACE` as an `http_archive` of `PowerBeef/ml-drift` at
-`15fa9e2`; it carries 8 commits on Google's `1b18771`, listed in
-[../generated/patch-log.md](../generated/patch-log.md#ml-drift-powerbeefml-drift-agello-next).
-<!-- c:MD-ARC-001 --> [`WORKSPACE:517-540`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L517-L540)
+Our build declares ML Drift in `WORKSPACE` as a `local_repository` at `agello/ml_drift`, imported
+unchanged on 2026-11-11 from `PowerBeef/ml-drift` `15fa9e2`, which carried 8 commits on Google's
+`1b18771`; 16 commits since the import change the folder. Both lists are in
+[../generated/patch-log.md](../generated/patch-log.md#ml-drift).
+<!-- c:MD-ARC-001 --> [`WORKSPACE:517-536`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/WORKSPACE#L517-L536)
 
 ### GPU detection
 
@@ -133,23 +136,25 @@ The fork LiteRT-LM builds is pinned in `WORKSPACE` as an `http_archive` of `Powe
 `GetGpuInfoFromDeviceDescription` with `GpuApi::kMetal`; then it fills `MetalInfo` from the device
 (maximum threads per threadgroup, `maxBufferLength`, the highest Metal Shading Language version the
 device and OS support) and the simdgroup matrix operations. <!-- c:MD-ARC-005 -->
-[`ml_drift/metal/environment.mm:30-106`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L106)
+[`ml_drift/metal/environment.mm:42-129`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L42-L129)
+Between the two, our build gives a GPU the name table doesn't know a family from the device
+([below](#apple-gpu-families)).
 
 `GetGpuInfoFromDeviceDescription` lowercases the name, finds the vendor by substring (`"apple"` →
-`kApple`), and for Apple builds `AppleInfo` from the lowercased name (or, in our fork, from
+`kApple`), and for Apple builds `AppleInfo` from the lowercased name (or, in our build, from
 `AGELLO_SIMULATE_APPLE_GPU` when that is set and not empty; see below) and sets the supported wave
 size to 32.
-[`ml_drift/common/gpu_info.cc:1356-1377`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1356-L1377) The vendor table:
-[`ml_drift/common/gpu_info.cc:34-61`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L34-L61).
+[`ml_drift/common/gpu_info.cc:1363-1386`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L1363-L1386) The vendor table:
+[`ml_drift/common/gpu_info.cc:34-61`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L34-L61).
 
 `AppleInfo` compares the lowercased name against a fixed table (`"apple a7"` … `"apple a20 pro"`,
 `"apple m1"` … `"apple m6"`) by substring, keeping the longest key that matches, so
 `"Apple A19 Pro GPU"` is the A19 Pro and not the A19; the family follows from the type.
-[`ml_drift/common/gpu_info.cc:683-737`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L683-L737)
+[`ml_drift/common/gpu_info.cc:683-737`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L683-L737)
 
 #### Apple GPU families
 
-ML Drift's family for each GPU it knows ([`ml_drift/common/gpu_info.cc:739-767`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L739-L767)):
+ML Drift's family for each GPU it knows ([`ml_drift/common/gpu_info.cc:739-767`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L739-L767)):
 
 | ML Drift family | iPhone and iPad chips | Mac chips |
 | --- | --- | --- |
@@ -158,36 +163,41 @@ ML Drift's family for each GPU it knows ([`ml_drift/common/gpu_info.cc:739-767`]
 | `kApple9` | A17 Pro, A18, A18 Pro | M3 (all), M4, M4 Pro, M4 Max |
 | `kApple10` | A19, A19 Pro, A20 Pro | M5, M5 Pro, M5 Max, M5 Ultra, M6 |
 | `kApple2` … `kApple6` | A8 … A13 | |
-| `kApple1` | A7, and any name not in the table (`AppleGpu::kUnknown`) | any name not in the table |
+| `kApple1` | A7; `GetGpuFamily`'s answer for a name not in the table (`AppleGpu::kUnknown`), which our build then replaces with the device's family | the same for an unknown name |
 
 <!-- c:MD-ARC-003 -->
 
-These are ML Drift's own labels, named after `MTLGPUFamily` but not read from it: the family comes
-only from the device name. A name the table doesn't contain leaves `gpu_type` at `kUnknown` and the
-family at `kApple1`, the oldest family, with the slowest kernel paths. <!-- c:MD-ARC-004 -->
-[`ml_drift/common/gpu_info.cc:727-737`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L727-L737) For example, a chip named "Apple A20" (no
-"Pro") would not match `"apple a20 pro"` and would fall back to Apple1. Our LiteRT build records
-the telemetry fact `gpu` as `<Metal device name>, ML Drift family Apple<N>`; when the type is
-unknown it appends ` (device not recognized)` and also reports a `kGpuFamilyUnknown` anomaly of
-severity `kError` (ours).
-[`ml_drift_delegate/delegate/gpu_backend_metal.mm:167-181`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L167-L181)
+These are ML Drift's own labels, named after `MTLGPUFamily`. For a name the table knows, the family
+comes only from the name. A name the table doesn't contain leaves `gpu_type` at `kUnknown`, and
+`GetGpuFamily` gives `kApple1`, the oldest family, with the slowest kernel paths. In our build
+(ours: `e5e4c6eb`), `CreateGpuInfoFromMetalDevice` then gives such a GPU the highest Apple family its
+`MTLDevice` supports (`supportsFamily`, Apple10 down to Apple2, else Apple1) and an estimated
+compute-unit count: 6 on iOS (the A19 Pro's), 10 on macOS. <!-- c:MD-ARC-004 -->
+[`ml_drift/common/gpu_info.cc:727-737`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L727-L737)
+[`ml_drift/metal/environment.mm:33-55`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L33-L55) For example, a chip named
+"Apple A20" (no "Pro") would not match `"apple a20 pro"`; on an iPhone whose GPU supports Apple10 it
+would run as Apple10 with 6 compute units. Our LiteRT build records the telemetry fact `gpu` as
+`<Metal device name>, ML Drift family Apple<N>`; when the type is unknown it appends
+` (device not recognized)` and also reports a `kGpuFamilyUnknown` anomaly of severity `kError`
+(ours), whose message still says the kernels are the slow fallback ones.
+[`ml_drift_delegate/delegate/gpu_backend_metal.mm:204-218`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L204-L218)
 
 Observed names: the iPhone 17 Pro's Metal device is `Apple A19 Pro GPU`, classified Apple10
 <!-- c:MD-ARC-006 -->; this Mac's is `Apple M6`, also Apple10 ([../generated/engine-run.md](../generated/engine-run.md)).
 <!-- c:MD-ARC-007 -->
 
 The compute-unit count, used by work-group and kernel heuristics, also comes from the type
-([`ml_drift/common/gpu_info.cc:863-975`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L863-L975)); the code marks the M-series values
+([`ml_drift/common/gpu_info.cc:863-976`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L863-L976)); the code marks the M-series values
 "approximate":
 
 | GPU | A14 | A15 | A16 | A17 Pro | A18 | A18 Pro | A19 | A19 Pro | A20 Pro | M1 | M2 | M3 | M4 | M5 | M6 | unknown |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Compute units | 4 | 5 (4 on iPhone14,4 and iPhone14,5) | 5 | 6 | 5 | 6 | 5 | 6 | 7 | 8 | 10 | 10 | 10 | 10 | 12 | 4 |
+| Compute units | 4 | 5 (4 on iPhone14,4 and iPhone14,5) | 5 | 6 | 5 | 6 | 5 | 6 | 7 | 8 | 10 | 10 | 10 | 10 | 12 | 6 on iOS, 10 on macOS (ours; 4 without it) |
 
 <!-- c:MD-ARC-008 -->
 
 The A15 exception reads the device model with `uname()`: the iPhone 13 mini and iPhone 13 have a
-4-core A15. [`ml_drift/metal/environment.mm:34-44`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L34-L44)
+4-core A15. [`ml_drift/metal/environment.mm:57-67`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L57-L67)
 
 #### What each family turns on
 
@@ -195,29 +205,30 @@ Family gates that change what runs on Apple GPUs (kernel details on [kernels.md]
 
 | Gate | Condition | Effect | Code |
 | --- | --- | --- | --- |
-| Texture storage | Apple1–Apple2 | Default storage `kTexture2D`, 8192-pixel image limit (16384 above) | [`ml_drift/metal/metal_spatial_tensor.mm:478-485`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_spatial_tensor.mm#L478-L485), [`ml_drift/metal/environment.mm:46-55`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L46-L55) |
-| "Bionic" | Apple4+ | `IsRoundToNearestSupported()`: the Metal delegate's default precision becomes F16 | [`ml_drift/common/gpu_info.cc:849-861`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L849-L861) |
-| Simdgroup matrices | Apple7+ and MSL ≥ 2.3 | 8×8×8 FP16 and FP32 wave matrix operations registered (BF16 too with MSL ≥ 3.1); `ConvWaveMatrix` becomes possible | [`ml_drift/metal/environment.mm:79-104`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L79-L104) |
-| FP32 matrix speed | Apple8+ or M1 series | `IsSIMDMatMulFp32Perf2x()`: lowers the size threshold for F32 simdgroup convolutions | [`ml_drift/common/gpu_info.cc:857-859`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L857-L859) |
-| Apple9 tuning | exactly Apple9 | Lower thresholds in `IsGoodTaskSizeForAppleConvSimd` (0.75 useful part, 512 FLOPs per thread, against 0.95 and 2048 on other families; at `kF32` on GPUs with `IsSIMDMatMulFp32Perf2x()` the useful part is 0.6) | [`ml_drift/common/kernels/conv_wave_matrix.cc:1523-1557`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/conv_wave_matrix.cc#L1523-L1557) |
-| GPU Neural Accelerators | Apple10+ and MSL ≥ 4.0 | `SupportsConvAppleMPP`: `ConvAppleMPP`, and the int8 source-quantized convolution path | [`ml_drift/common/kernels/conv_apple_mpp.cc:536-540`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/conv_apple_mpp.cc#L536-L540) |
+| Texture storage | Apple1–Apple2 | Default storage `kTexture2D`, 8192-pixel image limit (16384 above) | [`ml_drift/metal/metal_spatial_tensor.mm:478-485`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_spatial_tensor.mm#L478-L485), [`ml_drift/metal/environment.mm:69-78`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L69-L78) |
+| "Bionic" | Apple4+ | `IsRoundToNearestSupported()`: the Metal delegate's default precision becomes F16 | [`ml_drift/common/gpu_info.cc:849-861`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L849-L861) |
+| Simdgroup matrices | Apple7+ and MSL ≥ 2.3 | 8×8×8 FP16 and FP32 wave matrix operations registered (BF16 too with MSL ≥ 3.1); `ConvWaveMatrix` becomes possible | [`ml_drift/metal/environment.mm:102-127`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L102-L127) |
+| FP32 matrix speed | Apple8+ or M1 series | `IsSIMDMatMulFp32Perf2x()`: lowers the size threshold for F32 simdgroup convolutions | [`ml_drift/common/gpu_info.cc:857-859`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L857-L859) |
+| Apple9 tuning | exactly Apple9 | Lower thresholds in `IsGoodTaskSizeForAppleConvSimd` (0.75 useful part, 512 FLOPs per thread, against 0.95 and 2048 on other families; at `kF32` on GPUs with `IsSIMDMatMulFp32Perf2x()` the useful part is 0.6) | [`ml_drift/common/kernels/conv_wave_matrix.cc:1523-1557`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/kernels/conv_wave_matrix.cc#L1523-L1557) |
+| GPU Neural Accelerators | Apple10+ and MSL ≥ 4.0 | `SupportsConvAppleMPP`: `ConvAppleMPP`, and the int8 source-quantized convolution path | [`ml_drift/common/kernels/conv_apple_mpp.cc:538-542`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/kernels/conv_apple_mpp.cc#L538-L542) |
 
 <!-- c:MD-ARC-010 --> <!-- c:MD-ARC-013 -->
 
 Simdgroup matrix operations are registered only when the Metal language version is at least 2.3
 and the family is Apple7 or newer; BF16 is added when the version is at least 3.1. (The BF16 test
 also excludes the simulator, but `is_simulator` is set a few lines later, so the exclusion has no
-effect at that point.) [`ml_drift/common/gpu_info.cc:1520-1522`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1520-L1522) `ConvAppleMPP` requires the Metal API, an Apple GPU, family Apple10 or newer and
+effect at that point.) [`ml_drift/common/gpu_info.cc:1529-1531`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L1529-L1531) `ConvAppleMPP` requires the Metal API, an Apple GPU, family Apple10 or newer and
 MSL 4.0 or newer. The MSL version comes from the device and OS, not from the name
 ([metal-backend.md](metal-backend.md)).
 
 #### The simulation switch (ours)
 
-`AGELLO_SIMULATE_APPLE_GPU` (ours: `ef08a67858`): when the environment variable is set and not
-empty, `GetGpuInfoFromDeviceDescription` builds `AppleInfo` from the lowercased variable instead of
-the device name. The vendor still comes from the real name, so it only works on an Apple GPU, and
-the value must be a name the table knows (`"Apple A17 Pro"`, `"Apple M2"`, `"Apple M1"`).
-<!-- c:MD-ARC-016 --> [`ml_drift/common/gpu_info.cc:1365-1376`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1365-L1376)
+`AGELLO_SIMULATE_APPLE_GPU` (ours: `ef08a67858`; underscores since `e5e4c6eb`): when the
+environment variable is set and not empty, `GetGpuInfoFromDeviceDescription` builds `AppleInfo` from
+the lowercased variable, with underscores read as spaces (`"Apple_A17_Pro"`), instead of the device
+name. The vendor still comes from the real name, so it only works on an Apple GPU, and the value
+must be a name the table knows (`"Apple A17 Pro"`, `"Apple M2"`, `"Apple M1"`).
+<!-- c:MD-ARC-016 --> [`ml_drift/common/gpu_info.cc:1372-1385`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L1372-L1385)
 
 What it changes: everything derived from `AppleInfo`: the family, the type, the compute-unit
 count, and through them every family gate above, kernel choice and work-group heuristic. That
@@ -226,8 +237,10 @@ the simdgroup matrix operations and the A15 compute-unit override.
 
 What stays the real device's: the Metal language version, threadgroup limits, `maxBufferLength`
 and the simulator flag, which `CreateGpuInfoFromMetalDevice` reads from the real `MTLDevice` and
-its name; the hardware's speed and arithmetic; the OS's shader compiler. <!-- c:MD-ARC-017 -->
-[`ml_drift/metal/environment.mm:30-104`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L104) So simulating an older family on a newer
+its name; the hardware's speed and arithmetic; the OS's shader compiler. A simulated name the table
+doesn't know gets the real device's family and the estimated core count, as an unknown chip does.
+<!-- c:MD-ARC-017 -->
+[`ml_drift/metal/environment.mm:42-129`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L42-L129) So simulating an older family on a newer
 device (the use we make of it) runs that family's kernel *code* on newer hardware: kernel coverage
 and numerical paths are those of the older GPU, speeds are not. Simulating a newer family than the
 hardware has (for example Apple10 on an Apple9 device with an OS that reports MSL 4.0) would select
@@ -237,14 +250,14 @@ hardware has (for example Apple10 on an Apple9 device with an OS that reports MS
 LiteRT (ours: `362759838`) adds the simulated name to the program cache's options fingerprint and
 to the weight cache's serialization prefix, so caches written for the real GPU are never restored
 for a simulated one, and the other way round. <!-- c:MD-ARC-018 -->
-[`ml_drift_delegate/delegate/delegate_kernel.cc:112-117`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L112-L117)
-[`ml_drift_delegate/delegate/delegate_kernel.cc:858-862`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L858-L862)
+[`ml_drift_delegate/delegate/delegate_kernel.cc:112-117`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L112-L117)
+[`ml_drift_delegate/delegate/delegate_kernel.cc:858-862`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L858-L862)
 
 The variable is read every time `GetGpuInfoFromDeviceDescription` runs, which is whenever a
 `metal::Environment` is constructed: the delegate's shared device, and the `Environment` that each
 `InferenceContext::InitFromGpuModel(id<MTLDevice>)` creates.
-[`ml_drift/metal/environment.mm:110-117`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L110-L117)
-[`ml_drift/metal/inference_context.mm:130-136`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L130-L136) Set it before the engine loads and
+[`ml_drift/metal/environment.mm:133-140`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L133-L140)
+[`ml_drift/metal/inference_context.mm:148-154`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L148-L154) Set it before the engine loads and
 don't change it while the process runs, or kernel selection and compilation could see different
 families.
 
@@ -259,12 +272,12 @@ LiteRT's `BuildFinalModel` converts the delegated TFLite nodes to a `GraphFloat3
 operation and composite parsers) and then calls ML Drift's `ApplyGpuModelTransformations`.
 [`ml_drift_delegate/tflite/model_builder.cc:7661-7675`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/tflite/model_builder.cc#L7661-L7675) The delegate then applies LiteRT's
 own `litert::ml_drift::ApplyCustomTransformations` (its fusions are listed under
-[Graph transformations](#graph-transformations)) to the graph before handing it to ML Drift. [`ml_drift_delegate/delegate/delegate_kernel.cc:286-294`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L286-L294)
+[Graph transformations](#graph-transformations)) to the graph before handing it to ML Drift. [`ml_drift_delegate/delegate/delegate_kernel.cc:286-294`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L286-L294)
 The parsers and LiteRT's transformations are on [../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md).
 
 The delegate also has an `IrModel` pipeline (`IrModelToGpuModel`), used only when the GPU option
 `use_ir_model` is set; it defaults to false, so our build takes the `GraphFloat32` path described
-here. [`ml_drift_delegate/delegate/delegate_kernel.cc:236-243`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L236-L243)
+here. [`ml_drift_delegate/delegate/delegate_kernel.cc:236-243`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L236-L243)
 [`ml_drift_delegate/delegate/delegate_options.h:326`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_options.h#L326)
 
 ### Graph transformations
@@ -291,8 +304,8 @@ separate `litert::ml_drift::ApplyCustomTransformations`, which `DelegateKernel` 
 and our bounded attention), not from ML Drift's. <!-- c:MD-ARC-033 -->
 [`ml_drift/common/default/custom_transformations.cc:21`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/default/custom_transformations.cc#L21)
 [`ml_drift/common/build_config.bzl:19-20`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/build_config.bzl#L19-L20)
-[`ml_drift_delegate/delegate/delegate_kernel.cc:293-294`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L293-L294)
-[`ml_drift_delegate/delegate/composite/custom_transformations.cc:33-56`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/custom_transformations.cc#L33-L56)
+[`ml_drift_delegate/delegate/delegate_kernel.cc:293-294`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L293-L294)
+[`ml_drift_delegate/delegate/composite/custom_transformations.cc:33-56`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/composite/custom_transformations.cc#L33-L56)
 
 ### From `GraphFloat32` to `GpuModel`
 
@@ -321,7 +334,7 @@ and our bounded attention), not from ML Drift's. <!-- c:MD-ARC-033 -->
 (`AssembleCode`), resolves polymorphic arguments so the model survives serialization
 (`ResolveArgs`), expands shared subgraphs into plain nodes (`ExpandSubgraphs`), and checks every
 node's input and output counts against its operation. <!-- c:MD-ARC-037 -->
-[`ml_drift/common/gpu_model_builder.cc:3938-3965`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L3938-L3965)
+[`ml_drift/common/gpu_model_builder.cc:3962-3989`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L3962-L3989)
 
 The weights-conversion variant (`GraphToGpuModelWithWeightsConversion`) runs the same steps with a
 `WeightsManager` and also returns a separate `GpuModel` that converts weights into GPU layouts.
@@ -361,14 +374,15 @@ node. The layers:
    ML Drift's `DefaultOpSelector` forwards both to the free functions of `ml_drift/common/selectors`.
    [`ml_drift/common/gpu_model_util.cc:390-420`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_util.cc#L390-L420) The LiteRT delegate passes its own
    `LiteRtOpSelector` instead: it builds LiteRT's custom operation types itself (add values to
-   cache, gated delta update, our bounded mask and bounded softmax reduce, runtime batched matmul,
-   transposed SDPA, MoE experts, SwiGLU, QKV norm with RoPE, short conv step, RoPE) and passes every
-   other node to ML Drift's `GPUOperationFromNode`; multi-node patterns go straight to ML Drift.
-   [`ml_drift_delegate/delegate/composite/litert_op_selector.cc:145-252`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/composite/litert_op_selector.cc#L145-L252)
+   cache, gated delta update, our bounded mask, mask bounds, bounds flag and bounded softmax reduce,
+   runtime batched matmul, transposed SDPA, MoE experts, SwiGLU, QKV norm with RoPE, short conv step,
+   RoPE) and passes every other node to ML Drift's `GPUOperationFromNode`; multi-node patterns go
+   straight to ML Drift.
+   [`ml_drift_delegate/delegate/composite/litert_op_selector.cc:145-258`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/composite/litert_op_selector.cc#L145-L258)
 2. **`GPUSubgraphFromGraph`** (special selector) recognizes multi-node patterns when the hints
    allow special kernels; the delegate always adds `kAllowSpecialKernels`.
    [`ml_drift/common/selectors/special_selector.cc:36-86`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/selectors/special_selector.cc#L36-L86)
-   [`ml_drift_delegate/delegate/delegate_kernel.cc:335-344`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L335-L344)
+   [`ml_drift_delegate/delegate/delegate_kernel.cc:335-344`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L335-L344)
 3. **`GPUOperationFromNode`** is a switch on the operation type: elementwise operations, reductions,
    `BATCHED_MATMUL`, convolutions, fully connected (float, int2, int4, int8), RMS norm, RoPE,
    embedding lookup, softmax, transpose and the rest. Most cases call a `GpuModelBuilder` method, and
@@ -384,36 +398,39 @@ when the GPU supports the wave matrix operation for the precision and the task i
 [`ml_drift/common/selectors/convolution_selector.cc:106-123`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/selectors/convolution_selector.cc#L106-L123) The size test uses the
 compute-unit count (at least 16 waves per compute unit, 8 at `kF32`), so it changes with the GPU
 type.
-[`ml_drift/common/kernels/conv_wave_matrix.cc:1523-1557`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/conv_wave_matrix.cc#L1523-L1557)
+[`ml_drift/common/kernels/conv_wave_matrix.cc:1523-1557`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/kernels/conv_wave_matrix.cc#L1523-L1557)
 
 **Quantized fully connected layers** (the int2, int4 and int8 weight matrices of every Gemma
 projection). `FullyConnectedInt8ExternalWeights` decides by the number of tokens (the spatial size
 of the destination) <!-- c:MD-ARC-046 -->:
-[`ml_drift/common/gpu_model_builder.cc:1518-1589`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1518-L1589)
+[`ml_drift/common/gpu_model_builder.cc:1516-1612`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L1516-L1612)
 
 | Condition | Kernel | Typical use |
 | --- | --- | --- |
-| Spatial size ≤ `GetRecommendedMaxTotalSpatialSize(...)`, or ring-buffer weights | `fc1x1_int8_weights` (a `FullyConnected`) | decode, verify, the MTP drafter |
+| Spatial size ≤ `GetRecommendedMaxTotalSpatialSize(...)` (on Apple GPUs at least 64 when the weights differ per height, ours: `13def71b`), or ring-buffer weights | `fc1x1_int8_weights` (a `FullyConnected`) | decode, verify, the MTP drafter; attention products of up to 64 rows |
 | Else, per-channel quantization with a weight sum, `SupportsConvolutionInt8`, and 8-bit convolutions allowed | `FullyConnectedInt8QuantizedWithSrcQuantization`: quantize the FP16 activations to int8, then an int8 convolution | prefill on Apple10 |
 | Otherwise | `FullyConnectedSrcFloatExternalWeightsWithConversion`: convert the weights to float, then a float convolution | prefill on Apple9 and below |
 
 `GetRecommendedMaxTotalSpatialSize` starts at 4, doubles for `kF16`, doubles again on any GPU that
 isn't Mali (and once more on Adreno 7xx and newer), and is capped at 16. On Apple GPUs that is 16
-tokens at `kF16` and 8 at `kF32F16` or `kF32`. <!-- c:MD-ARC-045 -->
-[`ml_drift/common/kernels/fully_connected.cc:885-900`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/fully_connected.cc#L885-L900) `FullyConnectedInt4ExternalWeights` adds an `fc1x1_int4_weights` node when the destination's
+tokens at `kF16` and 8 at `kF32F16` or `kF32`. The int8 builder raises it to 64 on Apple GPUs when the
+weights differ per height, the attention products that read the INT8 KV cache as weights, whose
+rows the kernel then tiles 16 to a work group (ours: `13def71b`). <!-- c:MD-ARC-045 -->
+[`ml_drift/common/gpu_model_builder.cc:1548-1556`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L1548-L1556)
+[`ml_drift/common/kernels/fully_connected.cc:907-922`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/kernels/fully_connected.cc#L907-L922) `FullyConnectedInt4ExternalWeights` adds an `fc1x1_int4_weights` node when the destination's
 batch × height × width is at most `GetRecommendedMaxTotalSpatialSize` at the source type's
 convolution precision; larger outputs go to the source-quantized int4 or int8 paths or a
 float-conversion path. The int2 builder also compares batch × height × width. Neither has the int8
 builder's ring-buffer exception.
-[`ml_drift/common/gpu_model_builder.cc:1617-1626`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1617-L1626)
-[`ml_drift/common/gpu_model_builder.cc:1690-1696`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1690-L1696)
+[`ml_drift/common/gpu_model_builder.cc:1641-1650`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L1641-L1650)
+[`ml_drift/common/gpu_model_builder.cc:1714-1720`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L1714-L1720)
 
 The int8 path needs 8-bit convolutions to be allowed. LiteRT-LM decides: unless the application
 sets `allow_src_quantized_fc_conv_ops`, the engine enables it for models whose metadata names a
 well-known LLM type (E4B's says `gemma4`) and disables it for generic models, and passes it to the GPU
 options; when it's off the delegate adds `kDisallow8bitConvs` and prefill takes the float path on
 every family. <!-- c:MD-ARC-058 --> [`runtime/engine/engine_settings.cc:477-490`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L477-L490)
-[`runtime/executor/llm_executor_settings_utils.cc:210-212`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_executor_settings_utils.cc#L210-L212)
+[`runtime/executor/llm_executor_settings_utils.cc:210-212`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_executor_settings_utils.cc#L210-L212)
 
 `SupportsConvolutionInt8` checks `SupportsConvAppleMPP` first, then other vendors' int8 paths;
 the int8 convolution it selects on Apple10 is `ConvAppleMPP`.
@@ -425,7 +442,7 @@ Gemma 4 E4B with an 8K window: <!-- c:MD-ARC-048 -->
 
 | Graph | Apple M6 (Apple10, native) | Simulated A17 Pro, M2, M1 (Apple9, 8, 7) |
 | --- | --- | --- |
-| `prefill_1024` nodes | 1634 | 1424 |
+| `prefill_1024` nodes | 1627 | 1417 |
 | `convolution_int8(conv_apple_mpp)` | 210 | 0 |
 | `quantize_float16_to_int8c4` | 210 | 0 |
 | `convolution(conv_apple_mpp)` (+ `src softmax`) | 23 + 23 | 0 |
@@ -441,8 +458,8 @@ stay under the threshold, so they use `fc1x1_*` kernels); only prefill differs.
 
 The delegate always adds `kAllowSpecialKernels`; it adds `kPreferTextureWeights` and `kFastTuning`
 when the matching options are on, and `kDisallow8bitConvs` when
-`allow_src_quantized_fc_conv_ops` is off. [`ml_drift_delegate/delegate/delegate_kernel.cc:327-344`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L327-L344)
-On Apple, LiteRT-LM turns texture weights off. [`runtime/executor/llm_executor_settings_utils.cc:97-98`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_executor_settings_utils.cc#L97-L98)
+`allow_src_quantized_fc_conv_ops` is off. [`ml_drift_delegate/delegate/delegate_kernel.cc:327-344`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L327-L344)
+On Apple, LiteRT-LM turns texture weights off. [`runtime/executor/llm_executor_settings_utils.cc:97-98`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_executor_settings_utils.cc#L97-L98)
 `kFastTuning` has no effect on Metal: the Metal backend always tunes with `TuningType::kFast`
 ([metal-backend.md](metal-backend.md)).
 
@@ -450,18 +467,20 @@ On Apple, LiteRT-LM turns texture weights off. [`runtime/executor/llm_executor_s
 
 - **Only the Metal backend.** ML Drift's Metal code is Objective-C++ (`objc_library` targets in
   `ml_drift/metal/BUILD`), built only for Apple platforms; LiteRT-LM links LiteRT's GPU accelerator,
-  and with it ML Drift, statically. [`ml_drift/metal/BUILD:157-166`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/BUILD#L157-L166)
-  [`WORKSPACE:517-524`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L517-L524)
-- **Family from the name.** Kernel coverage on a device depends on its name being in the table;
-  A-series and M-series chips released after the pin will be Apple1 until ML Drift's table learns
-  their names.
-- **What ships.** Agello ships Google's prebuilt v0.18.0 `CLiteRTLM.xcframework`, Google's own
-  build (2026-10-06), so it contains none of our ML Drift commits (telemetry hooks, the window
-  kernels, the simulation switch). Consistent with that, its iOS arm64 slice has 12 defined ML Drift
-  Metal accelerator symbols and 0 Agello telemetry symbols (ours: 9 and 7). The ML Drift revision
-  inside it isn't published. <!-- c:MD-ARC-053 -->
+  and with it ML Drift, statically. [`ml_drift/metal/BUILD:157-166`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/BUILD#L157-L166)
+  [`WORKSPACE:517-524`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/WORKSPACE#L517-L524)
+- **Family from the name, or from the device.** A chip in the name table gets its family and core
+  count from the table. A chip released after it (an iPhone 18's) gets, in our build, the highest
+  family its Metal device supports and an estimated core count (6 on iOS, 10 on macOS), so it keeps
+  the simdgroup-matrix and GPU Neural Accelerator paths (ours: `e5e4c6eb`).
+- **What ships.** The release Agello ships, `agello-one-20261115` (`6da75396`, 2026-11-15), is our
+  build: it contains our ML Drift commits up to 2026-11-14 (telemetry hooks, the window kernels, the
+  simulation switch), but not the softmax fix at every window (`581cb758`), B5's row tiling
+  (`13def71b`) or G1 (`e5e4c6eb`). The iOS arm64 slice of our build at the pin has 9 defined ML Drift
+  Metal accelerator symbols and 8 Agello telemetry symbols. <!-- c:MD-ARC-053 -->
   ([../generated/binaries.md](../generated/binaries.md),
-  [../generated/version-matrix.md](../generated/version-matrix.md))
+  [../generated/version-matrix.md](../generated/version-matrix.md),
+  [../generated/patch-log.md](../generated/patch-log.md#ml-drift))
 - **OS gates.** Our xcframework's minimum OS is iOS 27 and macOS 27
   ([../generated/version-matrix.md](../generated/version-matrix.md)), so every `@available` branch
   in ML Drift's Metal code for iOS 18 and 26 (MSL 3.2 and 4.0 detection, residency sets, fast-math
@@ -482,8 +501,10 @@ Rows for [../configuration.md](../configuration.md):
 
 ## Limits and failure modes
 
-- **Unrecognized GPU → Apple1.** Correct but slow kernels: no simdgroup matrices, no GPU Neural
-  Accelerators, texture storage rules of Apple1. Our telemetry flags it (`gpu_family_unknown`).
+- **Unrecognized GPU.** Google's code gives it Apple1: correct but slow kernels, with no simdgroup
+  matrices, no GPU Neural Accelerators and Apple1's texture storage rules. Our build gives it the
+  device's family and an estimated core count instead (ours: `e5e4c6eb`); work-group heuristics then
+  rest on that estimate. Our telemetry still flags it (`gpu_family_unknown`).
 - **Unknown operation → build failure.** `SelectDefault` fails with "No selector for <type>";
   which operations LiteRT keeps off the GPU before that point is decided by the delegate's
   partitioning ([../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md)).
@@ -502,30 +523,29 @@ Rows for [../configuration.md](../configuration.md):
 
 | Concept | Symbol | Code |
 | --- | --- | --- |
-| GPU name → vendor | `GetGpuVendor` | [`ml_drift/common/gpu_info.cc:34-61`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L34-L61) |
-| GPU name → Apple type | `AppleInfo::AppleInfo` | [`ml_drift/common/gpu_info.cc:683-737`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L683-L737) |
-| Type → family | `AppleInfo::GetGpuFamily` | [`ml_drift/common/gpu_info.cc:739-767`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L739-L767) |
-| Compute units | `AppleInfo::GetComputeUnitsCount` | [`ml_drift/common/gpu_info.cc:863-975`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L863-L975) |
-| Simulation (ours) | `GetGpuInfoFromDeviceDescription` | [`ml_drift/common/gpu_info.cc:1356-1377`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1356-L1377) |
-| Metal device → `GpuInfo` | `CreateGpuInfoFromMetalDevice` | [`ml_drift/metal/environment.mm:30-106`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L30-L106) |
+| GPU name → vendor | `GetGpuVendor` | [`ml_drift/common/gpu_info.cc:34-61`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L34-L61) |
+| GPU name → Apple type | `AppleInfo::AppleInfo` | [`ml_drift/common/gpu_info.cc:683-737`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L683-L737) |
+| Type → family | `AppleInfo::GetGpuFamily` | [`ml_drift/common/gpu_info.cc:739-767`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L739-L767) |
+| Compute units | `AppleInfo::GetComputeUnitsCount` | [`ml_drift/common/gpu_info.cc:863-976`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L863-L976) |
+| Unknown chip's family (ours) | `DeviceAppleFamily`, `AppleInfo::SetUnknownChipFamily` | [`ml_drift/metal/environment.mm:33-55`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L33-L55), [`ml_drift/common/gpu_info.cc:972-986`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L972-L986) |
+| Simulation (ours) | `GetGpuInfoFromDeviceDescription` | [`ml_drift/common/gpu_info.cc:1363-1386`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L1363-L1386) |
+| Metal device → `GpuInfo` | `CreateGpuInfoFromMetalDevice` | [`ml_drift/metal/environment.mm:42-129`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L42-L129) |
 | Transformations | `ApplyGpuModelTransformations` | [`ml_drift/common/transformations/model_transformations.cc:86-98`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/transformations/model_transformations.cc#L86-L98) |
 | Graph → model | `GraphToGpuModel` | [`ml_drift/common/gpu_model_util.cc:422-467`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_util.cc#L422-L467) |
 | Tensor descriptors | `GetTensorDescForValue` | [`ml_drift/common/gpu_model_util.cc:189-241`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_util.cc#L189-L241) |
 | Node conversion | `ConvertOperations` | [`ml_drift/common/gpu_model_util.cc:327-388`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_util.cc#L327-L388) |
-| Finishing | `GpuModelBuilder::GetGpuModel` | [`ml_drift/common/gpu_model_builder.cc:3938-3965`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L3938-L3965) |
+| Finishing | `GpuModelBuilder::GetGpuModel` | [`ml_drift/common/gpu_model_builder.cc:3962-3989`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L3962-L3989) |
 | Fusion | `MergeNodes`, `LinkNodes` | [`ml_drift/common/merge_nodes.cc:363-420`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/merge_nodes.cc#L363-L420) |
 | Node selector | `GPUOperationFromNode` | [`ml_drift/common/selectors/operation_selector.cc:539-555`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/selectors/operation_selector.cc#L539-L555) |
 | Convolution on Apple | `SelectConvolutionApple` | [`ml_drift/common/selectors/convolution_selector.cc:106-123`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/selectors/convolution_selector.cc#L106-L123) |
-| Quantized FC choice | `FullyConnectedInt8ExternalWeights` | [`ml_drift/common/gpu_model_builder.cc:1498-1589`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/common/gpu_model_builder.cc#L1498-L1589) |
-| Decode/prefill threshold | `GetRecommendedMaxTotalSpatialSize` | [`ml_drift/common/kernels/fully_connected.cc:885-900`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/fully_connected.cc#L885-L900) |
-| Metal precision choice | `CreateMlDriftMetalDelegate` | [`ml_drift_delegate/delegate/delegate_metal.mm:369-385`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L369-L385) |
+| Quantized FC choice | `FullyConnectedInt8ExternalWeights` | [`ml_drift/common/gpu_model_builder.cc:1507-1612`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_model_builder.cc#L1507-L1612) |
+| Decode/prefill threshold | `GetRecommendedMaxTotalSpatialSize` | [`ml_drift/common/kernels/fully_connected.cc:907-922`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/kernels/fully_connected.cc#L907-L922) |
+| Metal precision choice | `CreateMlDriftMetalDelegate` | [`ml_drift_delegate/delegate/delegate_metal.mm:374-390`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L374-L390) |
 
 ## Open questions
 
 - **Simulating a newer family** (Apple10 on Apple9 hardware with MSL 4.0) is untested: whether
   `ConvAppleMPP`'s MetalPerformancePrimitives code compiles and runs correctly without GPU Neural
   Accelerators is not verified.
-- **The ML Drift revision in Google's v0.18.0 binary** isn't known; whether its family table and
-  kernel choices match `1b18771` is not verified.
 - **Device names.** The A19 Pro and M6 names are observed; the names other chips report (A19,
   A18, M5) are taken from ML Drift's table, not observed here.

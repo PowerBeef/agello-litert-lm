@@ -8,8 +8,8 @@
 > ([architecture.md](architecture.md), [kernels.md](kernels.md)); when LiteRT calls `Dispatch`, waits,
 > copies buffers and uses the program and weight caches ([../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md));
 > the telemetry library and its tools ([../tools.md](../tools.md)).
-> **Pinned to:** ML Drift `15fa9e2`, LiteRT `362759838`, LiteRT-LM `7b872544`
-> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: ML Drift in `agello/ml_drift`, LiteRT in `agello/litert`, LiteRT-LM at the root; Agello ships release `agello-one-20261115` (`6da75396`)
+> **Applies to:** Apple (iOS, macOS). **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -26,19 +26,20 @@ the stored source), no indirect command buffers (the code exists but is switched
 command objects. Residency sets exist but are off by default in LiteRT-LM. Argument buffers, which
 LiteRT-LM requests on Apple, change how arguments are bound, not the per-dispatch re-encoding.
 
-Our commits add pipeline labels, debug groups, per-command-buffer and per-kernel GPU timing, and a
-JSON dump of each initialized graph ([../generated/patch-log.md](../generated/patch-log.md#ml-drift-powerbeefml-drift-agello-next)).
+Our commits add pipeline labels, debug groups, per-command-buffer and per-kernel GPU timing, a
+JSON dump of each initialized graph, and buffer pools that give each prefill graph its own buffers
+and free them between its runs ([../generated/patch-log.md](../generated/patch-log.md#ml-drift)).
 
 ## Concepts
 
 | Class | Role | Code |
 | --- | --- | --- |
 | `metal::Environment` (alias `MetalDevice`) | Wraps an `MTLDevice` and its `GpuInfo`; the constructor also calls `xnn_initialize` | [`ml_drift/metal/environment.h:29-49`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.h#L29-L49) |
-| `metal::InferenceContext` | One compiled graph: its nodes, tensor ids, a `MemoryManager` (owned or shared) and the model id inside it | [`ml_drift/metal/inference_context.h:71-214`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.h#L71-L214) |
-| `MetalNode` | A `ComputeTask` with its input and output ids, the node name, optional-node tags, and (ours) a debug label and per-run-kind telemetry span ids | [`ml_drift/metal/inference_context.h:48-68`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.h#L48-L68) |
-| `ComputeTask` | One kernel: the `GPUOperation`, its `MTLComputePipelineState`, its `MetalArguments`, and the argument buffer if any | [`ml_drift/metal/compute_task.h:43-135`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.h#L43-L135) |
+| `metal::InferenceContext` | One compiled graph: its nodes, tensor ids, a `MemoryManager` (owned or shared) and the model id inside it | [`ml_drift/metal/inference_context.h:71-225`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.h#L71-L225) |
+| `MetalNode` | A `ComputeTask` with its input and output ids, the node name, optional-node tags, and (ours) a debug label and per-run-kind telemetry span ids | [`ml_drift/metal/inference_context.h:48-68`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.h#L48-L68) |
+| `ComputeTask` | One kernel: the `GPUOperation`, its `MTLComputePipelineState`, its `MetalArguments`, and the argument buffer if any | [`ml_drift/metal/compute_task.h:43-135`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.h#L43-L135) |
 | `MetalArguments` | Binds a kernel's buffers, textures and scalar values, directly or through an argument buffer | [`ml_drift/metal/metal_arguments.h:35-63`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_arguments.h#L35-L63) |
-| `metal::MemoryManager` | Allocates constant, intermediate and external tensors for one or more models, keyed by (model id, value id) | [`ml_drift/metal/memory_manager.h:43-132`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.h#L43-L132) |
+| `metal::MemoryManager` | Allocates constant, intermediate and external tensors for one or more models, keyed by (model id, value id) | [`ml_drift/metal/memory_manager.h:46-182`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.h#L46-L182) |
 | `MetalSpatialTensor` | A tensor backed by an `MTLBuffer`, an `MTLTexture`, or a texture view over a buffer | [`ml_drift/metal/metal_spatial_tensor.h:33-118`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_spatial_tensor.h#L33-L118) |
 
 Who holds what in our build: LiteRT's Metal delegate keeps one `GpuBackendMetal` (one device, one
@@ -52,18 +53,18 @@ MTP drafter, and so on). The delegate side is on [../litert/ml-drift-delegate.md
 
 `Environment(id<MTLDevice>)` stores the device, builds `GpuInfo` from it
 ([architecture.md](architecture.md#gpu-detection)) and calls `xnn_initialize`.
-[`ml_drift/metal/environment.mm:110-117`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L110-L117) It is cheap but not free: it reads the device
+[`ml_drift/metal/environment.mm:133-140`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L133-L140) It is cheap but not free: it reads the device
 name, the MSL version and the device limits each time. `InferenceContext::InitFromGpuModel` has an
 overload taking an `id<MTLDevice>`, which constructs a fresh `Environment` for that call; LiteRT's
 backend uses that overload. <!-- c:MD-MTL-002 -->
-[`ml_drift/metal/inference_context.mm:130-136`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L130-L136)
-[`ml_drift_delegate/delegate/gpu_backend_metal_litert.mm:136-147`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal_litert.mm#L136-L147)
+[`ml_drift/metal/inference_context.mm:148-154`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L148-L154)
+[`ml_drift_delegate/delegate/gpu_backend_metal_litert.mm:136-147`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal_litert.mm#L136-L147)
 
 The MSL version comes from `GetMaxSupportedMTLLanguageVersion`: 2.4 on iOS 15 or later, 3.2 when the
 device supports `MTLGPUFamilyMetal3` on iOS 18 or macOS 15 or later, and 4.0 when it supports
 `MTLGPUFamily` raw value 5002 (Metal 4) on iOS 26 or macOS 26 or later; the 4.0 test is compiled
 only with an SDK of version 26 or newer. <!-- c:MD-MTL-003 -->
-[`ml_drift/metal/common.mm:225-272`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L225-L272) Our builds target iOS 27 and macOS 27, so on a
+[`ml_drift/metal/common.mm:225-272`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L225-L272) Our builds target iOS 27 and macOS 27, so on a
 device that reports Metal 4 support, kernels compile as MSL 4.0, which `ConvAppleMPP` needs.
 
 ### Initialization
@@ -79,7 +80,8 @@ sequenceDiagram
   IC->>IC: new Environment(device): GpuInfo
   IC->>IC: CopyFromGpuModel: one MetalNode per GpuNode, label = node name
   IC->>MM: AllocateMemory(model): constants, externals, intermediates
-  MM->>MTL: newBufferWithLength / newTexture (only when no shared buffer fits)
+  MM->>MTL: newBufferWithLength / newTexture (only when no pool buffer fits)
+  IC->>MM: SetRebind(RebindPoolTensors) (ours)
   loop every node, in order
     IC->>CT: Compile: args header, type fixes, defines
     CT->>MTL: newLibraryWithSource + newComputePipelineState
@@ -92,22 +94,24 @@ sequenceDiagram
 ```
 
 `InitFromGpuModel` does, in order: <!-- c:MD-MTL-004 -->
-[`ml_drift/metal/inference_context.mm:138-203`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L138-L203)
+[`ml_drift/metal/inference_context.mm:156-223`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L156-L223)
 
 1. If the caller wants a serialized model, encode the `GpuModel` into a FlatBuffer first.
 2. `CopyFromGpuModel`: move each `GpuNode`'s operation into a `MetalNode`, with its inputs, outputs,
    name and optional tags; set the pipeline label from the name (ours) and whether to use argument
    buffers (`create_info.hints.use_metal_argument_buffers`).
-   [`ml_drift/metal/inference_context.mm:110-128`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L110-L128)
-3. `MemoryManager::AllocateMemory` for this model ([Memory](#memory)).
+   [`ml_drift/metal/inference_context.mm:128-146`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L128-L146)
+3. `MemoryManager::AllocateMemory` for this model ([Memory](#memory)), then (ours: `b96dedea`)
+   register `RebindPoolTensors` with the manager, which points the tasks at a pool buffer again
+   after the manager frees or reallocates it. [`ml_drift/metal/inference_context.mm:108-122`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L108-L122)
 4. `GetMutableNodes`: record which nodes read or write each external mutable tensor, so `SetTensor`
-   can rebind them later. [`ml_drift/metal/inference_context.mm:823-846`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L823-L846)
+   can rebind them later. [`ml_drift/metal/inference_context.mm:874-897`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L874-L897)
 5. `CompileOperations`: compile every node, one after another, on the calling thread.
-   [`ml_drift/metal/inference_context.mm:293-298`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L293-L298)
+   [`ml_drift/metal/inference_context.mm:317-322`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L317-L322)
 6. `BindTensorsToOperations`: give each task its source and destination tensors.
-   [`ml_drift/metal/inference_context.mm:350-362`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L350-L362)
+   [`ml_drift/metal/inference_context.mm:374-386`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L374-L386)
 7. `UpdateParams`: each operation binds its arguments, then recomputes its grid and work-group count.
-   [`ml_drift/metal/compute_task.mm:207-213`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L207-L213)
+   [`ml_drift/metal/compute_task.mm:207-213`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L207-L213)
 8. `Tune(TuningType::kFast)` ([Tuning](#tuning)).
 9. Reset the temporary external mutable tensors to null: the caller must bind real ones with
    `SetTensor` before running.
@@ -120,12 +124,12 @@ parallel. Compilation is the expensive part: one `ComputeTask::Compile`, so one
 MTP on) alone has 1726 nodes on the Apple M6, and also with the A17 Pro, M2 and M1 kernel choices
 simulated on that M6 (`AGELLO_SIMULATE_APPLE_GPU`)
 ([../generated/kernels-by-family.md](../generated/kernels-by-family.md)). <!-- c:MD-MTL-005 -->
-[`ml_drift/metal/compute_task.mm:143-163`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L143-L163)
+[`ml_drift/metal/compute_task.mm:143-163`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L143-L163)
 
 ### Compilation
 
 `ComputeTask::Compile` prepares the source and calls `CompileProgram`:
-[`ml_drift/metal/compute_task.mm:143-195`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L143-L195)
+[`ml_drift/metal/compute_task.mm:143-195`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L143-L195)
 
 1. `MetalArguments::Init` (through `InitArgs`) creates the argument objects, packs scalar
    arguments into a `uniforms_buffer` struct of `float4`/`int4` fields, prepends
@@ -137,13 +141,13 @@ simulated on that M6 (`AGELLO_SIMULATE_APPLE_GPU`)
 3. Preprocessor defines map ML Drift's portable spelling to MSL: `MAIN_FUNCTION` becomes
    `kernel void ComputeFunction`, `__local` `threadgroup`, `__global` `device`, `__constant`
    `constant`. Every kernel's entry point is therefore named `ComputeFunction`.
-   [`ml_drift/metal/compute_task.mm:61-66`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L61-L66)
+   [`ml_drift/metal/compute_task.mm:61-66`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L61-L66)
 4. `CreateComputeProgram` (or the argument-buffer variant) compiles and makes the pipeline.
 
 `CreateFunction` compiles with `newLibraryWithSource` at run time, with the highest MSL version the
 device supports, fast math (`MTLMathModeFast` and fast floating-point functions on iOS 18 and macOS
 15 or later, `fastMathEnabled` before), and the defines as preprocessor macros; it then looks up the
-function by name. <!-- c:MD-MTL-006 --> [`ml_drift/metal/common.mm:116-165`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L116-L165)
+function by name. <!-- c:MD-MTL-006 --> [`ml_drift/metal/common.mm:116-165`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L116-L165)
 A compile error returns `InternalError("newLibraryWithSource: …")` with Metal's message, and the
 whole graph initialization fails.
 
@@ -156,60 +160,70 @@ shortens later compilations of the same source is not verified here.
 pipeline from an `MTLComputePipelineDescriptor` with that label instead of
 `newComputePipelineStateWithFunction`; `CopyFromGpuModel` sets every label to the node's name, so
 Instruments and GPU captures show `fc1x1_int4_weights -> mul` instead of `ComputeFunction`.
-<!-- c:MD-MTL-008 --> [`ml_drift/metal/common.mm:274-300`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L274-L300)
-[`ml_drift/metal/inference_context.mm:125`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L125)
+<!-- c:MD-MTL-008 --> [`ml_drift/metal/common.mm:274-300`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L274-L300)
+[`ml_drift/metal/inference_context.mm:143`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L143)
 
 ### Tuning
 
 Metal's `InitFromGpuModel` always calls `Tune(TuningType::kFast)`, and `ComputeTask::Tune` asks the
 operation for its candidate work-group sizes and keeps the first one; it runs nothing and times
-nothing. <!-- c:MD-MTL-009 --> [`ml_drift/metal/inference_context.mm:161`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L161)
-[`ml_drift/metal/compute_task.mm:291-304`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L291-L304) The candidates come from each kernel's
+nothing. <!-- c:MD-MTL-009 --> [`ml_drift/metal/inference_context.mm:182`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L182)
+[`ml_drift/metal/compute_task.mm:291-304`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L291-L304) The candidates come from each kernel's
 `GetPossibleKernelWorkGroups`, so the choice is a per-kernel heuristic. The delegate's
 `kFastTuning` hint and LiteRT's `enable_fast_tuning` option therefore change nothing on Metal.
 (OpenCL can tune by measurement: [../other-platforms.md](../other-platforms.md).)
 
 `ComputeTask::GetTaskTime` (a timed loop of repeated dispatches) exists for `Profile` and the
-performance utilities, not for tuning. [`ml_drift/metal/compute_task.mm:311-351`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L311-L351)
+performance utilities, not for tuning. [`ml_drift/metal/compute_task.mm:311-351`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L311-L351)
 
 ### Memory
 
-`MemoryManager::AllocateMemory` gives the model a new id and allocates, in order: external tensors,
-constant tensors, buffer-backed intermediates, texture intermediates.
-[`ml_drift/metal/memory_manager.mm:138-153`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L138-L153)
+`MemoryManager::AllocateMemory` gives the model a new id, decides whether it gets a pool of its own
+(ours, below), and allocates, in order: external tensors, constant tensors, buffer-backed
+intermediates, texture intermediates.
+[`ml_drift/metal/memory_manager.mm:154-209`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L154-L209)
 
 - **External tensors.** Immutable ones are the caller's `MetalSpatialTensor`s, stored by pointer.
   For mutable ones the manager creates a temporary tensor per distinct descriptor (the caller
-  resets them to null and binds real ones later). [`ml_drift/metal/memory_manager.mm:227-257`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L227-L257)
+  resets them to null and binds real ones later). [`ml_drift/metal/memory_manager.mm:419-449`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L419-L449)
 - **Constants.** One `MetalSpatialTensor` per constant descriptor, created with its data.
-  [`ml_drift/metal/memory_manager.mm:259-267`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L259-L267)
+  [`ml_drift/metal/memory_manager.mm:451-459`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L451-L459)
 - **Usage intervals.** For each runtime tensor, the first and last node index that touches it
-  (inputs at 0, outputs at the end). [`ml_drift/metal/memory_manager.mm:187-225`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L187-L225)
+  (inputs at 0, outputs at the end). [`ml_drift/metal/memory_manager.mm:379-417`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L379-L417)
 - **Buffer-backed intermediates.** `kBuffer` and `kImageBuffer` tensors, and also `kTexture2D` and
   `kSingleTexture2D` on every Apple family except Apple1, live in buffers.
-  [`ml_drift/metal/memory_manager.mm:51-60`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L51-L60) The manager computes two plans: separate
+  [`ml_drift/metal/memory_manager.mm:57-66`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L57-L66) The manager computes two plans: separate
   shared objects (`kGreedyBest`) and offsets in one block (`kGreedyBySize`). It uses the single block
   when its total is no larger than the shared-objects total, at most 128 MiB (the code says "128 MB")
   and within the device's maximum buffer size; otherwise one buffer per shared object.
-  <!-- c:MD-MTL-012 --> [`ml_drift/metal/memory_manager.mm:46-48`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L46-L48)
-  [`ml_drift/metal/memory_manager.mm:320-333`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L320-L333) The code's comment gives the reason for
+  <!-- c:MD-MTL-012 --> [`ml_drift/metal/memory_manager.mm:52-54`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L52-L54)
+  [`ml_drift/metal/memory_manager.mm:519-532`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L519-L532) The code's comment gives the reason for
   the cap: one large block defeats memory compression of unused or zero-filled buffers.
 - **Reuse across models.** Before allocating, the manager looks through the buffers it already owns
-  (from earlier models) and takes the smallest one that fits; it allocates only when none does, and
-  keeps every buffer until the manager is destroyed. <!-- c:MD-MTL-013 -->
-  [`ml_drift/metal/memory_manager.mm:336-367`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L336-L367) LiteRT's Metal backend passes its shared
-  manager to every inference context it creates when allowed, and always to restored ones, so the
-  prefill, decode and verify graphs share intermediate memory.
-  [`ml_drift_delegate/delegate/gpu_backend_metal_litert.mm:136-157`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal_litert.mm#L136-L157)
+  (from earlier models) and takes the smallest one that fits, but not one more than twice the size
+  and over 16 MB larger (ours: `1f6e7f85`); it allocates only when none does. Every prefill graph
+  (64 or more positions per run) gets a pool of its own that the other graphs don't borrow from
+  (ours: `d3730b60`, `d0b392a2`), and its own buffers, when they total 256 MB or more, are freed when
+  another graph runs next and allocated again before the prefill runs again (ours: `b96dedea`,
+  through LiteRT's `GpuInferenceContextMetal::BeforeInvoke`); the other graphs' buffers stay until
+  the manager is destroyed. <!-- c:MD-MTL-013 -->
+  [`ml_drift/metal/memory_manager.mm:105-126`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L105-L126)
+  [`ml_drift/metal/memory_manager.mm:162-188`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L162-L188)
+  [`ml_drift/metal/memory_manager.mm:245-347`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L245-L347)
+  [`ml_drift/metal/memory_manager.mm:461-466`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L461-L466)
+  [`ml_drift_delegate/delegate/gpu_backend_metal.mm:587-612`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L587-L612) LiteRT's Metal backend passes its shared
+  manager to every inference context it creates when allowed, and always to restored ones, so
+  decode, verify and the drafter share intermediate memory.
+  [`ml_drift_delegate/delegate/gpu_backend_metal_litert.mm:136-157`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal_litert.mm#L136-L157)
 - **Texture intermediates** (none in our build, where 2D textures are buffer-backed) are assigned with the `kEquality` strategy:
   only tensors with the same descriptor and shape share a texture.
-  [`ml_drift/metal/memory_manager.mm:406-431`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L406-L431)
+  [`ml_drift/metal/memory_manager.mm:663-688`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L663-L688)
 
 Alignment: offsets in the single block are aligned to a constant that is 16 when `TARGET_IOS` or
 `TARGET_TVOS` is defined and 256 otherwise, combined with the linear-texture row alignment the
 device reports. No build file in LiteRT-LM, LiteRT or ML Drift at the pins defines `TARGET_IOS`
 (Apple's own macros are `TARGET_OS_IOS`), so our iOS build uses 256. <!-- c:MD-MTL-014 -->
-[`ml_drift/metal/memory_manager.mm:282-305`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L282-L305)
+[`ml_drift/metal/memory_manager.mm:481-504`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L481-L504)
 
 Storage modes on unified memory: every `MTLBuffer` ML Drift creates is
 `MTLResourceStorageModeShared`; standalone textures are `MTLStorageModePrivate`; texture views
@@ -221,7 +235,7 @@ with fewer than 4 channels can still be private textures); how LiteRT uses share
 [../litert/runtime.md](../litert/runtime.md).
 
 `GetIntermediateTensorsSize` adds up the shared buffers and textures the manager owns, and
-`GetConstantTensorsSize` the constants. [`ml_drift/metal/memory_manager.mm:465-483`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L465-L483)
+`GetConstantTensorsSize` the constants. [`ml_drift/metal/memory_manager.mm:735-753`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L735-L753)
 Where these appear in Agello's memory accounting: [../memory.md](../memory.md).
 
 ### Argument binding
@@ -236,18 +250,18 @@ Two modes, chosen per context by `create_info.hints.use_metal_argument_buffers`:
 | Extra memory | none | One `MTLBuffer` of `encodedLength` per task |
 
 [`ml_drift/metal/metal_arguments.mm:404-488`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_arguments.mm#L404-L488)
-[`ml_drift/metal/compute_task.mm:176-186`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L176-L186)
-[`ml_drift/metal/compute_task.mm:236-259`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L236-L259)
+[`ml_drift/metal/compute_task.mm:176-186`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L176-L186)
+[`ml_drift/metal/compute_task.mm:236-259`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L236-L259)
 
 LiteRT-LM requests argument buffers on Apple.
-[`runtime/executor/litert_compiled_model_executor_utils.cc:1032-1034`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1032-L1034)
+[`runtime/executor/litert_compiled_model_executor_utils.cc:1036-1038`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1036-L1038)
 Which devices end up with them is under [Open questions](#open-questions).
 
 ### Encoding and command buffers
 
 `ComputeTask::Encode` sets the pipeline, binds the arguments, and calls
 `dispatchThreadgroups:threadsPerThreadgroup:` with the operation's work-group count and size.
-[`ml_drift/metal/compute_task.mm:243-259`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L243-L259) `InferenceContext` offers three ways to
+[`ml_drift/metal/compute_task.mm:243-259`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L243-L259) `InferenceContext` offers three ways to
 encode the whole graph; all skip nodes whose optional tags aren't enabled:
 
 | Method | Encoders | Command buffers | Commits |
@@ -258,22 +272,22 @@ encode the whole graph; all skip nodes whose optional tags aren't enabled:
 
 The default telemetry level is 1, so the level-4 layout appears only when it is asked for.
 <!-- c:MD-MTL-019 -->
-[`agello/telemetry/agello/agello_telemetry.cc:52-56`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.cc#L52-L56)
-[`ml_drift/metal/inference_context.mm:378-388`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L378-L388)
-[`ml_drift/metal/inference_context.mm:735-802`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L735-L802)
+[`agello/telemetry/agello/agello_telemetry.cc:52-56`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/telemetry/agello/agello_telemetry.cc#L52-L56)
+[`ml_drift/metal/inference_context.mm:402-412`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L402-L412)
+[`ml_drift/metal/inference_context.mm:785-853`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L785-L853)
 
 LiteRT's `GpuInferenceContextMetal::Dispatch` picks by wait type. For every wait type except
 `DoNotWait` it commits the command buffer left from the previous step, calls
 `EncodeWithCommandQueue` with a flush period of 256, and then opens a new command buffer for output
 conversion and the wait; with `DoNotWait` it encodes the whole graph into one command buffer with
 `EncodeWithCommandBuffer` (one encoder per kernel) and leaves the commit to the caller.
-<!-- c:MD-MTL-020 --> [`ml_drift_delegate/delegate/gpu_backend_metal.mm:506-534`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L506-L534)
-[`ml_drift_delegate/delegate/gpu_backend_metal.mm:53`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L53) Our LiteRT commit makes the
+<!-- c:MD-MTL-020 --> [`ml_drift_delegate/delegate/gpu_backend_metal.mm:556-584`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L556-L584)
+[`ml_drift_delegate/delegate/gpu_backend_metal.mm:53`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L53) Our LiteRT commit makes the
 passive wait use the same command-queue path, so the GPU starts while the CPU is still encoding;
 the details and the wait types are on [../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md).
 
 So one decode step of Gemma 4 E4B (1726 nodes) is 7 command buffers of at most 256 kernels, each
-with one compute encoder below telemetry level 4; a `prefill_1024` run on the M6 (1634 nodes) is also 7, and an MTP drafter
+with one compute encoder below telemetry level 4; a `prefill_1024` run on the M6 (1627 nodes) is also 7, and an MTP drafter
 step (162 nodes) is 1. <!-- c:MD-MTL-021 -->
 
 What a dispatch costs on the CPU: every kernel is encoded again every time, because nothing is
@@ -281,8 +295,8 @@ recorded for reuse (the indirect command buffer path is disabled). `ComputeTask:
 pipeline state, then either binds each buffer, texture and constant (without argument buffers) or
 calls `useResource` on each resource and binds the argument buffer encoded at `UpdateParams` (with
 argument buffers, which LiteRT-LM requests on Apple), and dispatches. <!-- c:MD-MTL-022 -->
-[`ml_drift/metal/compute_task.mm:206-212`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L206-L212)
-[`runtime/executor/litert_compiled_model_executor_utils.cc:1032-1034`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L1032-L1034) Encoding runs on the thread that calls the compiled model's run (which
+[`ml_drift/metal/compute_task.mm:206-212`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L206-L212)
+[`runtime/executor/litert_compiled_model_executor_utils.cc:1036-1038`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/litert_compiled_model_executor_utils.cc#L1036-L1038) Encoding runs on the thread that calls the compiled model's run (which
 LiteRT-LM thread that is: [../stack.md](../stack.md)), inside an `@autoreleasepool`. Encoders are
 created with plain `computeCommandEncoder`, without asking for a concurrent dispatch type.
 
@@ -291,14 +305,14 @@ created with plain `computeCommandEncoder`, without asking for a concurrent disp
 The code for indirect command buffers is there: `CreateComputeProgramWithICBSupport` (pipelines
 with `supportIndirectCommandBuffers`), `ComputeTask::EncodeToICB`, `InferenceContext::EncodeWithICB`
 and a block in `InitFromGpuModel` that records every node into an `MTLIndirectCommandBuffer`.
-[`ml_drift/metal/common.mm:334-367`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L334-L367) [`ml_drift/metal/compute_task.mm:215-234`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L215-L234)
+[`ml_drift/metal/common.mm:334-367`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L334-L367) [`ml_drift/metal/compute_task.mm:215-234`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L215-L234)
 But the block is guarded by `bool add_icb_support = false && …`, so it never runs, `icb_` stays
 null, and `EncodeWithICB` would execute a null buffer if anyone called it. The guard is upstream
 (Google's `1b18771` has the same line), not ours. <!-- c:MD-MTL-023 -->
-[`ml_drift/metal/inference_context.mm:175-200`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L175-L200)
+[`ml_drift/metal/inference_context.mm:196-221`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L196-L221)
 `ComputeTask::need_icb_support_` starts false and is only ever copied or swapped, so compilation
-never takes the ICB pipeline path either. [`ml_drift/metal/compute_task.mm:81-102`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L81-L102)
-[`ml_drift/metal/compute_task.mm:165-176`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L165-L176) The recorded commands would also need
+never takes the ICB pipeline path either. [`ml_drift/metal/compute_task.mm:81-102`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L81-L102)
+[`ml_drift/metal/compute_task.mm:165-176`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L165-L176) The recorded commands would also need
 argument buffers (each command binds the task's argument buffer at index 0).
 
 ### Serialization (the program cache's payload)
@@ -308,14 +322,14 @@ With a `serialized_model` pointer, `InitFromGpuModel` writes an `InferenceContex
 every node, and for every node a `MetalProgram`: the final MSL source and the define names and
 values. It holds no compiled code. <!-- c:MD-MTL-024 -->
 [`ml_drift/metal/inference_context.fbs:19-34`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/inference_context.fbs#L19-L34)
-[`ml_drift/metal/inference_context.mm:249-274`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L249-L274)
+[`ml_drift/metal/inference_context.mm:273-298`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L273-L298)
 
 `RestoreDeserialized` verifies the buffer (failing with `DataLossError("Deserialization failed.")`),
 decodes the `GpuModel`, allocates memory through the (shared) manager, and for every node compiles
 the stored source again (`ComputeTask::Init` → `CompileProgram`) and sets the stored work-group
 size; then it restores the arguments, binds tensors and updates parameters. It doesn't tune.
-<!-- c:MD-MTL-025 --> [`ml_drift/metal/inference_context.mm:205-247`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L205-L247)
-[`ml_drift/metal/inference_context.mm:276-291`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L276-L291)
+<!-- c:MD-MTL-025 --> [`ml_drift/metal/inference_context.mm:226-271`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L226-L271)
+[`ml_drift/metal/inference_context.mm:300-315`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L300-L315)
 
 So a program-cache hit on Metal saves the TFLite parsing, the transformations, the selectors, code
 generation and tuning, but not the Metal compilation, which happens either way. The cache's files,
@@ -329,51 +343,52 @@ doesn't create optional nodes, so this doesn't matter for us. [`ml_drift/common/
 ML Drift's `MemoryManager` (and `InferenceContext`, forwarding) can add four groups of allocations
 to an `MTLResidencySet` (iOS 18 and macOS 15 or later): constants; intermediates (shared buffers
 and textures); external immutable tensors; external mutable tensors. It only adds them; creating,
-committing and requesting residency is the caller's job. [`ml_drift/metal/memory_manager.mm:494-558`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L494-L558)
+committing and requesting residency is the caller's job. [`ml_drift/metal/memory_manager.mm:764-828`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L764-L828)
 
 LiteRT's `GpuBackendMetal`, built with LiteRT's command queue and the residency option: <!-- c:MD-MTL-027 -->
 
 1. On iOS 18 and macOS 15 or later, always creates a residency set labelled
-   "LiteRT Model Residency Set". [`ml_drift_delegate/delegate/gpu_backend_metal.mm:107-121`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L107-L121)
+   "LiteRT Model Residency Set". [`ml_drift_delegate/delegate/gpu_backend_metal.mm:144-158`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L144-L158)
 2. Attaches it to the command queue, calls `requestResidency` and starts a heartbeat thread that
    requests residency again every 100 ms, only when the option is on.
-   [`ml_drift_delegate/delegate/gpu_backend_metal.mm:69-92`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L69-L92)
-   [`ml_drift_delegate/delegate/gpu_backend_metal.mm:683-704`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L683-L704)
+   [`ml_drift_delegate/delegate/gpu_backend_metal.mm:106-129`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L106-L129)
+   [`ml_drift_delegate/delegate/gpu_backend_metal.mm:760-781`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L760-L781)
 3. After creating or restoring each inference context, adds that context's constants and the
    external immutable tensors from `create_info`, and commits the set (requesting residency only
-   when enabled). [`ml_drift_delegate/delegate/gpu_backend_metal.mm:653-679`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L653-L679)
-4. When a tensor is bound later (`BindSpatialTensor`), adds its buffer and texture and commits.
-   [`ml_drift_delegate/delegate/gpu_backend_metal.mm:464-491`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L464-L491)
+   when enabled). [`ml_drift_delegate/delegate/gpu_backend_metal.mm:730-756`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L730-L756)
+4. When a tensor is bound later (`BindSpatialTensor`), adds its buffer and texture and commits, but
+   only while residency is enabled (ours: `1e2bc133`).
+   [`ml_drift_delegate/delegate/gpu_backend_metal.mm:514-541`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L514-L541)
 
 Intermediates are never added: the delegate doesn't call `AddIntermediatesToResidencySet`.
 <!-- c:MD-MTL-028 --> LiteRT-LM's `AdvancedSettings::gpu_enable_metal_residency_set` defaults to
 false, and LiteRT-LM passes it to the GPU options on Apple. <!-- c:MD-MTL-029 -->
 [`runtime/executor/llm_executor_settings.h:212-214`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/llm_executor_settings.h#L212-L214)
-[`runtime/executor/llm_executor_settings_utils.cc:97-100`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_executor_settings_utils.cc#L97-L100)
+[`runtime/executor/llm_executor_settings_utils.cc:97-100`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/executor/llm_executor_settings_utils.cc#L97-L100)
 
 ### Profiling (upstream)
 
 `InferenceContext::Profile` fills per-node FLOPs, read and write sizes, shapes and work-group sizes,
 then times each kernel in a separate replay: with stage-boundary timestamps when the device has a
 timestamp counter set, otherwise with `GetTaskTime`'s repeated dispatches, per kernel, on a new
-queue. [`ml_drift/metal/inference_context.mm:407-465`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L407-L465)
+queue. [`ml_drift/metal/inference_context.mm:431-489`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L431-L489)
 LiteRT's Metal backend reaches it through `GpuInferenceContextMetal::Profile`, which the delegate
 kernel calls only when a TFLite profiler is active or `enable_op_profiling_detailed_report` is set.
-[`ml_drift_delegate/delegate/gpu_backend_metal.mm:573-574`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L573-L574)
-[`ml_drift_delegate/delegate/delegate_kernel.cc:143-147`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L143-L147)
-[`ml_drift_delegate/delegate/delegate_kernel.cc:389-392`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/delegate_kernel.cc#L389-L392)
+[`ml_drift_delegate/delegate/gpu_backend_metal.mm:650-651`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L650-L651)
+[`ml_drift_delegate/delegate/delegate_kernel.cc:143-147`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L143-L147)
+[`ml_drift_delegate/delegate/delegate_kernel.cc:389-392`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_kernel.cc#L389-L392)
 Our per-kernel timing below measures the real runs instead.
 
 ### Our telemetry hooks
 
 All in `inference_context.mm` (ours), driven by the Agello telemetry level, which the
 `AGELLO_TELEMETRY` environment variable sets when the library loads (levels 0 off, 1 counters, 2
-spans, 3 trace, 4 deep). [`agello/telemetry/agello/agello_telemetry.h:18-36`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry.h#L18-L36) The
+spans, 3 trace, 4 deep). [`agello/telemetry/agello/agello_telemetry.h:18-32`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/telemetry/agello/agello_telemetry.h#L18-L32) The
 Metal `inference_context` target depends on `@agello_telemetry`, which ML Drift's own `MODULE.bazel`
 doesn't declare; LiteRT-LM's `WORKSPACE` declares it as a `local_repository`
-(`agello/telemetry`). So the fork's Metal inference context, and everything that depends on it,
-builds only inside LiteRT-LM's workspace (or one that declares that repository). <!-- c:MD-MTL-031 --> [`ml_drift/metal/BUILD:157-166`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/BUILD#L157-L166)
-[`WORKSPACE:510-515`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/WORKSPACE#L510-L515)
+(`agello/telemetry`). So our ML Drift's Metal inference context, and everything that depends on it,
+builds only inside LiteRT-LM's workspace (or one that declares that repository). <!-- c:MD-MTL-031 --> [`ml_drift/metal/BUILD:157-166`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/BUILD#L157-L166)
+[`WORKSPACE:510-515`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/WORKSPACE#L510-L515)
 
 | Hook | When | What it does | Commit |
 | --- | --- | --- | --- |
@@ -385,31 +400,33 @@ builds only inside LiteRT-LM's workspace (or one that declares that repository).
 
 <!-- c:MD-MTL-032 -->
 
-**Command-buffer timing.** `AttachGpuTiming` counts the command buffer at level 1 and up and, from
-level 2, adds a completion handler that records the buffer's GPU time against the model run in
-flight (prefill, decode, verify, drafter) and its queue delay, and reports command-buffer errors as
-anomalies. [`agello/telemetry/agello/agello_telemetry_metal.mm:21-36`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/agello/telemetry/agello/agello_telemetry_metal.mm#L21-L36)
+**Command-buffer timing.** `AttachGpuTiming` counts the command buffer at level 1 and up and adds a
+completion handler that reports command-buffer errors as anomalies and, from level 2, records the
+buffer's GPU time against the model run in flight (prefill, decode, verify, drafter) and its queue
+delay; every 64th call also records the device's allocated size, thermal state and low-power mode
+(ours: `3118b5d4`). [`agello/telemetry/agello/agello_telemetry_metal.mm:26-48`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/telemetry/agello/agello_telemetry_metal.mm#L26-L48)
 `EncodeWithCommandQueue` calls it before each commit; `EncodeWithCommandBuffer` doesn't, because it
 doesn't commit (LiteRT's `Dispatch` attaches it to the buffers it commits).
-[`ml_drift/metal/inference_context.mm:767-802`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L767-L802)
+[`ml_drift/metal/inference_context.mm:817-853`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L817-L853)
 
 **Per-kernel timing (level 4).** `EncodeTimed` replaces the normal encoding: one compute encoder
 per kernel, each with a sample-buffer attachment taking timestamps at the start and end of the
 encoder (when the device supports stage-boundary counter sampling), and a completion handler that
 converts GPU ticks to nanoseconds and records them in a span named
 `gpu.k.<run>:<kernel>`, where `<run>` is prefill, decode, verify, drafter or other and `<kernel>` is
-the node name with any fused tail replaced by `+fused`. One encoder per kernel adds encoder
+the node name with any fused tail replaced by `+fused`; with `AGELLO_KERNEL_SHAPES=1` the output
+and input shapes follow (ours: `a5db0fc4`). One encoder per kernel adds encoder
 boundaries, so level 4 changes timing and is for diagnosis only. <!-- c:MD-MTL-033 -->
-[`ml_drift/metal/inference_context.mm:681-733`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L681-L733)
-[`ml_drift/metal/inference_context.mm:586-591`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L586-L591) The tick scale is measured once per
-process by sampling CPU and GPU timestamps 5 ms apart. [`ml_drift/metal/inference_context.mm:610-625`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L610-L625)
+[`ml_drift/metal/inference_context.mm:723-783`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L723-L783)
+[`ml_drift/metal/inference_context.mm:606-650`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L606-L650) The tick scale is measured once per
+process by sampling CPU and GPU timestamps 5 ms apart. [`ml_drift/metal/inference_context.mm:652-667`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L652-L667)
 
 **Graph dump.** When `AGELLO_TELEMETRY_GRAPH_DIR` is set and not empty, the end of
 `InitFromGpuModel` and of `RestoreDeserialized` writes `gpu-graph-<n>-<nodes>-nodes.json` in that
 directory (`<n>` is a per-process sequence number): `origin` (`built` or `restored`), and per node
 its index, name, work-group size, FLOP count, and input and output shapes in BHWDC order. It
 depends only on the variable, not on the telemetry level; a file that can't be opened is skipped
-silently. <!-- c:MD-MTL-034 --> [`ml_drift/metal/inference_context.mm:637-674`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L637-L674)
+silently. <!-- c:MD-MTL-034 --> [`ml_drift/metal/inference_context.mm:679-716`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L679-L716)
 These dumps are what [../generated/kernels-by-family.md](../generated/kernels-by-family.md) counts.
 
 ## On Apple
@@ -418,17 +435,17 @@ These dumps are what [../generated/kernels-by-family.md](../generated/kernels-by
   2/3 objects; there is no `MTL4CommandQueue`, `MTL4ArgumentTable` or `MTLTensor` in ML Drift or in
   LiteRT's delegate. Metal 4 appears only inside generated MSL: `ConvAppleMPP` includes
   MetalPerformancePrimitives and uses its `tensor_ops::matmul2d`, which is why it needs MSL 4.0.
-  <!-- c:MD-MTL-035 --> [`ml_drift/common/kernels/conv_apple_mpp.cc:142`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/kernels/conv_apple_mpp.cc#L142)
+  <!-- c:MD-MTL-035 --> [`ml_drift/common/kernels/conv_apple_mpp.cc:144`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/kernels/conv_apple_mpp.cc#L144)
 - **The command queue is LiteRT's.** The Metal delegate takes it from the LiteRT environment
   option `kLiteRtEnvOptionTagMetalCommandQueue`; all graphs of an engine share it.
-  [`ml_drift_delegate/delegate/delegate_metal.mm:358-367`](https://github.com/google-ai-edge/LiteRT/blob/ca21dc99de51c76bdcc572afeea1dd937d3c9e5c/ml_drift_delegate/delegate/delegate_metal.mm#L358-L367)
+  [`ml_drift_delegate/delegate/delegate_metal.mm:363-372`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/delegate_metal.mm#L363-L372)
 - **Unified memory.** Shared storage mode for every buffer means no staging copies between CPU and
   GPU memory; the CPU and the GPU must still be ordered by waits or events (LiteRT's job).
 - **Not the simulator.** The Metal path has simulator-specific branches (no image buffers there),
   but Agello never runs in the simulator: there is no Metal path for LiteRT-LM in it.
-  [`ml_drift/common/gpu_info.cc:1594-1608`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/common/gpu_info.cc#L1594-L1608)
-- **Shipped vs documented.** Everything marked "ours" here is absent from Google's prebuilt v0.18.0
-  binary that Agello ships ([architecture.md](architecture.md#on-apple)).
+  [`ml_drift/common/gpu_info.cc:1603-1617`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/common/gpu_info.cc#L1603-L1617)
+- **Shipped vs documented.** Everything marked "ours" here is in the release Agello ships
+  (`agello-one-20261115`): its ML Drift Metal files match our build's.
 
 ## Settings
 
@@ -437,7 +454,7 @@ These dumps are what [../generated/kernels-by-family.md](../generated/kernels-by
 | `use_metal_argument_buffers` | LiteRT GPU option → `ModelHints` | set by LiteRT-LM on Apple | Argument-buffer binding |
 | `gpu_enable_metal_residency_set` | LiteRT-LM `AdvancedSettings` → LiteRT GPU option | false | Residency set attached and requested |
 | GPU wait type | LiteRT GPU option | (delegate default: active) | Which `Encode…` path `Dispatch` uses |
-| `AGELLO_TELEMETRY` (ours) | environment variable | 0 | Debug groups at 3, per-kernel timing at 4, command-buffer timing at 1–2 |
+| `AGELLO_TELEMETRY` (ours) | environment variable | unset: level 1 | Debug groups at 3, per-kernel timing at 4, command-buffer timing at 1–2 |
 | `AGELLO_TELEMETRY_GRAPH_DIR` (ours) | environment variable | unset | Graph dumps |
 
 Rows with their citations are proposed for [../configuration.md](../configuration.md).
@@ -448,8 +465,9 @@ Rows with their citations are proposed for [../configuration.md](../configuratio
   for every graph, on every load, cache or not.
 - **Compile errors** fail the whole graph (`newLibraryWithSource: …`, `newFunctionWithName: …`,
   `newComputePipelineStateWithFunction error: …`).
-- **Memory grows, never shrinks.** The shared manager keeps every buffer it allocated until the
-  backend is destroyed; a later, larger graph adds buffers rather than resizing.
+- **Memory grows, except a prefill's.** The shared manager keeps every buffer of decode, verify and
+  the drafter until the backend is destroyed, and a later, larger graph adds buffers rather than
+  resizing; only a prefill graph's own pool is freed between its runs (ours, [Memory](#memory)).
 - **A full restore can't detect stale shapes by itself.** `RestoreDeserialized` trusts the stored
   `GpuModel`; LiteRT adds checks ([../litert/ml-drift-delegate.md](../litert/ml-drift-delegate.md)).
 - **Timestamps need hardware support.** Without stage-boundary sampling, level 4 still splits
@@ -457,35 +475,35 @@ Rows with their citations are proposed for [../configuration.md](../configuratio
 - **Latent move bug (upstream and ours).** `ComputeTask`'s move constructor copies the operation,
   pipeline, arguments and argument-buffer state but not `defines_` (upstream) or `label_` (ours). The
   current code never moves a compiled task (nodes are created in place before compiling), so
-  nothing is lost today. [`ml_drift/metal/compute_task.mm:81-92`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L81-L92)
+  nothing is lost today. [`ml_drift/metal/compute_task.mm:81-92`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L81-L92)
 - **BF16 in the simulator.** `CreateGpuInfoFromMetalDevice` registers the BF16 simdgroup matrix
   operation before it sets `is_simulator`, so the simulator check in `IsNativeBfloatSupported` has
-  no effect there. [`ml_drift/metal/environment.mm:93-104`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L93-L104)
+  no effect there. [`ml_drift/metal/environment.mm:116-127`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L116-L127)
 
 ## Where in the code
 
 | Concept | Symbol | Code |
 | --- | --- | --- |
-| Device wrapper | `Environment` | [`ml_drift/metal/environment.mm:110-117`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/environment.mm#L110-L117) |
-| MSL version | `GetMaxSupportedMTLLanguageVersion` | [`ml_drift/metal/common.mm:225-272`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L225-L272) |
-| Runtime compile | `CreateFunction` | [`ml_drift/metal/common.mm:116-165`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L116-L165) |
-| Pipeline | `CreateComputeProgram` | [`ml_drift/metal/common.mm:274-300`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/common.mm#L274-L300) |
-| Graph init | `InferenceContext::InitFromGpuModel` | [`ml_drift/metal/inference_context.mm:138-203`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L138-L203) |
-| Restore | `InferenceContext::RestoreDeserialized` | [`ml_drift/metal/inference_context.mm:205-247`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L205-L247) |
+| Device wrapper | `Environment` | [`ml_drift/metal/environment.mm:133-140`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/environment.mm#L133-L140) |
+| MSL version | `GetMaxSupportedMTLLanguageVersion` | [`ml_drift/metal/common.mm:225-272`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L225-L272) |
+| Runtime compile | `CreateFunction` | [`ml_drift/metal/common.mm:116-165`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L116-L165) |
+| Pipeline | `CreateComputeProgram` | [`ml_drift/metal/common.mm:274-300`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/common.mm#L274-L300) |
+| Graph init | `InferenceContext::InitFromGpuModel` | [`ml_drift/metal/inference_context.mm:156-223`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L156-L223) |
+| Restore | `InferenceContext::RestoreDeserialized` | [`ml_drift/metal/inference_context.mm:226-271`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L226-L271) |
 | Serialized form | `MetalProgram`, `InferenceContext` tables | [`ml_drift/metal/inference_context.fbs:19-34`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/inference_context.fbs#L19-L34) |
-| Kernel compile | `ComputeTask::Compile`, `CompileProgram` | [`ml_drift/metal/compute_task.mm:143-195`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L143-L195) |
-| Kernel dispatch | `ComputeTask::Encode` | [`ml_drift/metal/compute_task.mm:243-259`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L243-L259) |
-| Tuning | `ComputeTask::Tune` | [`ml_drift/metal/compute_task.mm:291-304`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/compute_task.mm#L291-L304) |
+| Kernel compile | `ComputeTask::Compile`, `CompileProgram` | [`ml_drift/metal/compute_task.mm:143-195`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L143-L195) |
+| Kernel dispatch | `ComputeTask::Encode` | [`ml_drift/metal/compute_task.mm:243-259`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L243-L259) |
+| Tuning | `ComputeTask::Tune` | [`ml_drift/metal/compute_task.mm:291-304`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/compute_task.mm#L291-L304) |
 | Argument binding | `MetalArguments::Encode`, `AddResourcesToEncoder` | [`ml_drift/metal/metal_arguments.mm:404-458`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/metal_arguments.mm#L404-L458) |
-| Allocation | `MemoryManager::AllocateMemory` | [`ml_drift/metal/memory_manager.mm:138-153`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L138-L153) |
-| Buffer plan | `MemoryManager::AllocateMemoryForBuffers` | [`ml_drift/metal/memory_manager.mm:269-404`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L269-L404) |
-| Encoding | `EncodeWithCommandQueue` | [`ml_drift/metal/inference_context.mm:767-802`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L767-L802) |
-| ICB (disabled) | `add_icb_support` | [`ml_drift/metal/inference_context.mm:175-200`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L175-L200) |
-| Residency (ML Drift) | `MemoryManager::Add…ToResidencySet` | [`ml_drift/metal/memory_manager.mm:494-558`](https://github.com/google-ai-edge/ml-drift/blob/1b18771f44c0be3d972847b31a80f6dc3d6964b5/ml_drift/metal/memory_manager.mm#L494-L558) |
-| Residency (LiteRT) | `GpuBackendMetal::PopulateResidencySet` | [`ml_drift_delegate/delegate/gpu_backend_metal.mm:653-679`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L653-L679) |
-| Dispatch (LiteRT) | `GpuInferenceContextMetal::Dispatch` | [`ml_drift_delegate/delegate/gpu_backend_metal.mm:506-534`](https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/gpu_backend_metal.mm#L506-L534) |
-| Per-kernel timing (ours) | `EncodeTimed` | [`ml_drift/metal/inference_context.mm:681-733`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L681-L733) |
-| Graph dump (ours) | `DumpGraphForTelemetry` | [`ml_drift/metal/inference_context.mm:637-674`](https://github.com/PowerBeef/ml-drift/blob/15fa9e2ba632145992299e3f04786dc1f575373c/ml_drift/metal/inference_context.mm#L637-L674) |
+| Allocation | `MemoryManager::AllocateMemory` | [`ml_drift/metal/memory_manager.mm:154-209`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L154-L209) |
+| Buffer plan | `MemoryManager::AllocateMemoryForBuffers` | [`ml_drift/metal/memory_manager.mm:468-661`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L468-L661) |
+| Encoding | `EncodeWithCommandQueue` | [`ml_drift/metal/inference_context.mm:817-853`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L817-L853) |
+| ICB (disabled) | `add_icb_support` | [`ml_drift/metal/inference_context.mm:196-221`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L196-L221) |
+| Residency (ML Drift) | `MemoryManager::Add…ToResidencySet` | [`ml_drift/metal/memory_manager.mm:764-828`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/memory_manager.mm#L764-L828) |
+| Residency (LiteRT) | `GpuBackendMetal::PopulateResidencySet` | [`ml_drift_delegate/delegate/gpu_backend_metal.mm:730-756`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L730-L756) |
+| Dispatch (LiteRT) | `GpuInferenceContextMetal::Dispatch` | [`ml_drift_delegate/delegate/gpu_backend_metal.mm:556-584`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/litert/ml_drift_delegate/delegate/gpu_backend_metal.mm#L556-L584) |
+| Per-kernel timing (ours) | `EncodeTimed` | [`ml_drift/metal/inference_context.mm:723-783`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L723-L783) |
+| Graph dump (ours) | `DumpGraphForTelemetry` | [`ml_drift/metal/inference_context.mm:679-716`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/ml_drift/ml_drift/metal/inference_context.mm#L679-L716) |
 
 ## Open questions
 

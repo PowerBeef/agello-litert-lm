@@ -35,19 +35,28 @@ def workspace_repo(ws, name):
 def main():
     lm, shipped = "litert-lm", "litert-lm-shipped"
     ws = common.show(lm, "WORKSPACE")
+    imp = {k: common.repo(k)["imported"] for k in ("litert", "ml-drift")}
     rows = [
-        ("LiteRT-LM (documented)", f"`agello-next` `{common.repo(lm)['pin'][:10]}`",
+        ("LiteRT-LM (documented)", f"`{common.repo(lm)['branch']}` `{common.repo(lm)['pin'][:10]}`",
          f"version.bzl {grab(common.show(lm, 'version.bzl'), r'^VERSION = \"([^\"]+)\"')}, "
          f"C API {grab(common.show(lm, 'version.bzl'), r'^C_API_VERSION = \"([^\"]+)\"')}; "
          f"upstream base {common.repo(lm)['base_label']} `{common.repo(lm)['base'][:10]}`"),
-        ("LiteRT-LM (Agello ships)", f"`agello` `{common.repo(shipped)['pin'][:10]}`",
+        ("LiteRT-LM (Agello ships)", f"release `{common.repo(shipped)['release']}` `{common.repo(shipped)['pin'][:10]}`",
          f"version.bzl {grab(common.show(shipped, 'version.bzl'), r'^VERSION = \"([^\"]+)\"')}, "
          f"C API {grab(common.show(shipped, 'version.bzl'), r'^C_API_VERSION = \"([^\"]+)\"')}; "
-         "Swift wrapper only, with Google's prebuilt binary"),
-        ("LiteRT", f"`{common.repo('litert')['pin'][:10]}`",
-         f"WORKSPACE `AGELLO_LITERT_COMMIT`; upstream base `{common.repo('litert')['base'][:10]}` ({common.repo('litert')['base_label']})"),
-        ("ML Drift", f"`{common.repo('ml-drift')['pin'][:10]}`",
-         f"WORKSPACE `ML_DRIFT_COMMIT`; upstream base `{common.repo('ml-drift')['base'][:10]}` ({common.repo('ml-drift')['base_label']})"),
+         "our runtime: the release's CLiteRTLM.xcframework"),
+        ("Swift wrapper (Agello vendors)", f"`main` `{common.repo(shipped)['swift_wrapper'][:10]}`",
+         "`swift/` as at the pin" if not common.git(lm, "diff", "--name-only", common.repo(shipped)["swift_wrapper"],
+                                                     common.repo(lm)["pin"], "--", "swift/").strip()
+         else "`swift/` differs from the pin's"),
+    ]
+    for key, name in (("litert", "LiteRT"), ("ml-drift", "ML Drift")):
+        r = common.repo(key)
+        rows.append((name, f"`{r['subdir']}` at the pin",
+                     f"imported unchanged at `{imp[key]['commit'][:10]}` from `{imp[key]['from']}` "
+                     f"`{imp[key]['from_pin'][:10]}` ({len(imp[key]['commits'])} commits of ours on upstream "
+                     f"`{r['base'][:10]}`, {r['base_label']})"))
+    rows += [
         (".litertlm container (writer)", grab(common.show(lm, "schema/core/litertlm_header.h"), r"LITERTLM_MAJOR_VERSION = (\d+)")
          + "." + grab(common.show(lm, "schema/core/litertlm_header.h"), r"LITERTLM_MINOR_VERSION = (\d+)")
          + "." + grab(common.show(lm, "schema/core/litertlm_header.h"), r"LITERTLM_PATCH_VERSION = (\d+)"),
@@ -57,7 +66,7 @@ def main():
     for name in ("org_tensorflow", "XNNPACK", "com_google_absl", "sentencepiece", "FP16"):
         v = workspace_repo(ws, name)
         if v:
-            rows.append((f"WORKSPACE `{name}`", f"`{v[:40]}`", "agello-next WORKSPACE"))
+            rows.append((f"WORKSPACE `{name}`", f"`{v[:40]}`", "`WORKSPACE` at the pin"))
     minos = re.findall(r'"(\w+)":\s*"([\d.]+)"', grab(common.show(lm, "agello/BUILD"), r"minimum_os_versions = \{(.*?)\}", "", re.S))
     if minos:
         rows.append(("Our xcframework minimum OS", ", ".join(f"{p} {v}" for p, v in minos), "`agello/BUILD`"))
@@ -66,8 +75,11 @@ def main():
     build = open(info).read() if os.path.exists(info) else ""
     if build:
         rows.append(("Our built framework (local dist/)", f"build id `{grab(build, r'Build id: (\w+)')}`",
-                     f"LiteRT-LM `{grab(build, r'LiteRT-LM: (\w+)')[:10]}`, LiteRT `{grab(build, r'^LiteRT: (\w+)')[:10]}`, "
-                     f"ML Drift `{grab(build, r'ML Drift: (\w+)')[:10]}`, built {grab(build, r'Built: (\S+)')}"))
+                     f"LiteRT-LM `{grab(build, r'LiteRT-LM: (\w+)')[:10]}`"
+                     + (" (LiteRT and ML Drift in tree)" if "in tree" in build else
+                        f", LiteRT `{grab(build, r'^LiteRT: (\w+)')[:10]}`, ML Drift `{grab(build, r'ML Drift: (\w+)')[:10]}`")
+                     + (" (modified)" if "(modified)" in grab(build, r"LiteRT-LM: (.*)$") else "")
+                     + f", built {grab(build, r'Built: (\S+)')}"))
 
     pkg = subprocess.run(["git", "-C", AGELLO, "show", "HEAD:Vendor/LiteRT-LM/Package.swift"], capture_output=True, text=True).stdout
     urls = re.findall(r'url:\s*"([^"]+)"', pkg)

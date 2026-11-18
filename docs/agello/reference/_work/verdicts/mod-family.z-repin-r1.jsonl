@@ -1,0 +1,1 @@
+{"id": "MOD-TOK-012", "verdict": "verified", "note": "Re-pin 2026-11-17: about google/gemma-4-E4B-it at the immutable revision ee0ef602, still the pinned hf_repos revision in pins.json; generated/hf/google__gemma-4-E4B-it/tokenizer_config.json reads tokenizer_class GemmaTokenizer, backend tokenizers. Nothing in it depends on the runtime pin or on what Agello ships."}

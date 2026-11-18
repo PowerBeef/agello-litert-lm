@@ -1,8 +1,9 @@
 #!/bin/sh
 # Run E4B once per Apple GPU family through agello-bench with telemetry and ML Drift's graph dumps,
 # then render generated/kernels-by-family.md and generated/engine-run.md. Uses our runtime through
-# agello-bench's .build-next (built against the agello-next worktree's dist/), about 2 minutes per
-# family, and ~2 GB of engine cache per family in $SCRATCH, deleted at the end.
+# agello-bench's .build-next (`swift build -c release --scratch-path .build-next` in tools/agello-bench,
+# against this checkout's dist/, built at the pin), about 2 minutes per family, and ~2 GB of engine
+# cache per family in $SCRATCH, deleted at the end.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BENCH="$HERE/../agello-bench"

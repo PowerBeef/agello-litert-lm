@@ -1,0 +1,1 @@
+{"id": "RT-OTH-004", "verdict": "verified", "note": "Re-pin 2026-11-17: a listing of Google's base df6df5b8, unchanged (git ls-tree df6df5b8 prebuilt/macos_arm64 and ios_arm64 give the same files). Our tree's prebuilt/ at b7b856a0 keeps only BUILD and libGemmaModelConstraintProvider per platform: the prune edb2c7db (2026-11-11) removed the rest; other-platforms.md now says so."}

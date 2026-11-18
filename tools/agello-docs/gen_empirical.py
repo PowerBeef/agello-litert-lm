@@ -76,10 +76,10 @@ def main():
         md.append(f"| `{sig}` nodes | " + " | ".join(str(nodes[f].get(sig, "-")) for f, _ in FAMILIES) + " |\n")
     for sig in sigs:
         kernels = sorted({k for f, _ in FAMILIES for k in per[f].get(sig, {})},
-                         key=lambda k: -max(flops[f].get(sig, {}).get(k, 0) for f, _ in FAMILIES))
+                         key=lambda k: (-max(flops[f].get(sig, {}).get(k, 0) for f, _ in FAMILIES), k))
         if not kernels:
             continue
-        md.append(f"\n## `{sig}`\n\nNode counts per kernel (sorted by FLOPs); rows that differ between families are in bold.\n\n"
+        md.append(f"\n## `{sig}`\n\nNode counts per kernel (sorted by FLOPs, then by name); rows that differ between families are in bold.\n\n"
                   "| Kernel | " + " | ".join(label for _, label in FAMILIES) + " | GFLOPs (native) |\n| --- |"
                   + " --- |" * (len(FAMILIES) + 1) + "\n")
         for k in kernels:

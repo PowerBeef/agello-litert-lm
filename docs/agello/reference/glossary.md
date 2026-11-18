@@ -3,9 +3,9 @@
 > **Scope:** the terms this reference uses, what each means here, the wording to prefer and the
 > wording to avoid, and the page that defines it. **Out of scope:** the values themselves ([facts.md](facts.md)); how things work
 > (the linked pages).
-> **Pinned to:** LiteRT-LM `7b872544`, LiteRT `362759838`, ML Drift `15fa9e2`; shipped: LiteRT-LM
-> `85b1a776` with Google's prebuilt v0.18.0 binary.
-> **Applies to:** all platforms; Apple terms marked. **Last verified:** 2026-10-15
+> **Pinned to:** `main` `b7b856a0`: LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift`; Agello ships release `agello-one-20261115` (`6da75396`).
+> **Applies to:** all platforms; Apple terms marked. **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -33,8 +33,8 @@ the code spells them). **Prefer / avoid** gives the wording to use and the wordi
 | allocated context | Positions the KV cache gets at load: `maxNumTokens` below 32,003, else 32,000; 4,096 if unset ([F-050](facts.md#f-050)) | prefer "allocated context" (or "KV capacity"); avoid "window" when the KV size is meant | "32K" allocates 32,000, which is why 918 MB and 940 MB both circulate | [litert-lm/executors.md](litert-lm/executors.md#magic-numbers-and-the-allocated-context) |
 | filled length | Positions that hold tokens now (the session's current step minus the pending token) | prefer "filled length"; avoid "context" for it | attention and conversions are bounded by it, memory by the allocated context | [litert-lm/executors.md](litert-lm/executors.md#the-attention-mask) |
 | allocated context vs output limit | `max_num_tokens` (everything held in the KV cache) vs `max_output_tokens` (decode steps per request) ([F-055](facts.md#f-055)) | never "max tokens" alone | they fail differently: KV full ends the session's room, the output limit ends one reply | [litert-lm/engine-and-sessions.md](litert-lm/engine-and-sessions.md#what-ends-a-decode) |
-| documented build | Our source build: LiteRT-LM `7b872544` + LiteRT `362759838` + ML Drift `15fa9e2` (`agello-next`) | prefer "our build at `<commit>`" or the build id; avoid "our LiteRT-LM" without a commit | its runtime patches don't reach users yet ([F-018](facts.md#f-018)) | [versions.md](versions.md#what-ships-and-what-is-documented) |
-| shipped wrapper, Google's v0.18.0 binary | What Agello ships: the Swift wrapper `agello` `85b1a776` (v0.18.0 plus two Swift patches) with Google's prebuilt `CLiteRTLM.xcframework` ([F-003](facts.md#f-003)) | prefer "Google's v0.18.0 binary" in user docs, "the shipped wrapper" for the Swift side; avoid "our fork" or "Agello's fork" for it | the fork has much more than the wrapper Agello vendors | [versions.md](versions.md#what-ships-and-what-is-documented), [patches.md](patches.md#what-agello-ships-c3) |
+| documented build | Our build: `main` at the pin (`b7b856a0`), LiteRT-LM at the root, LiteRT and ML Drift in `agello/litert` and `agello/ml_drift` | prefer "our build at `<commit>`" or the build id; avoid "our LiteRT-LM" without a commit | the commits after the shipped release reach users with Agello's next release | [versions.md](versions.md#what-ships-and-what-is-documented) |
+| shipped release | What Agello ships: the `CLiteRTLM.xcframework` of our release `agello-one-20261115` (built from `6da75396`), with `main`'s Swift wrapper at `82b05ea1` (the same files as at the pin) vendored as Agello's `Vendor/LiteRT-LM` | prefer "the release Agello ships" or its tag; "Google's v0.18.0 binary" only for the history before 2026-10-28, when Agello shipped it | the fork has much more than the wrapper Agello vendors | [versions.md](versions.md#what-ships-and-what-is-documented) |
 | Apple family (Apple's) | `MTLGPUFamily.appleN`, what `MTLDevice.supportsFamily` answers | prefer "Apple's `MTLGPUFamily` AppleN" when it matters which | the M6 is Apple11 here and Apple10 in ML Drift ([F-087](facts.md#f-087)) | [apple-platform.md](apple-platform.md#gpu-families-apples-and-ml-drifts) |
 | ML Drift family | `AppleInfo::Family` (Apple1-Apple10), derived from the Metal device *name* by ML Drift's table | prefer "ML Drift family AppleN"; avoid presenting it as `MTLGPUFamily` | it is a name lookup, not a capability query; unknown names give Apple1 | [ml-drift/architecture.md](ml-drift/architecture.md#apple-gpu-families) |
 | GPU Neural Accelerators | Apple's matrix units in each GPU core of M5/A19-class GPUs, which ML Drift reaches through `ConvAppleMPP` (Metal Performance Primitives TensorOps) ([F-091](facts.md#f-091)) | prefer "GPU Neural Accelerators"; avoid "Neural Engine", "ANE" | the Apple Neural Engine is a different unit, and this stack doesn't use it ([F-084](facts.md#f-084)) | [apple-platform.md](apple-platform.md#concepts), [ml-drift/kernels.md](ml-drift/kernels.md#convapplempp-the-gpu-neural-accelerators) |
@@ -72,8 +72,8 @@ the code spells them). **Prefer / avoid** gives the wording to use and the wordi
 
 | Term | Meaning | Prefer / avoid | Why | Defined in |
 | --- | --- | --- | --- | --- |
-| `agello-next` | Our fork branch with the source build (LiteRT-LM `7b872544`) | name the commit | — | [versions.md](versions.md#ours-on-top) |
-| `agello` (branch) | The fork's default branch: v0.18.0 plus the two Swift patches Agello vendors, plus docs and tools | — | — | [patches.md](patches.md#where-our-commits-live) |
+| `agello-next` | The fork's source-build branch until 2026-11-15, folded into `main` (its last documented commit, `7b872544`, is in `main`); its release `agello-next-20261024` shipped from 2026-10-28 to 2026-11-15 | name the commit or the release | — | [versions.md](versions.md#ours-on-top) |
+| `agello` (branch) | The fork's default branch until 2026-11-15: v0.18.0 plus the Swift patches Agello then vendored, plus docs and tools; folded into `main` (its tip `85b1a776` is in `main`) | — | — | [patches.md](patches.md#where-our-commits-live) |
 | `research/3913` | An annotated tag (not a branch) for the #3913 investigation ([F-015](facts.md#f-015)) | avoid "branch" | the landing page and agello-bench README still call it one | [patches.md](patches.md#the-fork-landing-page-c4) |
 | build id | 12 hex digits of SHA-256 over the three source descriptions and the flags; `dev` outside `--config=agello` ([F-012](facts.md#f-012)) | prefer "build id"; avoid "build number" | — | [litert-lm/build-and-release.md](litert-lm/build-and-release.md#build-stamping) |
 | build info, build stamp | The JSON `litert_lm_get_build_info()` returns / the mechanism that writes it | — | — | [litert-lm/build-and-release.md](litert-lm/build-and-release.md#build-stamping) |

@@ -3,17 +3,18 @@
 
   check_refs.py            all checks; exit 1 on errors
   check_refs.py --numbers  also warn about numbers with units that carry no fact ID or claim tag
-  check_refs.py --repin    after moving the pins: find each ledger citation's symbol at the new pin,
-                           report claims whose cited code changed (they need re-verification)
+  check_refs.py --repin    after moving the pins: repin.py status (which citations moved unchanged,
+                           which claims need re-verification)
   check_refs.py --only litert-lm/c-api.md ...   check only these pages (paths relative to reference/)
   check_refs.py --no-tags  skip the claim-tag check (pages whose claims aren't in the ledger yet)
 
 Checks:
-  - GitHub blob permalinks: the commit is a pin or an upstream base in pins.json, the file exists
-    there, and the line range is inside the file.
+  - GitHub blob permalinks: the commit is a pin or an upstream base in pins.json (LiteRT and ML Drift
+    links to our repository carry their agello/ folder), the file exists there, and the line range is
+    inside the file.
   - Relative links: the target exists; #anchors match a heading (GitHub's slug rules).
-  - Ledger (ledger/*.jsonl): each code source's lines still hash to lines_sha1 at its commit, and its
-    symbol (if any) is in those lines.
+  - Ledger (ledger/*.jsonl): each code source cites a pin or base, its lines still hash to lines_sha1
+    there, and its symbol (if any) is in those lines.
   - Claim tags (<!-- c:ID -->) in pages refer to ledger claims whose verdict is verified or corrected.
 """
 import argparse
@@ -56,13 +57,6 @@ def anchors(path):
     return out
 
 
-def commit_key(slug_, sha):
-    for key, r in common.PINS["repos"].items():
-        if (slug_ == r["fork"] and sha == r["pin"]) or (slug_ == r["upstream"] and sha == r["base"]):
-            return key
-    return None
-
-
 ONLY = None
 
 
@@ -86,6 +80,8 @@ def ledger():
 def check_links(errors):
     for page in pages():
         rel = os.path.relpath(page, common.REF_DIR)
+        if rel.startswith("_work"):
+            continue  # the research runs' notes keep the links of their day
         in_code = False
         for n, line in enumerate(open(page), 1):
             if line.startswith("```"):
@@ -97,10 +93,11 @@ def check_links(errors):
                 m = BLOB.match(url)
                 if m:
                     slug_, sha, path, start, end = m.groups()
-                    key = commit_key(slug_, sha)
-                    if key is None:
-                        errors.append(f"{where}: permalink to {slug_}@{sha[:10]} is not a pin or base")
+                    hit = common.url_key(slug_, sha, path)
+                    if hit is None:
+                        errors.append(f"{where}: permalink to {slug_}@{sha[:10]} is not a pin or base (repin.py links)")
                         continue
+                    key, path = hit
                     content = common.show(key, path, sha)
                     if content is None:
                         errors.append(f"{where}: {path} not at {slug_}@{sha[:10]}")
@@ -125,6 +122,8 @@ def check_links(errors):
 
 def check_ledger(errors, claims):
     for cid, (c, where) in claims.items():
+        if c.get("verdict") == "wrong":
+            continue  # off the pages; its sources record where it stood when it was judged
         for s in c.get("sources", []):
             if s.get("type") != "code":
                 continue
@@ -133,6 +132,9 @@ def check_ledger(errors, claims):
                 errors.append(f"{where} {cid}: unknown repo {key}")
                 continue
             sha = s.get("sha") or common.repo(key)["pin"]
+            if sha not in (common.repo(key)["pin"], common.repo(key)["base"]):
+                errors.append(f"{where} {cid}: cites {key}@{sha[:10]}, not its pin or base (repin.py)")
+                continue
             text = common.show(key, s["path"], sha)
             if text is None:
                 errors.append(f"{where} {cid}: {s['path']} not at {key}@{sha[:10]}")
@@ -168,31 +170,6 @@ def check_tags(errors, claims, warn_numbers):
     return warnings
 
 
-def repin(claims):
-    """For code sources whose commit is no longer a pin or base, find the symbol at the current pin."""
-    changed = 0
-    for cid, (c, where) in claims.items():
-        for s in c.get("sources", []):
-            if s.get("type") != "code" or s.get("repo") not in common.PINS["repos"]:
-                continue
-            r = common.repo(s["repo"])
-            if s.get("sha") in (r["pin"], r["base"]):
-                continue
-            hits = common.find_symbol(s["repo"], s["path"], s["symbol"]) if s.get("symbol") else []
-            text = common.show(s["repo"], s["path"]) or ""
-            status = "file gone" if not text else ("symbol gone" if s.get("symbol") and not hits else "moved")
-            if hits:
-                a = hits[0]
-                b = a + (s["lines"][1] - s["lines"][0])
-                same = hashlib.sha1("\n".join(text.splitlines()[a - 1:b]).encode()).hexdigest() == s.get("lines_sha1")
-                status = "unchanged" if same else "changed: re-verify"
-                print(f"{cid}: {s['path']}:{s['lines'][0]} -> {a}  {status}")
-            else:
-                print(f"{cid}: {s['path']}:{s['lines'][0]}  {status}: re-verify")
-            changed += status != "unchanged"
-    print(f"{changed} citations need re-verification")
-
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--numbers", action="store_true")
@@ -206,10 +183,11 @@ def main():
         missing = [x for x in ONLY if not os.path.exists(os.path.join(common.REF_DIR, x))]
         if missing:
             sys.exit(f"no such page: {', '.join(sorted(missing))}")
-    claims = ledger()
     if a.repin:
-        repin(claims)
+        import repin
+        repin.cmd_status()
         return
+    claims = ledger()
     errors = []
     check_links(errors)
     if not a.only:

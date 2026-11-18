@@ -1,0 +1,789 @@
+{
+ "agent": "r1",
+ "pages": [
+  "facts.md",
+  "memory.md",
+  "apple-platform.md",
+  "models/gemma4-e2b.md",
+  "models/gemma4-e4b.md",
+  "models/embeddinggemma.md",
+  "models/tokenizer-and-chat-format.md",
+  "models/gemma4-family.md"
+ ],
+ "claims": [
+  {
+   "group": "mod-e4b",
+   "id": "MOD-E4B-052",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-062",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "mod-e2b",
+   "id": "MOD-E2B-063",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "mod-family",
+   "id": "MOD-TOK-012",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "mod-embedding",
+   "id": "MOD-EMB-002",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "apple",
+   "id": "APL-015",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "apple",
+   "id": "APL-051",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "apple",
+   "id": "APL-069",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-001",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-008",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-009",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-010",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "x-memory",
+   "id": "X-MEM-011",
+   "tier": "A",
+   "verdict_now": "corrected"
+  },
+  {
+   "group": "x-facts",
+   "id": "X-FCT-002",
+   "tier": "A",
+   "verdict_now": "verified"
+  },
+  {
+   "group": "x-gemma-ai",
+   "id": "X-GAI-004",
+   "tier": "A",
+   "verdict_now": "corrected"
+  }
+ ],
+ "copies": [
+  {
+   "page": "memory.md",
+   "line": 237,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "memory.md",
+   "line": 239,
+   "id": "LM-ENG-098",
+   "verdict": "corrected",
+   "text_now": "ThreadedExecutionManager::ReleaseSession erases the session's tasks and the session, and when no session is left calls ResourceManager::ResetCurrentHandler, which resets the executor (LlmLiteRtCompiledModelExecutorBase::Reset sets current_step to 0 and clears the MTP and rewind state) and clears the current handler without freeing KV buffers; with sparse KV caches (ours: 12623257) the next conversation's first prefill run gives back the mapped tiles past the positions it writes.",
+   "text_before": "ThreadedExecutionManager::ReleaseSession erases the session's tasks and the session, and when no session is left calls ResourceManager::ResetCurrentHandler, which resets the executor (LlmLiteRtCompiledModelExecutorBase::Reset sets current_step to 0) and clears the current handler without freeing KV buffers."
+  },
+  {
+   "page": "memory.md",
+   "line": 266,
+   "id": "LM-EXE-014",
+   "verdict": "corrected",
+   "text_now": "For Gemma 4 E4B on the GPU in our build, each plain decode step does this on the CPU: runs the text embedder model (2,560 floats out) and the per-layer embedder model (42 x 256 floats out) for the token, copies both (53,248 bytes) into the decode input buffers, writes input_pos and param_tensor, resets and fills the attention mask (one byte per allocated position), and, with the GPU sampler unavailable, samples on the CPU from the 262,144-entry logits.",
+   "text_before": "For Gemma 4 E4B on the GPU in agello-next, each plain decode step does this on the CPU: runs the text embedder model (2,560 floats out) and the per-layer embedder model (42 x 256 floats out) for the token, copies both (53,248 bytes) into the decode input buffers, writes input_pos and param_tensor, resets and fills the attention mask (one byte per allocated position), and, with the GPU sampler unavailable, samples on the CPU from the 262,144-entry logits."
+  },
+  {
+   "page": "memory.md",
+   "line": 272,
+   "id": "LM-CMP-031",
+   "verdict": "corrected",
+   "text_now": "In docs/agello/results/mac/2026-10-15/bench/t6-plain.jsonl (our build f057206e0b1e of 2026-10-15, Apple M6, E4B fp16-rope, KV 8192, MTP off, telemetry level 2) each run has 256 decode steps and 256 'host.read 524288 B (direct)' spans; 524,288 bytes is 262,144 FP16 logits, the E4B vocabulary.",
+   "text_before": "In docs/agello/results/mac/2026-10-15/bench/t6-plain.jsonl (agello-next build f057206e0b1e, Apple M6, E4B fp16-rope, KV 8192, MTP off, telemetry level 2) each run has 256 decode steps and 256 'host.read 524288 B (direct)' spans; 524,288 bytes is 262,144 FP16 logits, the E4B vocabulary."
+  },
+  {
+   "page": "memory.md",
+   "line": 273,
+   "id": "LM-EXE-014",
+   "verdict": "corrected",
+   "text_now": "For Gemma 4 E4B on the GPU in our build, each plain decode step does this on the CPU: runs the text embedder model (2,560 floats out) and the per-layer embedder model (42 x 256 floats out) for the token, copies both (53,248 bytes) into the decode input buffers, writes input_pos and param_tensor, resets and fills the attention mask (one byte per allocated position), and, with the GPU sampler unavailable, samples on the CPU from the 262,144-entry logits.",
+   "text_before": "For Gemma 4 E4B on the GPU in agello-next, each plain decode step does this on the CPU: runs the text embedder model (2,560 floats out) and the per-layer embedder model (42 x 256 floats out) for the token, copies both (53,248 bytes) into the decode input buffers, writes input_pos and param_tensor, resets and fills the attention mask (one byte per allocated position), and, with the GPU sampler unavailable, samples on the CPU from the 262,144-entry logits."
+  },
+  {
+   "page": "memory.md",
+   "line": 285,
+   "id": "MD-MTL-013",
+   "verdict": "corrected",
+   "text_now": "ML Drift's metal::MemoryManager in our tree takes, for each buffer it needs, the smallest buffer it already owns that fits, unless that one is more than twice the size and over 16 MB larger (ours: 1f6e7f85), and allocates a new MTLBuffer when none fits; every prefill graph (64 or more positions per run) gets a pool of its own that other graphs don't borrow from (ours: d3730b60, d0b392a2), and a prefill graph's own buffers (when they total 256 MB or more) are freed when another graph runs next and allocated again before the prefill runs again (ours: b96dedea, through GpuInferenceContextMetal::BeforeInvoke); the other graphs' buffers stay until the manager is destroyed. LiteRT's GpuBackendMetalLitert passes its shared manager to CreateInferenceContext when may_share_memory_manager is set and always to RestoreInferenceContext.",
+   "text_before": "ML Drift's metal::MemoryManager reuses buffers it already owns across models (TakeAvailableBuffer: the smallest existing buffer that fits), allocates a new MTLBuffer only when none fits, and keeps all shared buffers until the manager is destroyed; LiteRT's GpuBackendMetalLitert passes its shared manager to CreateInferenceContext when may_share_memory_manager is set and always to RestoreInferenceContext."
+  },
+  {
+   "page": "memory.md",
+   "line": 294,
+   "id": "MD-KRN-002",
+   "verdict": "corrected",
+   "text_now": "For E4B's prefill_1024 graph on Apple M6 (ML Drift family Apple10, our build), ML Drift builds 210 convolution_int8(conv_apple_mpp) nodes, 23 convolution(conv_apple_mpp) nodes, 23 'convolution(conv_apple_mpp) + src softmax' nodes, 210 quantize_float16_to_int8c4 nodes, 163 weights_convert_uint4_to_int8, 47 weights_convert_uint8_to_int8 and 46 weights_convert_uint8_to_float16 nodes, and no conv_wave_matrix node; prefill_128 is the same except that it has 23 weights_convert_uint8_to_float16 nodes and no weights_convert_uint4_to_int8 node, its ConvAppleMPP reading the INT4 weights in place (ours: 80c07920).",
+   "text_before": "For E4B's prefill_1024 graph on Apple M6 (ML Drift family Apple10, agello-next build), ML Drift builds 210 convolution_int8(conv_apple_mpp) nodes, 23 convolution(conv_apple_mpp) nodes, 23 'convolution(conv_apple_mpp) + src softmax' nodes, 210 quantize_float16_to_int8c4 nodes, 163 weights_convert_uint4_to_int8, 47 weights_convert_uint8_to_int8 and 46 weights_convert_uint8_to_float16 nodes, and no conv_wave_matrix node; prefill_128 is the same except 23 weights_convert_uint8_to_float16 nodes."
+  },
+  {
+   "page": "memory.md",
+   "line": 294,
+   "id": "MD-KRN-003",
+   "verdict": "corrected",
+   "text_now": "For E4B's prefill graphs with AGELLO_SIMULATE_APPLE_GPU set to Apple A17 Pro, Apple M2 or Apple M1 (families Apple9, Apple8, Apple7; our build), ML Drift builds 233 convolution(conv_wave_matrix) and 23 'convolution(conv_wave_matrix) + src softmax' nodes and no conv_apple_mpp, convolution_int8 or quantize node; prefill_1024 adds 163 weights_convert_uint4_to_float16 and 93 weights_convert_uint8_to_float16 nodes, prefill_128 has no weights_convert_uint4_to_float16 node and 46 weights_convert_uint8_to_float16 nodes.",
+   "text_before": "For E4B's prefill graphs with AGELLO_SIMULATE_APPLE_GPU set to Apple A17 Pro, Apple M2 or Apple M1 (families Apple9, Apple8, Apple7; agello-next build), ML Drift builds 233 convolution(conv_wave_matrix) and 23 'convolution(conv_wave_matrix) + src softmax' nodes and no conv_apple_mpp, convolution_int8 or quantize node; prefill_1024 adds 163 weights_convert_uint4_to_float16 and 93 weights_convert_uint8_to_float16 nodes, prefill_128 has no weights_convert_uint4_to_float16 node and 46 weights_convert_uint8_to_float16 nodes."
+  },
+  {
+   "page": "memory.md",
+   "line": 297,
+   "id": "RT-RUN-026",
+   "verdict": "corrected",
+   "text_now": "LiteRT's Metal buffer handler (buffer_handler_metal.mm) locks a MetalBufferPacked buffer in shared storage in place: LiteRtLockMetalMemory returns the MTLBuffer's contents and LiteRtUnlockMetalMemory copies nothing (ours: 89137792). Other Metal buffers lock through a host shadow: the lock allocates a 64-byte-aligned host copy of packed_bytes on first lock and, for read locks, copies the GPU tensor into it (raw for a packed buffer, a direct linear copy when possible, otherwise through ML Drift descriptor conversion); write locks skip the download, and the unlock after a write copies the shadow back to the GPU tensor.",
+   "text_before": "LiteRT's Metal buffer handler (buffer_handler_metal.mm) implements locking with a host shadow: LiteRtLockMetalMemory allocates a 64-byte-aligned host copy of packed_bytes on first lock and, for read locks, copies the GPU tensor into it (raw for MetalBufferPacked, a direct linear copy when possible, otherwise through ML Drift descriptor conversion); write locks skip the download, and LiteRtUnlockMetalMemory after a write copies the shadow back to the GPU tensor."
+  },
+  {
+   "page": "memory.md",
+   "line": 303,
+   "id": "RT-CPU-014",
+   "verdict": "corrected",
+   "text_now": "Our build's WORKSPACE comment records that without the XNNPACK patch the dequant-BMM rewrite costs Gemma 4 E4B 5.5 GB on the CPU for its INT8 KV caches; no raw measurement file for this figure exists in docs/agello/results/.",
+   "text_before": "Our LiteRT-LM fork's WORKSPACE comment (agello-next 7b872544) records that without the XNNPACK patch the dequant-BMM rewrite costs Gemma 4 E4B 5.5 GB on the CPU for its INT8 KV caches; no raw measurement file for this figure exists in docs/agello/results/."
+  },
+  {
+   "page": "memory.md",
+   "line": 306,
+   "id": "OUR-012",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM base df6df5b8, and our tree at the pin, pin TensorFlow a1179d3c, whose XNNPACK pin d89ef666 is 58 commits behind XNNPACK's fix c72e2a4ae0 (2026-09-23), with the fix carried as our patch; Google's LiteRT-LM c05e67a2 (on main, committed 2026-10-14 02:17 UTC) moved TENSORFLOW_REF from ff42e955 (still XNNPACK d89ef666) to 5d071809, whose XNNPACK pin 0a66ebb5 is 219 commits ahead of c72e2a4ae0. Since we don't rebase onto upstream (Google's repositories are a read-only source since 2026-11-15), our XNNPACK patch can go only when we move that TensorFlow pin ourselves to one whose XNNPACK has the fix.",
+   "text_before": "Our LiteRT-LM base df6df5b8 pins TensorFlow a1179d3c, whose XNNPACK pin d89ef666 is 58 commits behind XNNPACK's fix c72e2a4ae0 (2026-09-23); Google's LiteRT-LM c05e67a2 (on main, committed 2026-10-14 02:17 UTC) moved TENSORFLOW_REF from ff42e955 (still XNNPACK d89ef666) to 5d071809, whose XNNPACK pin 0a66ebb5 is 219 commits ahead of c72e2a4ae0, so our XNNPACK patch becomes unnecessary once agello-next is rebased onto upstream LiteRT-LM at or after c05e67a2."
+  },
+  {
+   "page": "memory.md",
+   "line": 315,
+   "id": "LM-ENG-049",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtCompiledModelExecutorBase::CloneContext copies the ProcessedTokens (token history), RuntimeConfig and RuntimeState and a copy of the active KV state (CloneState): with one output head, LitertState::DeepCopyFilled of state_ for the filled positions (current_step) plus a margin of 16 (ours: 37bdbbf5); with output_heads > 1, LitertState::DeepCopy of decode_state_.",
+   "text_before": "LlmLiteRtCompiledModelExecutorBase::CloneContext copies the ProcessedTokens (token history), RuntimeConfig and RuntimeState and a deep copy of the active KV state (CloneState: LitertState::DeepCopy of state_, or of decode_state_ when output_heads > 1)."
+  },
+  {
+   "page": "memory.md",
+   "line": 323,
+   "id": "LM-ENG-051",
+   "verdict": "corrected",
+   "text_now": "LitertState's snapshot (DeepCopyImpl) is, in order: (ours: 12623257) for a snapshot of the filled positions (DeepCopyFilled) with KV blits on (AGELLO_KV_BLIT unset or not 0), a Metal command queue in the environment and every state buffer a Metal buffer, a GPU blit of the filled byte runs into compact anonymous pages (BlitSnapshot); else (ours: aec81cb7), when every state buffer of both banks satisfies RawMetalStorage (a Metal tensor buffer whose MTLBuffer has MTLStorageModeShared and a length between the tensor's packed size and packed size + 64 KiB), a raw snapshot that memcpy's MTLBuffer.contents (only the filled runs for DeepCopyFilled, ours 37bdbbf5), in the GPU's layout, into host memory without locking the source; otherwise CopyTensorBuffer.",
+   "text_before": "(ours: aec81cb7) LitertState::DeepCopy takes a raw snapshot when every state buffer of both banks satisfies RawMetalStorage (a Metal tensor buffer whose MTLBuffer has MTLStorageModeShared and a length between the tensor's packed size and packed size + 64 KiB): it memcpy's MTLBuffer.contents, in the GPU's layout, into host memory without locking the source; otherwise it uses CopyTensorBuffer."
+  },
+  {
+   "page": "memory.md",
+   "line": 327,
+   "id": "LM-ENG-050",
+   "verdict": "corrected",
+   "text_now": "CopyTensorBuffer (runtime/util/tensor_buffer_util.cc), the fallback of LitertState's snapshot when neither a blit nor a raw snapshot applies, copies a Metal tensor buffer into a newly created host-memory TensorBuffer (a workaround for a Metal buffer leak), through TensorBufferScopedLock reads and writes; the release Agello ships has the same branch.",
+   "text_before": "CopyTensorBuffer (runtime/util/tensor_buffer_util.cc), used by LitertState::DeepCopy, copies a Metal tensor buffer into a newly created host-memory TensorBuffer (a workaround for a Metal buffer leak), through TensorBufferScopedLock reads and writes; v0.18.0 has the same host-memory branch."
+  },
+  {
+   "page": "memory.md",
+   "line": 337,
+   "id": "LM-ENG-064",
+   "verdict": "corrected",
+   "text_now": "In our build, the KV snapshot a kept session receives when another session (a helper) takes the executor stays in the kept session's SharedProcessedContext until the kept session's handler next acquires the executor (its next prefill, decode or scoring task, or a GetCurrentStep/SetCurrentStep/SaveContext/RestoreContext call); that acquisition copies it back into the device buffers and frees it, and, when the helper's session has been released, skips snapshotting the helper (ours: ed998d80).",
+   "text_before": "In agello-next, the KV snapshot a kept session receives when another session (a helper) takes the executor stays in the kept session's SharedProcessedContext until the kept session's handler next acquires the executor (its next prefill, decode or scoring task, or a GetCurrentStep/SetCurrentStep/SaveContext/RestoreContext call); that acquisition copies it back into the device buffers and frees it, and, when the helper's session has been released, skips snapshotting the helper (ours: ed998d80)."
+  },
+  {
+   "page": "memory.md",
+   "line": 340,
+   "id": "LM-ENG-065",
+   "verdict": "corrected",
+   "text_now": "When the helper kept the chat's conversation, Agello 6d389e6's LiteRTChatEngine.endHelper drops the helper conversation and then calls getTokenCount() on the kept conversation; in our build that call goes litert_lm_conversation_get_token_count -> Conversation::GetTokenCount -> SessionAdvanced::GetCurrentStep -> ThreadedExecutionManager::GetCurrentStep -> ResourceManager::AcquireExecutorWithContextHandler, so the kept session's KV snapshot is restored and freed on the caller's thread right after the helper.",
+   "text_before": "When the helper kept the chat's conversation, Agello 6d389e6's LiteRTChatEngine.endHelper drops the helper conversation and then calls getTokenCount() on the kept conversation; in agello-next that call goes litert_lm_conversation_get_token_count -> Conversation::GetTokenCount -> SessionAdvanced::GetCurrentStep -> ThreadedExecutionManager::GetCurrentStep -> ResourceManager::AcquireExecutorWithContextHandler, so the kept session's KV snapshot is restored and freed on the caller's thread right after the helper."
+  },
+  {
+   "page": "memory.md",
+   "line": 358,
+   "id": "LM-ENG-055",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtCompiledModelExecutorBase::RestoreState copies a host snapshot into the existing device buffers because, per its comment, GPU delegates cannot bind host buffers for in-place KV caches and keep using the device buffers bound earlier, which hold another session's KV cache; that copy is Google's change 76594366 (2026-10-12), and the release Agello ships (agello-one-20261115) has the same RestoreState.",
+   "text_before": "In LiteRT-LM v0.18.0 (the runtime source of what Agello ships), LlmLiteRtCompiledModelExecutorBase::RestoreState moves the restored state in as the live state (state_ or decode_state_ = std::move(state)); agello-next's replacement (Google commit 76594366, 2026-10-12) explains that GPU delegates cannot bind such host snapshots and keep using previously bound device buffers holding another session's KV cache, and copies into the device buffers instead. The snapshot side (ResourceManager CloneContext into the current handler) is the same in v0.18.0."
+  },
+  {
+   "page": "memory.md",
+   "line": 366,
+   "id": "RT-DLG-044",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available.",
+   "text_before": "LiteRT-LM agello-next computes the GPU cache files as <cache_dir>/<model file name>_<mtime seconds>_<size bytes><suffix> (next to the model when cache_dir is empty, none when it is ':nocache'), sets the delegate's model token to <model file name>_<mtime>_<size> plus any cache suffix, the serialization directory to the cache file's parent, and serialize_program_cache true whenever a program cache file is available."
+  },
+  {
+   "page": "memory.md",
+   "line": 378,
+   "id": "RT-DLG-055",
+   "verdict": "corrected",
+   "text_now": "Upstream's GenerateUniqueModelIdentifier fingerprints the model token, a custom key (serialization prefix 'gpuv3_metal_data_' on Metal plus precision, texture-weights, quantized-ops, ordering, alignment, batching and serialization options) and TFLite's context and partition tensor sizes, which include the KV caches; our GenerateContentModelIdentifier (97e06d36) keeps the token and options but replaces the sizes with each delegated node's index and builtin code and each kTfLiteMmapRo input's index, byte size and type, and is used unless AGELLO_SHARED_WEIGHT_CACHE=0; our 36275983 appends the AGELLO_SIMULATE_APPLE_GPU value to the prefix.",
+   "text_before": "Upstream's GenerateUniqueModelIdentifier fingerprints the model token, a custom key (serialization prefix 'gpuv3_metal_data_' on Metal plus precision, texture-weights, quantized-ops, ordering, alignment, batching and serialization options) and TFLite's context and partition tensor sizes, which include the KV caches; Agello's GenerateContentModelIdentifier (LiteRT 97e06d36) keeps the token and options but replaces the sizes with each delegated node's index and builtin code and each kTfLiteMmapRo input's index, byte size and type, and is used unless AGELLO_SHARED_WEIGHT_CACHE=0; LiteRT 36275983 appends the AGELLO_SIMULATE_APPLE_GPU value to the prefix."
+  },
+  {
+   "page": "memory.md",
+   "line": 380,
+   "id": "RT-DLG-052",
+   "verdict": "corrected",
+   "text_now": "SerializationWeightCache::Load rejects a cache file whose MLDriftCacheHeader.version differs from kVersion (2 in our LiteRT) or whose 32-byte mldrift_build_identifier doesn't match the running build ('Cache needs to be built again').",
+   "text_before": "SerializationWeightCache::Load rejects a cache file whose MLDriftCacheHeader.version differs from kVersion (2 at LiteRT 362759838) or whose 32-byte mldrift_build_identifier doesn't match the running build ('Cache needs to be built again')."
+  },
+  {
+   "page": "facts.md",
+   "line": 73,
+   "id": "OUR-001",
+   "verdict": "corrected",
+   "text_now": "Our commit ranges at the pin (one repository, PowerBeef/agello-litert-lm main b7b856a0): LiteRT-LM has 145 commits on Google's df6df5b8 (0.19.0-nightly.20261013), 141 of them ours, with 1,810 files differing outside the LiteRT and ML Drift folders (866 changed or added, 944 removed); agello/litert was imported unchanged at e3c93749 from PowerBeef/LiteRT 362759838 (12 commits on ca21dc99), has 17 commits since, and 5,544 files differ from ca21dc99 (30 changed or added, 5,514 removed); agello/ml_drift was imported from PowerBeef/ml-drift 15fa9e2 (8 commits on 1b18771f), has 16 since, and 375 files differ (28 changed or added, 347 removed); the release Agello ships, agello-one-20261115 (6da75396), has 68 of the LiteRT-LM commits.",
+   "text_before": "Our commit ranges at the documented pins: PowerBeef/agello-litert-lm agello-next has 29 commits on Google's LiteRT-LM df6df5b8 (0.19.0-nightly.20261013) up to 7b872544 with 65 files differing; PowerBeef/LiteRT agello-next has 12 commits on ca21dc99 up to 362759838 with 41 files differing; PowerBeef/ml-drift agello-next has 8 commits on 1b18771 up to 15fa9e2 with 21 files differing; the shipped wrapper range (agello branch, v0.18.0 b2f686e2 to 85b1a776) has 15 commits with 71 files differing."
+  },
+  {
+   "page": "facts.md",
+   "line": 73,
+   "id": "LM-VER-028",
+   "verdict": "corrected",
+   "text_now": "PowerBeef/agello-litert-lm main has 145 commits from Google's df6df5b8 (0.19.0-nightly.20261013) to the pin, 141 of them ours (the other four are Google's v0.18.0 release-branch commits, which came along when the old agello branch joined main in 163873b8 on 2026-11-15), and 1,810 files differ outside the LiteRT and ML Drift folders; the release Agello ships, agello-one-20261115 (6da75396), has 68 of them. LiteRT was imported at e3c93749 from PowerBeef/LiteRT 362759838 (Google's ca21dc99 plus 12 commits) and has 17 commits since; ML Drift from PowerBeef/ml-drift 15fa9e2 (Google's 1b18771f plus 8) and 16 since.",
+   "text_before": "PowerBeef/agello-litert-lm agello-next has 29 commits from Google's df6df5b8 (0.19.0-nightly.20261013) to 7b872544 touching 65 files; our LiteRT pin is Google's ca21dc99 plus 12 commits and our ML Drift pin is Google's 1b18771 plus 8 commits."
+  },
+  {
+   "page": "facts.md",
+   "line": 74,
+   "id": "OUR-001",
+   "verdict": "corrected",
+   "text_now": "Our commit ranges at the pin (one repository, PowerBeef/agello-litert-lm main b7b856a0): LiteRT-LM has 145 commits on Google's df6df5b8 (0.19.0-nightly.20261013), 141 of them ours, with 1,810 files differing outside the LiteRT and ML Drift folders (866 changed or added, 944 removed); agello/litert was imported unchanged at e3c93749 from PowerBeef/LiteRT 362759838 (12 commits on ca21dc99), has 17 commits since, and 5,544 files differ from ca21dc99 (30 changed or added, 5,514 removed); agello/ml_drift was imported from PowerBeef/ml-drift 15fa9e2 (8 commits on 1b18771f), has 16 since, and 375 files differ (28 changed or added, 347 removed); the release Agello ships, agello-one-20261115 (6da75396), has 68 of the LiteRT-LM commits.",
+   "text_before": "Our commit ranges at the documented pins: PowerBeef/agello-litert-lm agello-next has 29 commits on Google's LiteRT-LM df6df5b8 (0.19.0-nightly.20261013) up to 7b872544 with 65 files differing; PowerBeef/LiteRT agello-next has 12 commits on ca21dc99 up to 362759838 with 41 files differing; PowerBeef/ml-drift agello-next has 8 commits on 1b18771 up to 15fa9e2 with 21 files differing; the shipped wrapper range (agello branch, v0.18.0 b2f686e2 to 85b1a776) has 15 commits with 71 files differing."
+  },
+  {
+   "page": "facts.md",
+   "line": 75,
+   "id": "OUR-002",
+   "verdict": "corrected",
+   "text_now": "From Google's base df6df5b8 to what Agello vendors (swift/ of main at 82b05ea1, byte for byte the pin's), our commits change 11 files under swift/ and Package.swift: ConversationStream.swift, BuildInfo.swift and Telemetry.swift are new; Conversation.swift, Engine.swift, EmbeddingEngine.swift, EmbeddingEngineConfig.swift, ExperimentalFlags.swift, ToolManager.swift, LiteRTLMError.swift and BUILD are changed. The commits are f3408e06 (failed tool calls answered with error responses) and 0b2ca12f (a stream holds its conversation weakly) of 2026-10-14, 4ca2cf33 (streams by ID, ended once, cancellation, the tool-round cap, tokenize and the embedding overflow), the build-info and telemetry APIs (c7c744eb, 4aed9274, a3a0c0ad), 1a90cdb4 (the embedding engine's activation type) and 24f35f81 with 82b05ea1 (Swift 6 language mode, the flags behind an NSLock); Conversation.swift's header notice describes the conversation changes. The wrapper Agello shipped until 2026-10-28 (the old agello branch at 85b1a776) was v0.18.0's with two patches, a3c0d0ef and 85b1a776, both in swift/Conversation.swift.",
+   "text_before": "Between LiteRT-LM v0.18.0 (b2f686e2) and the shipped wrapper commit 85b1a776, the only file under swift/ that changes is swift/Conversation.swift (73 insertions, 16 deletions) and Package.swift is unchanged (Google's v0.18.0 release URLs and checksums); the change consists of two behavior patches, a3c0d0ef (failed tool calls answered with error responses) and 85b1a776 (StreamContext holds its conversation weakly), plus a modification notice, while 7c4ee32d only renames the repository in that notice."
+  },
+  {
+   "page": "facts.md",
+   "line": 75,
+   "id": "OUR-003",
+   "verdict": "corrected",
+   "text_now": "(C3) The Swift wrapper Agello vendors (main's swift/ at 82b05ea1, Agello a691212) carries our Swift changes: failed tool calls answered with an error response; a stream holding its conversation weakly; streams kept by ID, ending once, with cancellation and bounded tool rounds; tokenize/countTokens, the embedding input overflow and its activation type; Swift 6 language mode. Agello's Vendor/README.md lists five Swift patches and CLAUDE.md says five, while the README's 'Vendored LiteRT-LM' section and the agello-litert-update skill say four, and Vendor/README.md's fifth says ExperimentalFlags keeps its values behind a Mutex, which fork 82b05ea1 replaced with an NSLock. In October 2026 the drift was CLAUDE.md saying 'v0.18.0 plus one tool-call patch' while the wrapper carried two.",
+   "text_before": "(C3) The Swift wrapper Agello vendors (agello 85b1a776) carries two patches to swift/Conversation.swift (failed tool calls answered with an error response; a stream holding its conversation weakly), as Agello's Vendor/README.md, NOTICE and agello-litert-update skill say at Agello commit 93122b6; Agello's CLAUDE.md at 93122b6 (line 24) still says 'v0.18.0 plus one tool-call patch', which is stale."
+  },
+  {
+   "page": "facts.md",
+   "line": 75,
+   "id": "LM-VER-001",
+   "verdict": "corrected",
+   "text_now": "Agello's Vendor/README.md (at a691212) says Vendor/LiteRT-LM is a pruned copy of our fork PowerBeef/agello-litert-lm (one branch, main) at 6da75396, Google's 0.19.0-nightly.20261013 plus our commits, whose Package.swift pins the CLiteRTLM.xcframework.zip of our release agello-one-20261115. The vendored swift/ files are those of main at 82b05ea1: the release's wrapper plus three Swift-only commits after it (24f35f81 Swift 6 language mode, 1a90cdb4 the embedding engine's activation type, 82b05ea1 the flags behind an NSLock), which the README's Swift patches 4 and 5 describe.",
+   "text_before": "Agello's Vendor/README.md (at 93122b6) says Vendor/LiteRT-LM is a pruned copy of LiteRT-LM v0.18.0 from PowerBeef/agello-litert-lm branch agello at commit 85b1a776. generated/patch-log.md lists 15 commits from v0.18.0 to 85b1a776; two of them change the Swift wrapper's behavior (a3c0d0ef, 85b1a776, both swift/Conversation.swift), and a third, 7c4ee32d, only renames the repository in that file's patch notice."
+  },
+  {
+   "page": "facts.md",
+   "line": 75,
+   "id": "LM-SWIFT-046",
+   "verdict": "corrected",
+   "text_now": "Agello vendors our build's Swift wrapper: every file under Vendor/LiteRT-LM/swift/ is byte-identical to the fork's swift/ at b7b856a0 (unchanged since 82b05ea1), and Vendor/LiteRT-LM/Package.swift is the fork's Package.swift except that its CLiteRTLM binary target is the release's agello-one-20261115 zip by URL and checksum; the binary Agello links is that release's, built from 6da75396.",
+   "text_before": "Agello at commit 93122b647a vendors the shipped wrapper unchanged: Vendor/LiteRT-LM/Package.swift and every file under Vendor/LiteRT-LM/swift/ are byte-identical to the corresponding files of PowerBeef/agello-litert-lm at 85b1a776."
+  },
+  {
+   "page": "facts.md",
+   "line": 76,
+   "id": "OUR-004",
+   "verdict": "corrected",
+   "text_now": "Upstream LiteRT-LM's Conversation.handleToolCalls (base df6df5b8, same in v0.18.0) skips a tool call whose arguments are not a JSON object and rethrows any tool error as toolExecutionError; in our wrapper (the pin, and the release Agello ships, 6da75396) missing or null arguments become {}, a JSON string holding an object is decoded, any other argument value gets an error response, and ToolError.notFound, DecodingError and other thrown errors become error messages the model reads instead of ending the turn.",
+   "text_before": "Upstream LiteRT-LM's Conversation.handleToolCalls (base df6df5b8, same in v0.18.0) skips a tool call whose arguments are not a JSON object and rethrows any tool error as toolExecutionError; in both of our wrappers (shipped 85b1a776, agello-next 7b872544) missing or null arguments become {}, a JSON string holding an object is decoded, any other argument value gets an error response, and ToolError.notFound, DecodingError and other thrown errors become error messages the model reads instead of ending the turn."
+  },
+  {
+   "page": "facts.md",
+   "line": 76,
+   "id": "OUR-005",
+   "verdict": "corrected",
+   "text_now": "Upstream LiteRT-LM's StreamContext (swift/Conversation.swift at base df6df5b8) declares 'let conversation: Conversation' (a strong reference), while our wrapper, at the pin and in the release Agello ships, declares 'weak var conversation: Conversation?' in StreamContext, which 4ca2cf33 moved into swift/ConversationStream.swift.",
+   "text_before": "Upstream LiteRT-LM's StreamContext (swift/Conversation.swift at base df6df5b8) declares 'let conversation: Conversation' (a strong reference), while both the shipped wrapper (85b1a776) and agello-next (7b872544) declare 'weak var conversation: Conversation?'."
+  },
+  {
+   "page": "facts.md",
+   "line": 76,
+   "id": "LM-SWIFT-023",
+   "verdict": "corrected",
+   "text_now": "Our handleToolCalls patch (ours: f3408e0671), in our build and in the release Agello ships, answers every tool call: missing or null arguments run the tool with {}, an object or a JSON string holding an object runs it, other argument values get {\"error\": \"The arguments for '<name>' must be a JSON object.\"}, tool(.notFound) gets \"There is no tool named '<name>'. Use only the tools you were given, or answer without one.\", a DecodingError gets \"The arguments for '<name>' don't match its parameters. Check their names and types, then try again.\", and any other thrown error gets \"'<name>' failed: <localizedDescription>\".",
+   "text_before": "Our handleToolCalls patch (f3408e0671 on agello-next, a3c0d0ef72 shipped) answers every tool call: missing or null arguments run the tool with {}, an object or a JSON string holding an object runs it, other argument values get {\"error\": \"The arguments for '<name>' must be a JSON object.\"}, tool(.notFound) gets \"There is no tool named '<name>'. Use only the tools you were given, or answer without one.\", a DecodingError gets \"The arguments for '<name>' don't match its parameters. Check their names and types, then try again.\", and any other thrown error gets \"'<name>' failed: <localizedDescription>\"."
+  },
+  {
+   "page": "facts.md",
+   "line": 77,
+   "id": "LM-BLD-053",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM release v0.18.0 (target release/v0.18.0, published 2026-10-06), which Agello shipped until 2026-10-28, has three assets: CLiteRTLM.xcframework.zip (124,129,650 bytes), CLiteRTLM_mac.xcframework.zip (45,143,303 bytes) and litert_lm_main.macos_arm64 (16,578,288 bytes).",
+   "text_before": "Google's LiteRT-LM release v0.18.0 (target release/v0.18.0, published 2026-10-06) has three assets: CLiteRTLM.xcframework.zip (124,129,650 bytes), CLiteRTLM_mac.xcframework.zip (45,143,303 bytes) and litert_lm_main.macos_arm64 (16,578,288 bytes)."
+  },
+  {
+   "page": "facts.md",
+   "line": 77,
+   "id": "LM-BLD-049",
+   "verdict": "corrected",
+   "text_now": "The release Agello ships (agello-one-20261115, 6da75396) has the same single binary target CLiteRTLM at path dist/CLiteRTLM.xcframework; the release script writes the release's Package.swift with the release URL and checksum instead, and Agello's committed binary target is CLiteRTLM.xcframework.zip from https://github.com/PowerBeef/agello-litert-lm/releases/download/agello-one-20261115/ with checksum 90b641a52ae0e29c....",
+   "text_before": "Package.swift at the shipped wrapper 85b1a776 (identical to v0.18.0's) has binary targets CLiteRTLM and CLiteRTLM_mac downloaded from https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.18.0/ with checksums d765b99592d4ec3d0c9e2bd69469454af06c834861340672da1891c0c121c347 and 5f6ee68d95eeccb084c6e66d5ee47255e3020fa0fb29696dd0301ae26d6cfb4f, used on iOS and macOS respectively."
+  },
+  {
+   "page": "facts.md",
+   "line": 78,
+   "id": "LM-VER-003",
+   "verdict": "corrected",
+   "text_now": "version.bzl has VERSION 0.19.0 and C_API_VERSION 1.0.0 in our build and in the release Agello ships (unchanged from Google's base df6df5b8); Google's v0.18.0, which Agello shipped until 2026-10-28, had VERSION 0.18.0 and C_API_VERSION 0.2.0.",
+   "text_before": "version.bzl has VERSION 0.19.0 and C_API_VERSION 1.0.0 at agello-next 7b872544, and VERSION 0.18.0 and C_API_VERSION 0.2.0 at v0.18.0 (the shipped wrapper's base)."
+  },
+  {
+   "page": "facts.md",
+   "line": 78,
+   "id": "LM-VER-005",
+   "verdict": "corrected",
+   "text_now": "litert_lm_engine_create returns LiteRtLmStatusCode with the engine in an out_engine parameter in our build ('Changed in version 1.0.0'); in Google's v0.18.0 c/engine.h it returned LiteRtLmEngine*.",
+   "text_before": "litert_lm_engine_create returns LiteRtLmEngine* in v0.18.0's c/engine.h, and returns LiteRtLmStatusCode with the engine in an out_engine parameter at agello-next ('Changed in version 1.0.0')."
+  },
+  {
+   "page": "facts.md",
+   "line": 78,
+   "id": "LM-VER-009",
+   "verdict": "corrected",
+   "text_now": "Our Swift wrapper, at the pin and in what Agello ships, calls litert_lm_engine_create(settings, out) (the C API 1.0 form) and litert_lm_get_build_info and litert_lm_telemetry_*, which our binary exports and Google's v0.18.0 binary didn't (the 2026-10-16 record in generated/binaries.md); the wrapper Agello shipped until 2026-10-28 (v0.18.0's plus two Swift patches) called litert_lm_engine_create(settings) expecting a pointer, so neither works with the other's binary.",
+   "text_before": "The agello-next Swift wrapper calls litert_lm_engine_create(settings, out) (C API 1.0 form) and litert_lm_get_build_info, which Google's v0.18.0 binary doesn't provide, while the shipped wrapper 85b1a776 calls litert_lm_engine_create(settings) expecting a pointer; neither wrapper works with the other build's binary."
+  },
+  {
+   "page": "facts.md",
+   "line": 79,
+   "id": "LM-CAPI-035",
+   "verdict": "corrected",
+   "text_now": "The C headers of our LiteRT-LM build declare 220 functions: engine.h 111, conversation.h 39, embedding_engine.h 34, model_info.h 21, experimental.h 6, error_reporter.h 2, and our telemetry.h 6 and build_info.h 1.",
+   "text_before": "The C headers of LiteRT-LM agello-next 7b872544 declare 220 functions: engine.h 111, conversation.h 39, embedding_engine.h 34, model_info.h 21, experimental.h 6, error_reporter.h 2, and our telemetry.h 6 and build_info.h 1."
+  },
+  {
+   "page": "facts.md",
+   "line": 79,
+   "id": "LM-CAPI-036",
+   "verdict": "corrected",
+   "text_now": "Our binary (build 6ddc6b998303, from b7b856a0) exports 220 litert_lm_* C functions. The record of 2026-10-16 compared Google's prebuilt v0.18.0 binary, which Agello shipped until 2026-10-28, with ours at the time: 212 against 220; only Google's exported litert_lm_get_last_error_code, and only ours litert_lm_conversation_wait_until_done, litert_lm_get_api_version, litert_lm_get_build_info and six litert_lm_telemetry_* functions.",
+   "text_before": "Google's prebuilt v0.18.0 CLiteRTLM iOS arm64 binary exports 212 litert_lm_* C functions and our agello-next binary 220; only Google's exports litert_lm_get_last_error_code, and only ours exports litert_lm_conversation_wait_until_done, litert_lm_get_api_version, litert_lm_get_build_info and six litert_lm_telemetry_* functions."
+  },
+  {
+   "page": "facts.md",
+   "line": 79,
+   "id": "LM-VER-008",
+   "verdict": "corrected",
+   "text_now": "Our CLiteRTLM iOS binary at the pin (build 6ddc6b998303) exports 220 litert_lm_* C functions; on 2026-10-16 Google's v0.18.0 iOS binary exported 212 and ours at 7b872544 220.",
+   "text_before": "Google's v0.18.0 CLiteRTLM iOS binary exports 212 litert_lm_* C functions and ours at 7b872544 exports 220."
+  },
+  {
+   "page": "facts.md",
+   "line": 80,
+   "id": "LM-BLD-056",
+   "verdict": "corrected",
+   "text_now": "Our build's CLiteRTLM iOS slice (generated/binaries.md, build 6ddc6b998303) is 37.7 MB with 220 exported litert_lm_* C functions and no Gemma FST constraint provider symbols (0 / 0); in the record of 2026-10-16, Google's v0.18.0 slice, which Agello shipped until 2026-10-28, was 61.6 MB with 212 exported functions and the closed provider (17 defined symbols).",
+   "text_before": "Google's v0.18.0 CLiteRTLM iOS slice is 61.6 MB with 212 exported litert_lm_* C functions and the closed Gemma FST constraint provider (17 defined symbols); our iOS slice at 7b872544 is 37.5 MB with 220 exported functions and no FST provider symbols (0 / 0)."
+  },
+  {
+   "page": "facts.md",
+   "line": 81,
+   "id": "LM-BLD-015",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, //runtime/components:default_static_gpu_samplers is empty in both branches of its select, so they link no GPU sampler: generated/binaries.md counts 7 defined TopK-Metal-sampler symbols (the open wrapper) in our iOS binary, where its record of 2026-10-16 counted 39 in Google's v0.18.0, which Agello shipped until 2026-10-28.",
+   "text_before": "At agello-next 7b872544, //runtime/components:default_static_gpu_samplers is empty in both branches of its select, so the documented build links no GPU sampler, while Google's v0.18.0 iOS binary contains the closed TopK Metal sampler (39 defined symbols against 7 in ours, per generated/binaries.md)."
+  },
+  {
+   "page": "facts.md",
+   "line": 81,
+   "id": "LM-CMP-023",
+   "verdict": "corrected",
+   "text_now": "An engine run of our build on an Apple M6 (generated/engine-run.md, agello-bench speed case t2k, E4B ours) records the fact 'sampler = cpu (GPU sampler unavailable)', counters sampler_cpu 1 and sampler_gpu 0, and one sampler_fallback_to_cpu anomaly.",
+   "text_before": "An engine run of our agello-next build on an Apple M6 (generated/engine-run.md, agello-bench speed case t2k, E4B ours) records the fact 'sampler = cpu (GPU sampler unavailable)', counters sampler_cpu 1 and sampler_gpu 0, and one sampler_fallback_to_cpu anomaly."
+  },
+  {
+   "page": "facts.md",
+   "line": 81,
+   "id": "LM-BLD-056",
+   "verdict": "corrected",
+   "text_now": "Our build's CLiteRTLM iOS slice (generated/binaries.md, build 6ddc6b998303) is 37.7 MB with 220 exported litert_lm_* C functions and no Gemma FST constraint provider symbols (0 / 0); in the record of 2026-10-16, Google's v0.18.0 slice, which Agello shipped until 2026-10-28, was 61.6 MB with 212 exported functions and the closed provider (17 defined symbols).",
+   "text_before": "Google's v0.18.0 CLiteRTLM iOS slice is 61.6 MB with 212 exported litert_lm_* C functions and the closed Gemma FST constraint provider (17 defined symbols); our iOS slice at 7b872544 is 37.5 MB with 220 exported functions and no FST provider symbols (0 / 0)."
+  },
+  {
+   "page": "facts.md",
+   "line": 83,
+   "id": "LM-BLD-013",
+   "verdict": "corrected",
+   "text_now": "In our build (ours, 43f0f5c3), default_static_gpu_accelerator depends on apple_static_gpu_accelerator unless @litert//litert:litert_runtime_link_mode_dynamic; apple_static_gpu_accelerator, only for @platforms//os:ios and @platforms//os:macos, depends on @litert//litert/runtime/accelerators/gpu:ml_drift_metal_accelerator and links -framework Metal and -framework Foundation, and is empty elsewhere.",
+   "text_before": "In agello-next (ours, 43f0f5c3), default_static_gpu_accelerator depends on apple_static_gpu_accelerator unless @litert//litert:litert_runtime_link_mode_dynamic; apple_static_gpu_accelerator, only for @platforms//os:ios and @platforms//os:macos, depends on @litert//litert/runtime/accelerators/gpu:ml_drift_metal_accelerator and links -framework Metal and -framework Foundation, and is empty elsewhere."
+  },
+  {
+   "page": "facts.md",
+   "line": 83,
+   "id": "RT-OTH-005",
+   "verdict": "corrected",
+   "text_now": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (Google's release of 2026-10-06; zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default.",
+   "text_before": "Google's LiteRT-LM v0.18.0 CLiteRTLM_mac.xcframework (zip sha256 5f6ee68d95eeccb0..., one universal libCLiteRTLM_mac.dylib of 137,802,416 bytes) contains the strings GpuWebGpuAccelerator, \"GPU WebGPU\" and \"Statically linked GPU accelerator registered.\", and mentions the Metal accelerator only as the file name libLiteRtMetalAccelerator.dylib, with no \"GPU Metal\" string; LiteRT-LM's gpu_accelerator flag comment says iOS uses Metal and macOS uses WebGPU by default."
+  },
+  {
+   "page": "facts.md",
+   "line": 84,
+   "id": "LM-BLD-029",
+   "verdict": "corrected",
+   "text_now": "A build from uncommitted changes and a build of the same code once committed are not byte-identical: agello/workspace_status.sh stamps the LiteRT-LM commit with '+<hash of git diff HEAD>' for uncommitted changes and derives the build id from it, and make_build_info.sh writes both into kAgelloBuildInfoJson, which litert_lm_get_build_info returns and //c:engine links; so the litert_lm field and build id change between the two builds.",
+   "text_before": "In the documented re-pin order (build with .bazelrc.user overrides, then edit the tracked WORKSPACE pins, then rebuild without overrides), the rebuilt CLiteRTLM is not byte-identical: agello/workspace_status.sh stamps the LiteRT-LM commit with '+<hash of git diff HEAD>' for uncommitted changes and derives the build id from it, and make_build_info.sh writes both into kAgelloBuildInfoJson, which litert_lm_get_build_info returns and //c:engine links; so the litert_lm field and build id change between the two builds."
+  },
+  {
+   "page": "facts.md",
+   "line": 85,
+   "id": "LM-BLD-057",
+   "verdict": "corrected",
+   "text_now": "The local dist/ framework on this Mac was built 2026-11-18T04:35:59Z from LiteRT-LM b7b856a0, with LiteRT and ML Drift in the tree, build id 6ddc6b998303.",
+   "text_before": "The local dist/ framework on this Mac was built 2026-10-15T18:49:46Z from LiteRT-LM 7b872544, LiteRT 362759838 and ML Drift 15fa9e2, build id 7023fa1a61d4."
+  },
+  {
+   "page": "facts.md",
+   "line": 86,
+   "id": "LM-BLD-001",
+   "verdict": "corrected",
+   "text_now": "Our build pins Bazel 7.6.1 in .bazelversion (Google's build guide, which our tree removed in the prune 7e4d9b8d, asks for the same version), and its .bazelrc disables bzlmod with `common --noenable_bzlmod`, so the build runs in WORKSPACE mode.",
+   "text_before": "LiteRT-LM at agello-next 7b872544 pins Bazel 7.6.1 in .bazelversion (Google's build guide asks for the same version), and its .bazelrc disables bzlmod with `common --noenable_bzlmod`, so the build runs in WORKSPACE mode."
+  },
+  {
+   "page": "facts.md",
+   "line": 87,
+   "id": "LM-VER-029",
+   "verdict": "corrected",
+   "text_now": "As of 2026-11-17, PowerBeef/agello-litert-lm has one branch, main (since 2026-11-15; the agello and agello-next branches are gone and their history is in main), and its tags of ours are agello-base-20261013, the releases agello-next-20261024 (f1b88286) and agello-one-20261115 (6da75396), and research/3913, an annotated tag object on 7cebaa0c, not a branch.",
+   "text_before": "As of 2026-10-15, PowerBeef/agello-litert-lm's branches are agello, agello-next and main, and research/3913 is a tag (an annotated tag object), not a branch."
+  },
+  {
+   "page": "facts.md",
+   "line": 87,
+   "id": "OUR-025",
+   "verdict": "corrected",
+   "text_now": "(C4) Since 2026-11-15 PowerBeef/agello-litert-lm's default branch is main, its only branch, which has no .github/README.md (the old agello branch's landing page, unchanged since 7c4ee32d, didn't join main), so GitHub shows Google's root README.md, which doesn't mention Agello; the repository's description still says the agello branch is LiteRT-LM v0.18.0 plus the Swift patches the Agello iPhone app ships. On 2026-10-15 the old landing page listed three branches (agello, main, research/3913) and one patch on agello, while the branch carried two Swift patches, the fork also had agello-next (7b872544), and research/3913 was an annotated tag (tag object 2880d6c9, commit 7cebaa0c), not a branch.",
+   "text_before": "(C4) The fork's landing page .github/README.md on branch agello (unchanged from 7c4ee32d through 85b1a776 and 61c03d8e) lists three branches (agello, main, research/3913) and one patch on agello, while the agello branch carries two Swift patches, the fork also has branch agello-next (7b872544), and research/3913 is an annotated tag (tag object 2880d6c9, commit 7cebaa0c), not a branch."
+  },
+  {
+   "page": "facts.md",
+   "line": 88,
+   "id": "LM-VER-019",
+   "verdict": "corrected",
+   "text_now": "schema/core/litertlm_header.h defines the container version as 1.9.0 in our build and in the release Agello ships; the C++ runtime uses only the major version (the reader's check). The version written into new .litertlm files comes from Google's Python builder (litertlm_builder.py writes litertlm_core.py's constants, 1.9.0 at our base), which our tree removed in the prune 7e4d9b8d (2026-11-11). Google's v0.18.0 defined 1.7.0 in both files.",
+   "text_before": "schema/core/litertlm_header.h defines the container version as 1.9.0 at agello-next and 1.7.0 at v0.18.0; the C++ runtime uses only the major version (the reader's check). The version written into new .litertlm files comes from the Python builder (litertlm_builder.py writes litertlm_core.py's constants), which is also 1.9.0 at agello-next and 1.7.0 at v0.18.0."
+  },
+  {
+   "page": "facts.md",
+   "line": 89,
+   "id": "LM-BLD-044",
+   "verdict": "corrected",
+   "text_now": "agello/THIRD_PARTY_NOTICES.md in our tree (generated 2026-10-15, 57376f53, not regenerated since) lists 101 components: 79 Rust crates and 22 others (LiteRT, ML Drift, Agello telemetry, 18 other C/C++ libraries, and the Rust standard library); it still names the agello-next branch and the former LiteRT and ML Drift forks, which agello/third_party_notices.py now names as folders of this repository.",
+   "text_before": "agello/THIRD_PARTY_NOTICES.md at agello-next 7b872544 lists 101 components: 79 Rust crates and 22 others (LiteRT, ML Drift, Agello telemetry, 18 other C/C++ libraries, and the Rust standard library)."
+  },
+  {
+   "page": "facts.md",
+   "line": 90,
+   "id": "MD-KRN-085",
+   "verdict": "corrected",
+   "text_now": "The bounded-attention pass, the window in FullyConnected, softmax, ConvAppleMPP and ConvWaveMatrix, and AGELLO_SIMULATE_APPLE_GPU come from our commits of 2026-10-14 and 2026-10-15 in the PowerBeef/LiteRT and PowerBeef/ml-drift forks, imported unchanged into agello/litert and agello/ml_drift on 2026-11-11 (e3c93749); the release Agello ships, agello-one-20261115, contains them.",
+   "text_before": "The bounded-attention pass, the window in FullyConnected, softmax, ConvAppleMPP and ConvWaveMatrix, and AGELLO_SIMULATE_APPLE_GPU come from our commits of 2026-10-14 and 2026-10-15 in PowerBeef/LiteRT and PowerBeef/ml-drift (agello-next); what Agello ships (Google's prebuilt v0.18.0 CLiteRTLM) is built from Google's sources and has none of them."
+  },
+  {
+   "page": "facts.md",
+   "line": 90,
+   "id": "RT-DLG-083",
+   "verdict": "corrected",
+   "text_now": "Agello ships our runtime: release agello-one-20261115 since 2026-11-15 (our runtime since 2026-10-28), built from this repository at 6da75396 with LiteRT and ML Drift in its agello/litert and agello/ml_drift folders, so the app's delegate carries Agello's LiteRT delegate commits (bounded attention, window, direct copies, passive-wait dispatch, content weight cache key, simulated-GPU keys) and those up to 2026-11-15; our build's iOS arm64 slice defines 9 symbols of the ML Drift Metal accelerator.",
+   "text_before": "Agello ships Google's prebuilt v0.18.0 CLiteRTLM.xcframework, whose iOS arm64 slice defines 12 symbols of the ML Drift Metal accelerator (ours: 9) built by Google; none of Agello's LiteRT delegate commits (bounded attention, window, direct copies, passive-wait dispatch, content weight cache key, simulated-GPU keys) are in that binary."
+  },
+  {
+   "page": "facts.md",
+   "line": 90,
+   "id": "MD-ARC-053",
+   "verdict": "corrected",
+   "text_now": "The release Agello ships, agello-one-20261115 (6da75396, 2026-11-15), is our build: its history contains the ML Drift import (e3c93749) and so our ML Drift commits up to 2026-11-14 (telemetry hooks, the window kernels, the AGELLO_SIMULATE_APPLE_GPU switch), but not the softmax fix at every window (581cb758), B5's row tiling (13def71b) or G1 (e5e4c6eb); the iOS arm64 slice of our build at the pin has 9 defined ML Drift Metal accelerator symbols and 8 Agello telemetry symbols.",
+   "text_before": "Google's prebuilt v0.18.0 CLiteRTLM.xcframework that Agello ships is Google's build (v0.18.0, 2026-10-06), so it contains none of our ML Drift commits (telemetry hooks, window kernels, the AGELLO_SIMULATE_APPLE_GPU switch); consistent with that, its iOS arm64 slice has 12 defined ML Drift Metal accelerator symbols and 0 Agello telemetry symbols (ours: 9 and 7)."
+  },
+  {
+   "page": "facts.md",
+   "line": 91,
+   "id": "OUR-034",
+   "verdict": "corrected",
+   "text_now": "Since Agello 6db56c6 (2026-11-11) the app sets ExperimentalFlags.enableBenchmark = false when it loads a model (its reply stats come from the runtime's telemetry), so LiteRT-LM runs with is_benchmark unset and our 645aaf65 requests the passive (sleeping) GPU wait; until then Agello set enableBenchmark = true (at 93122b6) and got the active (busy-wait) GPU wait, and its device probes still set it to true.",
+   "text_before": "Agello at 93122b6 sets ExperimentalFlags.enableBenchmark = true when it loads a model, so LiteRT-LM runs with is_benchmark set and requests the active (busy-wait) GPU wait; our passive-wait change 645aaf65, which applies only when is_benchmark is false, therefore does not take effect in the app with our build, and Google's v0.18.0 binary requests the active wait in benchmark mode as well."
+  },
+  {
+   "page": "facts.md",
+   "line": 91,
+   "id": "RT-DLG-067",
+   "verdict": "corrected",
+   "text_now": "With ExperimentalFlags.enableBenchmark set, the Swift wrapper calls litert_lm_engine_settings_enable_benchmark, which creates benchmark params, so EngineSettings sets AdvancedSettings.is_benchmark and LiteRT-LM requests SyncExecutionModeWaitType::kActive (busy-wait) GPU waits, in our build and in the release Agello ships alike (only non-benchmark runs get kPassive, our 645aaf65). Agello set the flag at every model load until 2026-11-11 and has set it to false since (Agello 6db56c6), so its GPU waits are passive.",
+   "text_before": "Agello sets ExperimentalFlags.enableBenchmark = true at every model load; the Swift wrapper then calls litert_lm_engine_settings_enable_benchmark, which creates benchmark params, so EngineSettings sets AdvancedSettings.is_benchmark and LiteRT-LM requests SyncExecutionModeWaitType::kActive (busy-wait) GPU waits, in agello-next (where only non-benchmark runs get kPassive, Agello commit 645aaf65) and in the v0.18.0 code behind the shipped binary alike."
+  },
+  {
+   "page": "facts.md",
+   "line": 91,
+   "id": "LM-EXE-038",
+   "verdict": "corrected",
+   "text_now": "Agello's ChatEngine.load sets LiteRT-LM's ExperimentalFlags.enableBenchmark = false (Agello a6912128; it set true at 93122b64), so Agello's engines are not in benchmark mode and get our passive GPU wait (645aaf65); an engine with benchmark enabled (the Swift Engine calls litert_lm_engine_settings_enable_benchmark, which creates the benchmark parameters, so MaybeUpdateAndValidate sets AdvancedSettings::is_benchmark) gets the active GPU wait (SyncExecutionModeWaitType::kActive) from CreateCompilationOptions, in our build and in the release Agello ships alike.",
+   "text_before": "Agello's ChatEngine.load sets LiteRT-LM's ExperimentalFlags.enableBenchmark = true; the Swift Engine then calls litert_lm_engine_settings_enable_benchmark, which creates the engine's benchmark parameters, so EngineSettings::IsBenchmarkEnabled is true and MaybeUpdateAndValidate sets AdvancedSettings::is_benchmark; CreateCompilationOptions then requests the active GPU wait (SyncExecutionModeWaitType::kActive), in agello-next (bypassing our passive-wait commit 645aaf65) and in v0.18.0 alike."
+  },
+  {
+   "page": "facts.md",
+   "line": 91,
+   "id": "RT-RUN-028",
+   "verdict": "corrected",
+   "text_now": "With ExperimentalFlags.enableBenchmark set, the Swift Engine calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in our build and in the release Agello ships; otherwise our change (645aaf65) asks for the passive wait. Agello set enableBenchmark = true for its reply footer until 2026-11-11 and has set it to false since (Agello 6db56c6), taking the stats from the runtime's telemetry, so its GPU waits are passive.",
+   "text_before": "Agello sets ExperimentalFlags.enableBenchmark = true when loading a model; the Swift Engine then calls litert_lm_engine_settings_enable_benchmark (creating benchmark params), EngineSettings sets AdvancedSettings.is_benchmark when benchmark params exist, and with is_benchmark LiteRT-LM sets the GPU sync wait type to kActive, in both the documented build and the shipped v0.18.0 sources; our passive-wait change (645aaf65) applies only when is_benchmark is false."
+  },
+  {
+   "page": "facts.md",
+   "line": 136,
+   "id": "LM-EXE-022",
+   "verdict": "corrected",
+   "text_now": "LlmLiteRtMtpDrafter sets the number of draft steps to the verify signature's input_pos length minus one; the Gemma 4 E4B and E2B files have verify input_pos INT32[4], so an MTP round drafts 3 tokens and emits 1 to 4, unless the opt-in long rounds on verify_8 (ours: 4fa592c5, AGELLO_VERIFY8_ROUNDS=1, for a file with that signature) check 7 drafts copied from the context.",
+   "text_before": "LlmLiteRtMtpDrafter sets the number of draft steps to the verify signature's input_pos length minus one; the Gemma 4 E4B and E2B files have verify input_pos INT32[4], so MTP drafts 3 tokens per round and a round emits 1 to 4 tokens."
+  },
+  {
+   "page": "facts.md",
+   "line": 147,
+   "id": "LM-ENG-008",
+   "verdict": "corrected",
+   "text_now": "EngineSettings::MaybeUpdateAndValidate: when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula.",
+   "text_before": "EngineSettings::MaybeUpdateAndValidate (agello-next 7b872544): when the main executor's max_num_tokens is 0, it becomes the file's LlmMetadata max_num_tokens if positive, else ((num_prompt_tokens + 1023) / 4096 + 1) * 4096, which is 4096 for the C API (EngineFactory::CreateDefault with an empty prompt hint); only when __APPLE__ is not defined is a GPU file value above 4096 replaced by that formula."
+  },
+  {
+   "page": "facts.md",
+   "line": 151,
+   "id": "LM-EXE-011",
+   "verdict": "corrected",
+   "text_now": "In an engine run of our build of E4B on an Apple M6, a 2,049-token prompt took 3 prefill runs (runs_prefill = 3), matching GetOptimizedPrefillWorkGroups' split into prefill_1024, prefill_1024 and a 1-token prefill_128 run.",
+   "text_before": "In an agello-next engine run of E4B on an Apple M6, a 2,049-token prompt took 3 prefill runs (runs_prefill = 3), matching GetOptimizedPrefillWorkGroups' split into prefill_1024, prefill_1024 and a 1-token prefill_128 run."
+  },
+  {
+   "page": "facts.md",
+   "line": 182,
+   "id": "RT-CPU-004",
+   "verdict": "corrected",
+   "text_now": "In the recorded E4B engine run (2,049 prompt tokens and 17 generated, our build, Apple M6), the embedding_lookups counter was 4,100: two tables (text embedder and per-layer embedder) times 1,023 + 1,023 tokens for the two full prefill slices, plus 2 x 4 for the four speculative rounds that looked up a pending token on the CPU; each prefill slice's own last-token lookups are timed but not counted.",
+   "text_before": "In the recorded E4B engine run (2049 prompt tokens, our build, Apple M6), the embedding_lookups counter was 4098, which equals two embedding tables (text embedder and per-layer embedder) times 2049 prompt tokens."
+  },
+  {
+   "page": "facts.md",
+   "line": 198,
+   "id": "LM-ENG-064",
+   "verdict": "corrected",
+   "text_now": "In our build, the KV snapshot a kept session receives when another session (a helper) takes the executor stays in the kept session's SharedProcessedContext until the kept session's handler next acquires the executor (its next prefill, decode or scoring task, or a GetCurrentStep/SetCurrentStep/SaveContext/RestoreContext call); that acquisition copies it back into the device buffers and frees it, and, when the helper's session has been released, skips snapshotting the helper (ours: ed998d80).",
+   "text_before": "In agello-next, the KV snapshot a kept session receives when another session (a helper) takes the executor stays in the kept session's SharedProcessedContext until the kept session's handler next acquires the executor (its next prefill, decode or scoring task, or a GetCurrentStep/SetCurrentStep/SaveContext/RestoreContext call); that acquisition copies it back into the device buffers and frees it, and, when the helper's session has been released, skips snapshotting the helper (ours: ed998d80)."
+  },
+  {
+   "page": "facts.md",
+   "line": 198,
+   "id": "LM-ENG-065",
+   "verdict": "corrected",
+   "text_now": "When the helper kept the chat's conversation, Agello 6d389e6's LiteRTChatEngine.endHelper drops the helper conversation and then calls getTokenCount() on the kept conversation; in our build that call goes litert_lm_conversation_get_token_count -> Conversation::GetTokenCount -> SessionAdvanced::GetCurrentStep -> ThreadedExecutionManager::GetCurrentStep -> ResourceManager::AcquireExecutorWithContextHandler, so the kept session's KV snapshot is restored and freed on the caller's thread right after the helper.",
+   "text_before": "When the helper kept the chat's conversation, Agello 6d389e6's LiteRTChatEngine.endHelper drops the helper conversation and then calls getTokenCount() on the kept conversation; in agello-next that call goes litert_lm_conversation_get_token_count -> Conversation::GetTokenCount -> SessionAdvanced::GetCurrentStep -> ThreadedExecutionManager::GetCurrentStep -> ResourceManager::AcquireExecutorWithContextHandler, so the kept session's KV snapshot is restored and freed on the caller's thread right after the helper."
+  },
+  {
+   "page": "facts.md",
+   "line": 204,
+   "id": "RT-CPU-014",
+   "verdict": "corrected",
+   "text_now": "Our build's WORKSPACE comment records that without the XNNPACK patch the dequant-BMM rewrite costs Gemma 4 E4B 5.5 GB on the CPU for its INT8 KV caches; no raw measurement file for this figure exists in docs/agello/results/.",
+   "text_before": "Our LiteRT-LM fork's WORKSPACE comment (agello-next 7b872544) records that without the XNNPACK patch the dequant-BMM rewrite costs Gemma 4 E4B 5.5 GB on the CPU for its INT8 KV caches; no raw measurement file for this figure exists in docs/agello/results/."
+  },
+  {
+   "page": "facts.md",
+   "line": 214,
+   "id": "MD-ARC-003",
+   "verdict": "corrected",
+   "text_now": "ML Drift's AppleInfo::GetGpuFamily (gpu_info.cc) maps A14 and the M1 series to Family::kApple7; A15, A16 and the M2 series to kApple8; A17 Pro, A18, A18 Pro, the M3 series and the M4 series (M4, M4 Pro, M4 Max) to kApple9; A19, A19 Pro, A20 Pro, the M5 series and M6 to kApple10; A7 to kApple1 and A8 to A13 to kApple2 through kApple6; a GPU not in its table (AppleGpu::kUnknown) falls through to kApple1, which on Metal our build then replaces with the highest Apple family the device supports (ours: e5e4c6eb).",
+   "text_before": "ML Drift's AppleInfo::GetGpuFamily (gpu_info.cc) maps A14 and the M1 series to Family::kApple7; A15, A16 and the M2 series to kApple8; A17 Pro, A18, A18 Pro, the M3 series and the M4 series (M4, M4 Pro, M4 Max) to kApple9; A19, A19 Pro, A20 Pro, the M5 series and M6 to kApple10; A7 to kApple1 and A8 to A13 to kApple2 through kApple6; a GPU not in its table (AppleGpu::kUnknown) falls through to kApple1."
+  },
+  {
+   "page": "facts.md",
+   "line": 218,
+   "id": "MD-ARC-048",
+   "verdict": "corrected",
+   "text_now": "For Gemma 4 E4B (e4b-ours, 8K window) on the Apple M6, the prefill_1024 GPU graph has 1627 nodes including 210 convolution_int8(conv_apple_mpp), 210 quantize_float16_to_int8c4, 23 convolution(conv_apple_mpp) and 23 convolution(conv_apple_mpp) + src softmax nodes; with the simulated A17 Pro, M2 and M1 it has 1417 nodes, 0 conv_apple_mpp and 233 convolution(conv_wave_matrix) plus 23 convolution(conv_wave_matrix) + src softmax nodes.",
+   "text_before": "For Gemma 4 E4B (e4b-ours, 8K window) on the Apple M6, the prefill_1024 GPU graph has 1634 nodes including 210 convolution_int8(conv_apple_mpp), 210 quantize_float16_to_int8c4, 23 convolution(conv_apple_mpp) and 23 convolution(conv_apple_mpp) + src softmax nodes; with the simulated A17 Pro, M2 and M1 it has 1424 nodes, 0 conv_apple_mpp and 233 convolution(conv_wave_matrix) plus 23 convolution(conv_wave_matrix) + src softmax nodes."
+  },
+  {
+   "page": "facts.md",
+   "line": 218,
+   "id": "MD-KRN-004",
+   "verdict": "corrected",
+   "text_now": "E4B's GPU graphs have 1,726 decode nodes on all four Apple families measured, while prefill_1024 has 1,627 nodes on Apple10 against 1,417 on Apple9/8/7 and prefill_128 has 1,441 against 1,207. In prefill_1024 the 210 extra nodes are the Apple10-only activation quantization nodes (both builds have 256 weight-conversion nodes, of different kinds); in prefill_128 the 234 extra nodes are those 210 quantization nodes plus 24 more weight-conversion nodes (70 against 46).",
+   "text_before": "E4B's GPU graphs have 1,726 decode nodes on all four Apple families measured, while prefill_1024 has 1,634 nodes on Apple10 against 1,424 on Apple9/8/7 and prefill_128 has 1,611 against 1,214. In prefill_1024 the 210 extra nodes are the Apple10-only activation quantization nodes (both builds have 256 weight-conversion nodes, of different kinds); in prefill_128 the 397 extra nodes are those 210 quantization nodes plus 187 more weight-conversion nodes (233 against 46)."
+  },
+  {
+   "page": "facts.md",
+   "line": 222,
+   "id": "MD-MTL-021",
+   "verdict": "corrected",
+   "text_now": "With LiteRT's flush period of 256, one decode dispatch of Gemma 4 E4B (1726 GPU nodes, e4b-ours, 8K window) encodes 7 command buffers; a prefill_1024 dispatch on the Apple M6 (1627 nodes) also 7; an mtp_drafter dispatch (162 nodes) 1.",
+   "text_before": "With LiteRT's flush period of 256, one decode dispatch of Gemma 4 E4B (1726 GPU nodes, e4b-ours, 8K window) encodes 7 command buffers; a prefill_1024 dispatch on the Apple M6 (1634 nodes) also 7; an mtp_drafter dispatch (162 nodes) 1."
+  },
+  {
+   "page": "facts.md",
+   "line": 224,
+   "id": "MD-KRN-061",
+   "verdict": "corrected",
+   "text_now": "In our build the kernels that honor the sliding-window start are FullyConnected, Softmax, Softmax1x1, ConvAppleMPP (only when it tiles K itself) and ConvWaveMatrix; ConvGeneric, BatchedMatMul, the weights converter and the elementwise kernels do not, since our commits change no other kernel file.",
+   "text_before": "At ML Drift 15fa9e2 the kernels that honor the sliding-window start are FullyConnected, Softmax, Softmax1x1, ConvAppleMPP (only when it tiles K itself) and ConvWaveMatrix; ConvGeneric, BatchedMatMul, the weights converter and the elementwise kernels do not, since our commits change no other kernel file."
+  },
+  {
+   "page": "facts.md",
+   "line": 224,
+   "id": "RT-DLG-037",
+   "verdict": "corrected",
+   "text_now": "The delegate passes the sliding window only through ConvRuntimeCheckDesc (window_pos_index, window_size, dst_window, src_window) for both runtime_bmm products and SoftmaxRuntimeCheckDesc for the bounded reduction, without choosing kernels; in our ML Drift the window is read by the fully connected kernel, softmax and softmax1x1, ConvAppleMPP and ConvWaveMatrix, and ML Drift documents that kernels without it compute every key, which stays correct because keys below the window are masked.",
+   "text_before": "The delegate passes the sliding window only through ConvRuntimeCheckDesc (window_pos_index, window_size, dst_window, src_window) for both runtime_bmm products and SoftmaxRuntimeCheckDesc for the bounded reduction, without choosing kernels; at ML Drift 15fa9e2 the window is read by the fully connected kernel, softmax and softmax1x1, ConvAppleMPP and ConvWaveMatrix, and ML Drift documents that kernels without it compute every key, which stays correct because keys below the window are masked."
+  },
+  {
+   "page": "facts.md",
+   "line": 225,
+   "id": "LM-CMP-028",
+   "verdict": "corrected",
+   "text_now": "In LlmLiteRtCompiledModelExecutorStatic::Create, in our build and in the release Agello ships, the decode signature's logits output gets an FP16 tensor buffer (CreateFP16OutputBuffer) when use_fp16_precision (FP16 activation type, the default, on the GPU backend) is true and GetSamplerBackend returns Backend::GPU; otherwise it uses the compiled model's own output buffer. The condition is the configured sampler backend, not whether a GPU sampler library loads.",
+   "text_before": "In LlmLiteRtCompiledModelExecutorStatic::Create, both in agello-next and in v0.18.0, the decode signature's logits output gets an FP16 tensor buffer (CreateFP16OutputBuffer) when use_fp16_precision (FP16 activation type, the default, on the GPU backend) is true and GetSamplerBackend returns Backend::GPU; otherwise it uses the compiled model's own output buffer. The condition is the configured sampler backend, not whether a GPU sampler library loads."
+  },
+  {
+   "page": "facts.md",
+   "line": 225,
+   "id": "LM-CMP-030",
+   "verdict": "corrected",
+   "text_now": "With FP16 logits, the TopPSampler of our build and the release Agello ships (Agello commit fdd5bac7) reads them into a reused member vector and, when k == 1 and exact log-probs aren't requested with scores, picks the first maximum of each row by comparing the half-precision bit patterns as integers without conversion, falling back to the float path if the maximum is a NaN; before fdd5bac7, as in Google's base, it read them into a new uint16 vector and converted every value to float32 before sampling.",
+   "text_before": "With FP16 logits, the v0.18.0 TopPSampler reads them into a new uint16 vector and converts every value to float32 before sampling; agello-next's TopPSampler (Agello commit fdd5bac7) reads them into a reused member vector and, when k == 1 and exact log-probs aren't requested with scores, picks the first maximum of each row by comparing the half-precision bit patterns as integers without conversion, falling back to the float path if the maximum is a NaN."
+  },
+  {
+   "page": "facts.md",
+   "line": 225,
+   "id": "LM-CMP-031",
+   "verdict": "corrected",
+   "text_now": "In docs/agello/results/mac/2026-10-15/bench/t6-plain.jsonl (our build f057206e0b1e of 2026-10-15, Apple M6, E4B fp16-rope, KV 8192, MTP off, telemetry level 2) each run has 256 decode steps and 256 'host.read 524288 B (direct)' spans; 524,288 bytes is 262,144 FP16 logits, the E4B vocabulary.",
+   "text_before": "In docs/agello/results/mac/2026-10-15/bench/t6-plain.jsonl (agello-next build f057206e0b1e, Apple M6, E4B fp16-rope, KV 8192, MTP off, telemetry level 2) each run has 256 decode steps and 256 'host.read 524288 B (direct)' spans; 524,288 bytes is 262,144 FP16 logits, the E4B vocabulary."
+  },
+  {
+   "page": "facts.md",
+   "line": 240,
+   "id": "PRC-009",
+   "verdict": "corrected",
+   "text_now": "google-ai-edge/LiteRT-LM issue #3913 ('iOS GPU (default float16 activations): Gemma 4 E4B duplicates digits at ~3.7K-token context; CPU and float32 are correct') was opened by PowerBeef on 2026-10-10; on 2026-10-15 it was open, labeled 'type :bug' and 'status:awaiting LiteRT-LM developer', with seven comments; on 2026-11-17 it is still open with the same labels, assigned to hheydary (since 2026-10-29), with 20 comments, eight of them by PowerBeef and one (2026-10-12, nireekshak) from a Google collaborator.",
+   "text_before": "google-ai-edge/LiteRT-LM issue #3913 ('iOS GPU (default float16 activations): Gemma 4 E4B duplicates digits at ~3.7K-token context; CPU and float32 are correct') was opened by PowerBeef on 2026-10-10; on 2026-10-15 it is open, labeled 'type :bug' and 'status:awaiting LiteRT-LM developer', with seven comments."
+  },
+  {
+   "page": "facts.md",
+   "line": 251,
+   "id": "LM-VER-023",
+   "verdict": "corrected",
+   "text_now": "(C16) Agello's README Performance table (at 93122b6; decode 43 / 38 / 34 / 27 tok/s at 4K/8K/16K/32K with MTP on an iPhone 17 Pro) was measured with Google's v0.18.0 binary: Agello's vendored Package.swift pointed at the v0.18.0 release zips from its first commit until 2026-10-28, and the decode row was last changed in Agello 619ff40 (2026-10-14 00:03 -0400), before the fork's first source-build commit 43f0f5c3 (2026-10-14 17:30 -0400). Since Agello 8ee5618 (2026-11-17) the README leads with our build's figures of that day and labels the table 'History: Google's LiteRT-LM v0.18.0, October 2026'.",
+   "text_before": "(C16) Agello's README Performance table (at 93122b6; decode 43 / 38 / 34 / 27 tok/s at 4K/8K/16K/32K with MTP on an iPhone 17 Pro) was measured with Google's v0.18.0 binary: Agello's vendored Package.swift has pointed at the v0.18.0 release zips since its first commit, and the decode row was last changed in Agello 619ff40 (2026-10-14 00:03 -0400), before the fork's first source-build commit 43f0f5c3 (2026-10-14 17:30 -0400)."
+  },
+  {
+   "page": "facts.md",
+   "line": 252,
+   "id": "LM-VER-026",
+   "verdict": "corrected",
+   "text_now": "Build 2e54fbdb9ca9 (LiteRT-LM 67d00f36, 2026-10-15) is 120 commits before the pin, train 1's speedups and the sparse KV caches among them; on 2026-10-15 it was four commits before that day's pin 7b872544 (51f099fb, b8f807ec XNNPACK scales; 12a0a818 SIM re-pin to LiteRT 36275983 / ML Drift ef08a67; 7b872544 ML Drift 15fa9e2 window in the simdgroup-matrix convolution). On the native M6 run in generated/kernels-by-family.md the prefill graphs use conv_apple_mpp, not conv_wave_matrix, for these convolutions (conv_wave_matrix appears only in the simulated A17 Pro, M2 and M1 columns).",
+   "text_before": "Build 2e54fbdb9ca9 (LiteRT-LM 67d00f36) predates the documented pin 7b872544 by four commits (51f099fb, b8f807ec XNNPACK scales; 12a0a818 SIM re-pin to LiteRT 36275983 / ML Drift ef08a67; 7b872544 ML Drift 15fa9e2 window in the simdgroup-matrix convolution); on the native M6 run in generated/kernels-by-family.md the prefill graphs use conv_apple_mpp, not conv_wave_matrix, for these convolutions (conv_wave_matrix appears only in the simulated A17 Pro, M2 and M1 columns)."
+  },
+  {
+   "page": "facts.md",
+   "line": 258,
+   "id": "OUR-024",
+   "verdict": "corrected",
+   "text_now": "With the FP16 greedy path (later committed as fdd5bac7; measured as build d1c570842441, LiteRT-LM 5e946049, before, and f057206e0b1e, 5e946049 plus uncommitted changes, after) in agello-bench thinking-mask on the Mac mini M6 (8K window, 1 warm-up and 5 repetitions), median plain decode moved from 49.4 to 49.1 tok/s without MTP and from 159.7 to 159.6 tok/s with MTP, within noise.",
+   "text_before": "With the FP16 greedy path (later committed as agello-next fdd5bac7; measured as build d1c570842441, LiteRT-LM 5e946049, before, and f057206e0b1e, 5e946049 plus uncommitted changes, after) in agello-bench thinking-mask on the Mac mini M6 (8K window, 1 warm-up and 5 repetitions), median plain decode moved from 49.4 to 49.1 tok/s without MTP and from 159.7 to 159.6 tok/s with MTP, within noise."
+  },
+  {
+   "page": "facts.md",
+   "line": 261,
+   "id": "LM-EXE-025",
+   "verdict": "corrected",
+   "text_now": "In an engine run of our build of E4B on an Apple M6 (17 generated tokens, MTP on), MTP ran 4 rounds that drafted 12 tokens and accepted all 12, with 12 drafter runs, 4 verify runs and 1 plain decode run (the priming step), giving 1 + 4 x 4 = 17 tokens.",
+   "text_before": "In an agello-next engine run of E4B on an Apple M6 (17 generated tokens, MTP on), MTP ran 4 rounds that drafted 12 tokens and accepted all 12, with 12 drafter runs, 4 verify runs and 1 plain decode run (the priming step), giving 1 + 4 x 4 = 17 tokens."
+  },
+  {
+   "page": "facts.md",
+   "line": 287,
+   "id": "OUR-012",
+   "verdict": "corrected",
+   "text_now": "Our LiteRT-LM base df6df5b8, and our tree at the pin, pin TensorFlow a1179d3c, whose XNNPACK pin d89ef666 is 58 commits behind XNNPACK's fix c72e2a4ae0 (2026-09-23), with the fix carried as our patch; Google's LiteRT-LM c05e67a2 (on main, committed 2026-10-14 02:17 UTC) moved TENSORFLOW_REF from ff42e955 (still XNNPACK d89ef666) to 5d071809, whose XNNPACK pin 0a66ebb5 is 219 commits ahead of c72e2a4ae0. Since we don't rebase onto upstream (Google's repositories are a read-only source since 2026-11-15), our XNNPACK patch can go only when we move that TensorFlow pin ourselves to one whose XNNPACK has the fix.",
+   "text_before": "Our LiteRT-LM base df6df5b8 pins TensorFlow a1179d3c, whose XNNPACK pin d89ef666 is 58 commits behind XNNPACK's fix c72e2a4ae0 (2026-09-23); Google's LiteRT-LM c05e67a2 (on main, committed 2026-10-14 02:17 UTC) moved TENSORFLOW_REF from ff42e955 (still XNNPACK d89ef666) to 5d071809, whose XNNPACK pin 0a66ebb5 is 219 commits ahead of c72e2a4ae0, so our XNNPACK patch becomes unnecessary once agello-next is rebased onto upstream LiteRT-LM at or after c05e67a2."
+  },
+  {
+   "page": "facts.md",
+   "line": 289,
+   "id": "PRC-015",
+   "verdict": "corrected",
+   "text_now": "At the pin, our commits modify 113 existing .cc, .h, .mm and .swift files (LiteRT-LM 71, LiteRT 18, ML Drift 24); 99 mention Agello and 14 don't (LiteRT-LM runtime/components/constrained_decoding/composite_constraint.cc and .h, logit_mask.cc, suppress_tokens_constraint.cc, thinking_budget_constraint.cc, runtime/util/tensor_buffer_util.cc and swift/LiteRTLMError.swift; LiteRT gpu_backend_metal_litert.mm and serialization_weight_cache.cc; ML Drift fully_connected_util.cc and .h, gpu_operation.cc, metal/common.mm and metal/compute_task.mm); six Swift files have a header notice describing the change (Conversation.swift, Engine.swift, EmbeddingEngine.swift, EmbeddingEngineConfig.swift, ExperimentalFlags.swift, ToolManager.swift).",
+   "text_before": "Across our three forks, our commits modify 57 existing .cc, .h, .mm and .swift files (LiteRT-LM 28, LiteRT 14, ML Drift 15); 49 contain the word 'Agello' and 8 don't (LiteRT-LM runtime/components/constrained_decoding/logit_mask.cc and runtime/util/tensor_buffer_util.cc; LiteRT gpu_backend_metal_litert.mm and serialization_weight_cache.cc; ML Drift fully_connected_util.cc, gpu_operation.cc, metal/common.mm and metal/compute_task.mm); only swift/Conversation.swift has a header notice describing the change."
+  },
+  {
+   "page": "models/tokenizer-and-chat-format.md",
+   "line": 494,
+   "id": "X-GAP-003",
+   "verdict": "corrected",
+   "text_now": "A pending token produced by decode is a TokenData holding only its id (the executor looks up embeddings only for a prefill's last token and, in GetTokenToDecode, for the token about to be decoded), and FillInputBufferWithToken writes a token without embedding as its int32 id in the first 4 bytes of the input and zeros after it. In our build, PrefillInternal first looks up the embeddings and per-layer embeddings of a pending token that has none (LookupPendingTokenEmbeddings; ours: a82611eb), so for the Gemma 4 E2B/E4B files, whose prefill signatures take embeddings and per-layer embeddings rather than token ids, the stop token that the next prefill writes first gets its own embedding. In the release Agello ships it gets the id-and-zeros row in both inputs instead, so its KV entry is not computed from '<turn|>'.",
+   "text_before": "In agello-next and the v0.18.0 source, a pending token produced by decode is a TokenData holding only its id (the executor looks up embeddings only for a prefill's last token and, in GetTokenToDecode, for the token about to be decoded), and FillInputBufferWithToken writes a token without embedding as its int32 id in the first 4 bytes of the input and zeros after it; for the Gemma 4 E2B/E4B files, whose prefill signatures take embeddings and per-layer embeddings rather than token ids, the stop token that the next prefill writes first therefore gets that id-and-zeros row in both inputs instead of its embedding, so its KV entry is not computed from '<turn|>'."
+  },
+  {
+   "page": "models/tokenizer-and-chat-format.md",
+   "line": 495,
+   "id": "X-GAP-002",
+   "verdict": "corrected",
+   "text_now": "In our build and the release Agello ships, PrefillInternal writes a pending input token first, at its own position, before the prefill's tokens; so after a Gemma 4 E2B/E4B reply without reasoning that ended with '<turn|>' (106) pending, the next user message's prefill (the render difference, which starts with '<|turn>user\\n' because the previous render already ends with '<turn|>\\n') is written right after '<turn|>', and the '\\n' (107) that the file template puts after '<turn|>' is never in the KV cache.",
+   "text_before": "In agello-next and the v0.18.0 source, PrefillInternal writes a pending input token first, at its own position, before the prefill's tokens; so after a Gemma 4 E2B/E4B reply without reasoning that ended with '<turn|>' (106) pending (the last token of its decode step or MTP round), the next user message's prefill (the render difference, which starts with '<|turn>user\\n' because the previous render already ends with '<turn|>\\n') is written right after the '<turn|>' slot, and the '\\n' (107) that the file template puts after '<turn|>' is never in the KV cache."
+  },
+  {
+   "page": "models/tokenizer-and-chat-format.md",
+   "line": 498,
+   "id": "X-GAP-006",
+   "verdict": "corrected",
+   "text_now": "In our build, the Gemma 4 E2B/E4B file template goes through FixGemma4ToolTemplate (ours: 9a84a518), so a model message that is only a tool call renders ending '<tool_call|><|tool_response>' and the tool response continues from it ('response:...<tool_response|>', no generation prompt); after such a reply without reasoning that stopped on '<|tool_response>' (50), that stop token is pending, so the KV cache holds the render, and the answer generated after the tool response follows '<tool_response|>' directly, as later renders have it (a call that stopped on '<turn|>' (106) leaves that token where the render has '<|tool_response>'). In the release Agello ships, the file template renders '<tool_call|><turn|>\\n<|tool_response>' and later renders put '<|turn>model\\n' before the answer, so the KV cache holds '<tool_call|>', the stop token's slot (an id-and-zeros row), then '<|tool_response>response:...<tool_response|>', and the answer without that header.",
+   "text_before": "In both builds, after a Gemma 4 E2B/E4B reply without reasoning that is only a tool call and stopped on '<|tool_response>' (50) or '<turn|>' (106) as the last token of its decode step or MTP round, the stop token is pending and the tool message's prefill difference starts with '<|tool_response>' (the previous render already ends '<tool_call|><turn|>\\n', and the file template adds no generation prompt after a tool response); the KV cache then holds '<tool_call|>', the stop token's slot (an id-and-zeros row), then '<|tool_response>response:...<tool_response|>', where the render has '<tool_call|><turn|>\\n<|tool_response>'; and the answer generated after the tool response follows '<tool_response|>' directly, while later renders put '<|turn>model\\n' before it."
+  }
+ ],
+ "batches": [
+  "apple.z-repin-r1",
+  "mod-e2b.z-repin-r1",
+  "mod-e4b.z-repin-r1",
+  "mod-embedding.z-repin-r1",
+  "mod-family.z-repin-r1",
+  "x-facts.z-repin-r1",
+  "x-gemma-ai.z-repin-r1",
+  "x-memory.z-repin-r1"
+ ]
+}

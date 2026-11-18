@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""generated/binaries.md: Google's prebuilt CLiteRTLM (what Agello ships) next to ours, from nm/otool/strings.
+"""generated/binaries.md: our CLiteRTLM (what Agello ships since 2026-10-28), from nm/otool/strings.
 
-  gen_binaries.py [<google CLiteRTLM> [<our CLiteRTLM>]]
-Defaults: the ios-arm64 slices of Google's v0.18.0 xcframework (agello-bench's .build-google
-artifacts) and our dist/ build.
+  gen_binaries.py [<our CLiteRTLM>]
+Default: the ios-arm64 slice of dist/. The page ends with the record of 2026-10-16, which put Google's
+v0.18.0 prebuilt (shipped until 2026-10-28) next to our build of then (frozen/binaries-2026-10-16.md):
+we no longer build or compare against Google's runtime.
 """
 import collections
 import os
@@ -13,8 +14,7 @@ import sys
 
 import common
 
-HERE_BENCH = os.path.join(common.HERE, "..", "agello-bench")
-GOOGLE = os.path.join(HERE_BENCH, ".build-google/artifacts/litert-lm/CLiteRTLM/CLiteRTLM.xcframework/ios-arm64/CLiteRTLM.framework/CLiteRTLM")
+FROZEN = os.path.join(common.HERE, "frozen", "binaries-2026-10-16.md")
 OURS = os.path.join(common.repo("litert-lm")["path"], "dist/CLiteRTLM.xcframework/ios-arm64/CLiteRTLM.framework/CLiteRTLM")
 
 # Components to look for (symbol substrings). Closed parts per docs/agello/AUDIT.md §3; the open ones are for contrast.
@@ -57,34 +57,33 @@ def describe(path):
             "c_api": c_api, "linked": linked, "markers": found}
 
 
+def build_id(path):
+    info = os.path.join(os.path.dirname(path), "..", "..", "..", "BUILD-INFO.txt")
+    m = re.search(r"Build id: (\w+)", open(info).read()) if os.path.exists(info) else None
+    return m.group(1) if m else "?"
+
+
 def main():
-    google = sys.argv[1] if len(sys.argv) > 1 else GOOGLE
-    ours = sys.argv[2] if len(sys.argv) > 2 else OURS
-    g, o = describe(google), describe(ours)
-    md = [common.gen_header("gen_binaries.py", ["litert-lm", "Google's v0.18.0 CLiteRTLM.xcframework"]),
-          "# CLiteRTLM binaries: Google's v0.18.0 (shipped) and ours\n\n",
-          "iOS arm64 slices. For each component: defined symbols whose (mangled) name contains one of its markers, "
-          "then mentions in the binary's strings. Defined symbols mean the code is linked in; a name that appears "
-          "only in strings is a reference (a dlopen name, a setting, a log message), not an implementation. Defined "
-          "matches can still be open code that only configures or loads a closed part (`GpuArtisanConfig`, the dlopen "
-          "wrapper for the Metal sampler): compare the two columns rather than reading one alone.\n\n",
-          "| | Google v0.18.0 | Ours |\n| --- | --- | --- |\n",
-          f"| Size | {g['bytes'] / 1e6:,.1f} MB | {o['bytes'] / 1e6:,.1f} MB |\n",
-          f"| Symbols (all / exported) | {g['symbols']:,} / {g['exported']:,} | {o['symbols']:,} / {o['exported']:,} |\n",
-          f"| Exported `litert_lm_*` C functions | {len(g['c_api'])} | {len(o['c_api'])} |\n"]
+    ours = sys.argv[1] if len(sys.argv) > 1 else OURS
+    o = describe(ours)
+    md = [common.gen_header("gen_binaries.py", ["litert-lm"]),
+          f"# CLiteRTLM binary: ours (build `{build_id(ours)}`)\n\n",
+          "iOS arm64 slice of `dist/`. For each component: defined symbols whose (mangled) name contains one of its "
+          "markers, then mentions in the binary's strings. Defined symbols mean the code is linked in; a name that "
+          "appears only in strings is a reference (a dlopen name, a setting, a log message), not an implementation. "
+          "Defined matches can still be open code that only configures or loads a closed part (`GpuArtisanConfig`, "
+          "the dlopen wrapper for the Metal sampler). The record at the end compares Google's v0.18.0 prebuilt with "
+          "our build of 2026-10-16.\n\n",
+          "| | Ours |\n| --- | --- |\n",
+          f"| Size | {o['bytes'] / 1e6:,.1f} MB |\n",
+          f"| Symbols (all / exported) | {o['symbols']:,} / {o['exported']:,} |\n",
+          f"| Exported `litert_lm_*` C functions | {len(o['c_api'])} |\n"]
     for name, _ in MARKERS:
-        gd, gs = g["markers"][name]
         od, os_ = o["markers"][name]
-        md.append(f"| {name} (defined / in strings) | {gd} / {gs} | {od} / {os_} |\n")
-    md.append("\n## Linked libraries and frameworks\n\n| Google v0.18.0 | Ours |\n| --- | --- |\n")
-    gl, ol = g["linked"], o["linked"]
-    for i in range(max(len(gl), len(ol))):
-        md.append(f"| {gl[i] if i < len(gl) else ''} | {ol[i] if i < len(ol) else ''} |\n")
-    only_g = sorted(set(g["c_api"]) - set(o["c_api"]))
-    only_o = sorted(set(o["c_api"]) - set(g["c_api"]))
-    md.append(f"\n## C functions exported by one binary only\n\nGoogle's v0.18.0 only ({len(only_g)}): "
-              + (", ".join(f"`{x}`" for x in only_g) or "none") + "\n\n"
-              f"Ours only ({len(only_o)}): " + (", ".join(f"`{x}`" for x in only_o) or "none") + "\n")
+        md.append(f"| {name} (defined / in strings) | {od} / {os_} |\n")
+    md.append("\n## Linked libraries and frameworks\n\n" + "".join(f"- `{x}`\n" for x in o["linked"]))
+    md.append("\n## Exported C functions\n\n" + ", ".join(f"`{x}`" for x in o["c_api"]) + "\n\n")
+    md.append(open(FROZEN).read())
     print(common.write_gen("binaries.md", "".join(md)))
 
 

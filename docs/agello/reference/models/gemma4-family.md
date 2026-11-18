@@ -11,8 +11,9 @@
 > ([../litert-lm/file-format.md](../litert-lm/file-format.md)); memory on the device
 > ([../memory.md](../memory.md)).
 > **Pinned to:** Hugging Face revisions in `tools/agello-docs/pins.json` (`generated/hf/*/SOURCE.txt`);
-> LiteRT-LM `7b872544` for the few code facts.
-> **Applies to:** all platforms (model facts); phone estimates are for Apple. **Last verified:** 2026-10-15
+> `main` `b7b856a0` (LiteRT-LM at the root) for the few code facts, Google's base `df6df5b8` for the
+> `models/gemma4` files our tree removed; Agello ships release `agello-one-20261115` (`6da75396`).
+> **Applies to:** all platforms (model facts); phone estimates are for Apple. **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -179,7 +180,7 @@ second; the processors produce one audio token per 40 ms (`audio_ms_per_token`) 
 | | Trained (`max_position_embeddings`) | Card | In LiteRT-LM files |
 | --- | --- | --- | --- |
 | E2B, E4B | 131,072 | 128K | export window 32003 (the magic number); Google's file pages say "up to 32k" |
-| 12B | 262,144 | 256K | the file page says "up to 128k"; the metadata template in LiteRT-LM sets `max_num_tokens` 131071 |
+| 12B | 262,144 | 256K | the file page says "up to 128k"; the metadata template in Google's LiteRT-LM (removed from our tree) sets `max_num_tokens` 131071 |
 | 26B-A4B, 31B | 262,144 | 256K | GPU and web files only; the web figures are "up to 195k" and "80k" |
 
 <!-- c:MOD-FAM-013 --> <!-- c:MOD-FAM-025 --> <!-- c:MOD-FAM-042 --> <!-- c:MOD-FAM-059 -->
@@ -287,10 +288,10 @@ the Hugging Face API, 2026-10-15): <!-- c:MOD-FAM-037 -->
 
 The `-gpu` files of E2B and E4B are three-section "artisan" files (metadata, tokenizer, one
 `tf_lite_artisan_text_decoder`). That section makes `EngineSettings` switch a GPU engine to
-`Backend::GPU_ARTISAN`, and the documented build's `CreateLlmLiteRtCompiledModelExecutor` rejects any
+`Backend::GPU_ARTISAN`, and our build's `CreateLlmLiteRtCompiledModelExecutor` rejects any
 backend other than CPU, GPU and NPU ([../litert-lm/file-format.md](../litert-lm/file-format.md), claims
 LM-FMT-017 and LM-FMT-018). 26B-A4B and 31B have only `-gpu` and `-web` files; if those are built the
-same way (their sections were not inspected), the documented build can't run them.
+same way (their sections were not inspected), our build can't run them.
 <!-- c:MOD-FAM-040 --> The `-gpu` and `-web` files of each model have the same size in bytes; whether they
 are the same file was not checked.
 
@@ -378,11 +379,12 @@ principle; nobody has measured 12B on an iPhone here.
 - **"128K" is not what the E files run.** E2B and E4B were trained to 131,072 positions, but the
   published files export a 32003-position window; a longer context needs a re-export. The 12B
   metadata in LiteRT-LM caps it at 131071 tokens although the model was trained to 262,144.
-- **Artisan files need Google's binary.** An artisan section selects the `GPU_ARTISAN` backend,
-  which the open-source executor rejects (LM-FMT-017). 26B-A4B and 31B have only `-gpu`/`-web` files
+- **Artisan files need Google's closed binary.** An artisan section selects the `GPU_ARTISAN`
+  backend, which the open-source executor, ours and the release Agello ships included, rejects
+  (LM-FMT-017). 26B-A4B and 31B have only `-gpu`/`-web` files
   on `litert-community`; whether they carry that section wasn't inspected.
-- **12B is a different processor path.** Its config is `gemma4_unified`; LiteRT-LM's metadata for it
-  sets `merge_patches` true, 10,080 patches and `skip_mel_spectrogram_extraction` true, unlike E2B/E4B
+- **12B is a different processor path.** Its config is `gemma4_unified`; Google's LiteRT-LM metadata
+  for it (at our base; our tree removed the `models/` folder) sets `merge_patches` true, 10,080 patches and `skip_mel_spectrogram_extraction` true, unlike E2B/E4B
   ([`models/gemma4/LlmMetadataProto_12b.pbtext:1-60`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/models/gemma4/LlmMetadataProto_12b.pbtext#L1-L60)).
   <!-- c:MOD-FAM-059 -->
 - **The MoE model's memory follows its total size.** "A4B" describes compute per token; all 128

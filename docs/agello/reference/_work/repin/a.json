@@ -1,0 +1,1212 @@
+{
+ "agent": "a",
+ "pages": [
+  "litert-lm/engine-and-sessions.md",
+  "litert-lm/executors.md"
+ ],
+ "claims": [
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-001",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-005",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-006",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-008",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-018",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-022",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:134-193"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-030",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-032",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/worker_thread_pthread.cc:76-85"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-033",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-035",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-044",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:866-999",
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-045",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-047",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-049",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1602-1616"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-050",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped runtime/util/tensor_buffer_util.cc:53-62",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-051",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert/state.cc:305-320",
+    "changed: litert-lm runtime/executor/litert/state.cc:278-301"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-052",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert/state.cc:278-301"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-054",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1688-1705",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+    "changed: litert-lm runtime/executor/litert/state.cc:383-403"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-055",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1434-1445",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+    "changed: litert-lm-shipped runtime/framework/resource_management/resource_manager.cc:733-753",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-058",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/core/session_advanced.cc:506-516"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-059",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-062",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1707-1741",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1836-1861",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1688-1705",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-064",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-065",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-067",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/resource_manager.cc:264-311"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-069",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1921"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-070",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/core/session_advanced.cc:506-516"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-073",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-076",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:964-997"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-077",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-081",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/core/tasks.cc:305-365"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-085",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/core/tasks.cc:305-365"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-086",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-090",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/core/tasks.cc:587-593"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-091",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1385-1432"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-098",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1921"
+   ]
+  },
+  {
+   "group": "lm-engine",
+   "id": "LM-ENG-100",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/framework/resource_management/threaded_execution_manager.cc:866-999"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-001",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-002",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-004",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-007",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert_compiled_model_executor_utils.cc:678-697"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-009",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-011",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-013",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-014",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1836-1862",
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-016",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1361-1390",
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-018",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/litert/state.cc:305-354",
+    "changed: litert-lm runtime/executor/litert/state.cc:274-301",
+    "changed: litert-lm runtime/executor/litert/state.cc:372-418",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-019",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "cites generated/binaries.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-022",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:791-808",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-023",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-648",
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:791-808",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1361-1390"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-024",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:663-709",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1391-1432",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-025",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-026",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1243-1252",
+    "changed: litert-lm-shipped runtime/executor/llm_litert_mtp_drafter.cc:824-830",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1317-1332",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-029",
+   "tier": "A",
+   "verdict_now": "corrected",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-034",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped runtime/executor/llm_executor_settings_utils.cc:213-219",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-035",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1024-1050",
+    "changed: litert-lm-shipped runtime/executor/llm_litert_compiled_model_executor.cc:1221-1224",
+    "changed: litert-lm-shipped runtime/executor/litert/state.cc:255-262",
+    "changed: litert-lm runtime/executor/litert/state.cc:305-354",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-038",
+   "tier": "A",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm-shipped swift/Engine.swift:134-136",
+    "changed: litert-lm-shipped runtime/executor/llm_executor_settings_utils.cc:213-219",
+    "text names an old pin or branch",
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-039",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "our tree no longer has the file: litert-lm runtime/executor/llm_executor_interface.h:31-56",
+    "our tree no longer has the file: litert-lm runtime/executor/llm_executor_interface.h:58-66",
+    "our tree no longer has the file: litert-lm runtime/executor/llm_executor_interface.h:68-78",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-048",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-054",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:576-648"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-058",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:632-651",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:654-684"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-061",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1526-1569",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1472-1496"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-062",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-064",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-066",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-067",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1618-1649",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1602-1616"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-068",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:541-572"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-069",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1715-1741"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-071",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1317-1332"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-072",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1317-1332"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-074",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:711-721"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-076",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1391-1432",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:541-572",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1688-1705",
+    "changed: litert-lm runtime/executor/llm_litert_compiled_model_executor.cc:1885-1915"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-078",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "changed: litert-lm runtime/executor/llm_litert_mtp_drafter.cc:227-252"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-084",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "describes the shipped build, now our release"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-086",
+   "tier": "B",
+   "verdict_now": "corrected",
+   "reasons": [
+    "changed: litert ml_drift_delegate/delegate/buffer_handler_metal.mm:566-597",
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  },
+  {
+   "group": "lm-executors",
+   "id": "LM-EXE-087",
+   "tier": "B",
+   "verdict_now": "verified",
+   "reasons": [
+    "cites generated/engine-run.md, regenerated at the new pin",
+    "text names an old pin or branch"
+   ]
+  }
+ ],
+ "links": [
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L134-L193",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L964-L997",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/c/conversation.cc#L45-L55",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L964-L997",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L964-L997",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1602-L1616",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/util/tensor_buffer_util.cc#L53-L62",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L320",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L278-L301",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1688-L1705",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1618-L1649",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L383-L403",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L1434-L1445",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1618-L1649",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/framework/resource_management/resource_manager.cc#L733-L753",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L506-L516",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1618-L1649",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1707-L1741",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1836-L1861",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1688-L1705",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1618-L1649",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/resource_manager.cc#L264-L311",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L506-L516",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1885-L1921",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/framework/resource_management/threaded_execution_manager.cc#L964-L997",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L305-L365",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L305-L365",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L587-L593",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1385-L1432",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/framework/worker_thread_pthread.cc#L76-L85",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/session_advanced.cc#L506-L516",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1618-L1649",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L278-L301",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/engine-and-sessions.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/core/tasks.cc#L305-L365",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1602-L1616",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1688-L1705",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L654-L684",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L2029-L2063",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L678-L697",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L576-L648",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L541-L572",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L2029-L2063",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L632-L651",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L654-L684",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1526-L1569",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1526-L1569",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1836-L1862",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1472-L1496",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1836-L1862",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/components/embedding_lookup/embedding_lookup_text.cc#L292-L298",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L576-L648",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L663-L709",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L663-L709",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1836-L1862",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1885-L1915",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1602-L1616",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1618-L1649",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L354",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L372-L418",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L541-L572",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1715-L1741",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.h#L429-L437",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L227-L252",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1317-L1332",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1391-L1432",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L711-L721",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L576-L648",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L663-L709",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_mtp_drafter.cc#L791-L808",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1391-L1432",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1361-L1390",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1472-L1496",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L1243-L1252",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_mtp_drafter.cc#L824-L830",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L1024-L1050",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L1221-L1224",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/litert/state.cc#L255-L262",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L354",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_executor_settings_utils.cc#L213-L219",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_litert_compiled_model_executor.cc#L1243-L1252",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/executor/llm_executor_settings_utils.cc#L213-L219",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/LiteRT/blob/362759838e34e1525f1cc27daddaf663a193c059/ml_drift_delegate/delegate/buffer_handler_metal.mm#L566-L597",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1317-L1332",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L372-L418",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1526-L1569",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/litert_compiled_model_executor_utils.cc#L678-L697",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L305-L354",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/litert/state.cc#L372-L418",
+   "status": "changed"
+  },
+  {
+   "page": "litert-lm/executors.md",
+   "url": "https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.cc#L1715-L1741",
+   "status": "changed"
+  }
+ ],
+ "batches": [
+  "lm-engine.z-repin-a",
+  "lm-executors.z-repin-a"
+ ]
+}

@@ -13,10 +13,12 @@
 > ([../memory.md](../memory.md)).
 > **Pinned to:** `google/gemma-4-E4B-it` config at `ee0ef602`; our file
 > `PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope` at `a1693e22` (sha256 `6353a233…f655c`); Google's file
-> `litert-community/gemma-4-E4B-it-litert-lm` at `2eee7ac3` (sha256 `0b2a8980…52e0`); LiteRT-LM `7b872544`
-> for runtime citations (v0.18.0 where it says so).
+> `litert-community/gemma-4-E4B-it-litert-lm` at `2eee7ac3` (sha256 `0b2a8980…52e0`); for runtime
+> citations `main` `b7b856a0` (LiteRT-LM at the root, LiteRT in `agello/litert`, ML Drift in
+> `agello/ml_drift`); Agello ships release `agello-one-20261115` (`6da75396`); v0.18.0 where a dated
+> record says so.
 > **Applies to:** all platforms (the files are the same everywhere), with an "On Apple" section.
-> **Last verified:** 2026-10-15
+> **Last verified:** 2026-11-17
 
 ## Summary
 
@@ -317,7 +319,7 @@ INT2 in all. <!-- c:MOD-E4B-032 --> How ML Drift reads INT2, INT4 and INT8 weigh
 `is_src` true on the transposed value cache); `odml.cache_update` quantizes and writes new keys and
 values. Both carry the cache's static INT8 scale. Per layer in `decode` (prefill and verify are the
 same for the layers they run), from [../generated/models/e4b-ours.json](../generated/models/e4b-ours.json)
-(`layer_table`, made by [`tools/model-surgery/inspect_e4b.py:117-145`](https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L117-L145)):
+(`layer_table`, made by [`tools/model-surgery/inspect_e4b.py:117-145`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/tools/model-surgery/inspect_e4b.py#L117-L145)):
 
 | Layers | Kind | Head dim | Reads K / V cache | K scale | V scale | Mask |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -446,19 +448,19 @@ LiteRT-LM's default of 3 makes that 2520 / 9 = 280 tokens per image. <!-- c:MOD-
 | 2,520 patches | `max_num_patches` | 280 tokens × 9 |
 | 140 / 280 / 560 | Agello USER_GUIDE, Settings "Image detail" | Agello's presets; 560 isn't reachable |
 
-LiteRT-LM (agello-next and v0.18.0 alike) derives 280 from the metadata (2520 / 9). When vision is
+LiteRT-LM (our build and the release Agello ships alike) derives 280 from the metadata (2520 / 9). When vision is
 configured and the caller has not set `max_vision_tokens_per_image`, the engine stores 280 there; a
 caller-set value is kept as is, and one above 280 fails engine creation because no vision signature
 is that long
-([`runtime/core/engine_advanced_impl.cc:85-114`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L85-L114),
-[`runtime/core/engine_advanced_impl.cc:457-494`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L457-L494),
+([`runtime/core/engine_advanced_impl.cc:86-115`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L86-L115),
+[`runtime/core/engine_advanced_impl.cc:460-497`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L460-L497),
 [`runtime/executor/model_signature_utils.cc:209-216`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/model_signature_utils.cc#L209-L216);
-v0.18.0: [`runtime/core/engine_advanced_impl.cc:301-322`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/core/engine_advanced_impl.cc#L301-L322)).
+the release: [`runtime/core/engine_advanced_impl.cc:460-481`](https://github.com/PowerBeef/agello-litert-lm/blob/6da75396ece779d3c7b6b605ec8c2c06861ce1eb/runtime/core/engine_advanced_impl.cc#L460-L481)).
 A conversation whose visual token budget is above the stored value gets InvalidArgument from
 `Conversation::SendMessageAsync`
-([`runtime/conversation/conversation.cc:556-565`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L556-L565),
+([`runtime/conversation/conversation.cc:593-602`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L593-L602),
 [`runtime/conversation/model_data_processor/model_data_processor_factory.cc:698-722`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/model_data_processor_factory.cc#L698-L722);
-v0.18.0: [`runtime/conversation/conversation.cc:564-573`](https://github.com/google-ai-edge/LiteRT-LM/blob/b2f686e2ed4718fb84ec398a61dd59ca0f0aff27/runtime/conversation/conversation.cc#L564-L573)).
+the release, as Google's base: [`runtime/conversation/conversation.cc:556-565`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L556-L565)).
 A budget *b* resizes the image to at most 9*b* patches
 ([`runtime/conversation/model_data_processor/multimodal_processor_helper.cc:91-103`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/multimodal_processor_helper.cc#L91-L103)),
 and the vision executor runs the smallest signature that holds patches / 9 tokens
@@ -467,11 +469,13 @@ and the vision executor runs the smallest signature that holds patches / 9 token
 lowers the budget to the file's `maxVisionTokenBudget` (280, from `ModelInfo`) before sending, so
 Detailed behaves like Balanced with this file; the user guide's 560 is not what runs.
 <!-- c:MOD-E4B-051 --> Agello's engine load log reports the file's capabilities as `mtp=true
-thinking=false tools=false vision=true audio=true maxContext=0 maxVisionBudget=280`, both with
-Google's v0.18.0 runtime on an iPhone 17 Pro and with our build `c5460a024e71` on an Apple M6 Mac.
-Both runs (2026-10-15) predate Agello `93122b6`, when the app's catalog pointed to the first
-fp16-rope revision `13d5aa4c` (2048-token blocks); the capabilities come from `LlmMetadata` and
-section types that are the same in `a1693e22` and Google's `2eee7ac3` file. <!-- c:MOD-E4B-052 -->
+thinking=false tools=false vision=true audio=true maxContext=0 maxVisionBudget=280` with our builds
+of 2026-10-15, `fc71d704a349` on an iPhone 17 Pro and `c5460a024e71` on an Apple M6 Mac. Both runs
+predate Agello `93122b6`, when the app's catalog pointed to the first fp16-rope revision `13d5aa4c`
+(2048-token blocks); the capabilities come from `LlmMetadata` and section types that are the same in
+`a1693e22` and Google's `2eee7ac3` file. `maxContext=0` is the context those builds couldn't read
+from E4B's main section; since `cc97925b` (2026-11-14; in the release Agello ships too) `ModelInfo`
+reports 32,003. <!-- c:MOD-E4B-052 -->
 
 #### Audio sections
 
@@ -513,7 +517,7 @@ between 1 and 32,002, and 32,000 when it is 32,003 or more; left at 0, it is fir
 smallest multiple of 4,096 above the prompt hint plus 1,023 (4,096 with no hint)
 ([`runtime/executor/magic_number_configs_helper.cc:243-271`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/magic_number_configs_helper.cc#L243-L271),
 [`runtime/engine/engine_settings.cc:346-359`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/engine/engine_settings.cc#L346-L359),
-[`runtime/core/engine_advanced_impl.cc:551-578`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L551-L578)).
+[`runtime/core/engine_advanced_impl.cc:554-581`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L554-L581)).
 Agello's and the archived plan's "128K context" describe the trained model, not anything the phone
 can allocate with this file. <!-- c:MOD-E4B-056 --> The report's long-context results at 32k and 128k also describe the trained
 model.
@@ -576,8 +580,8 @@ they ran only E2B, on a subset, where both patched files were exact on all 26 ca
 
 #### Our file: 512-token rotary blocks
 
-`tools/model-surgery/patch_rope.py --split --block 512` (fork branch `agello`,
-[`tools/model-surgery`](https://github.com/PowerBeef/agello-litert-lm/tree/agello/tools/model-surgery);
+`tools/model-surgery/patch_rope.py --split --block 512` (in our tree since `f2e7afa0`,
+[`tools/model-surgery`](https://github.com/PowerBeef/agello-litert-lm/tree/b7b856a0cf7e2304f556e985218bc698768233f7/tools/model-surgery);
 the first experiments are under the
 [`research/3913`](https://github.com/PowerBeef/agello-litert-lm/tree/research/3913/research/issue-3913)
 tag) rewrites each rotary path as position = 512·*h* + *l*: <!-- c:MOD-E4B-065 -->
@@ -642,8 +646,9 @@ at FP16.
 
 - Agello downloads our file: `PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope` at `a1693e22`,
   3,660,726,272 bytes. <!-- c:MOD-E4B-074 -->
-- Agello's `ChatEngine.makeEngine` (commit `93122b6`) creates the engine with the GPU or CPU main
-  backend, the CPU for vision and audio when enabled, `maxNumTokens` and a cache directory, and sets
+- Agello's `ChatEngine.makeEngine` (commit `a691212`) creates the engine with the GPU main backend
+  (the app has had no CPU backend since `6db56c6`, 2026-11-11), the CPU for vision and audio when
+  enabled, `maxNumTokens` and a cache directory, and sets
   no activation data type. LiteRT-LM then applies the file's `prefer_activation_type` fp16 (the same
   as its F16 default for the text executor), so the main graph runs with FP16 activations on Metal:
   exactly the configuration #3913 affects, and the reason the patched file matters.
@@ -697,14 +702,14 @@ The knobs that change how this model runs are LiteRT-LM's; rows live in
 | Concept | Symbol | Citation |
 | --- | --- | --- |
 | Context magic number → 32,000 | `GetDefaultTargetNumber`, `GetTargetNumber` | [`runtime/executor/magic_number_configs_helper.cc:243-271`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/magic_number_configs_helper.cc#L243-L271) |
-| Vision tokens per image from metadata | `GetVisionTokensPerImageFromMetadata` | [`runtime/core/engine_advanced_impl.cc:85-114`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L85-L114) |
-| Engine's vision limit and signature selection | `EngineAdvancedImpl::Create` | [`runtime/core/engine_advanced_impl.cc:457-476`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/core/engine_advanced_impl.cc#L457-L476) |
-| `ModelInfo` vision budget | `CalculateMaxVisionTokenBudget` | [`schema/model_info/model_info.cc:839-846`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/schema/model_info/model_info.cc#L839-L846) |
-| Budget check | `ValidateVisualTokenBudget`, `Conversation::SendMessageAsync` | [`runtime/conversation/model_data_processor/model_data_processor_factory.cc:698-722`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/model_data_processor_factory.cc#L698-L722), [`runtime/conversation/conversation.cc:556-565`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L556-L565) |
+| Vision tokens per image from metadata | `GetVisionTokensPerImageFromMetadata` | [`runtime/core/engine_advanced_impl.cc:86-115`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L86-L115) |
+| Engine's vision limit and signature selection | `EngineAdvancedImpl::Create` | [`runtime/core/engine_advanced_impl.cc:460-479`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/core/engine_advanced_impl.cc#L460-L479) |
+| `ModelInfo` vision budget | `CalculateMaxVisionTokenBudget` | [`schema/model_info/model_info.cc:839-846`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/schema/model_info/model_info.cc#L839-L846) |
+| Budget check | `ValidateVisualTokenBudget`, `Conversation::SendMessageAsync` | [`runtime/conversation/model_data_processor/model_data_processor_factory.cc:698-722`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/model_data_processor_factory.cc#L698-L722), [`runtime/conversation/conversation.cc:593-602`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/conversation.cc#L593-L602) |
 | Budget → patches | `ProcessMultimodalPrompt` | [`runtime/conversation/model_data_processor/multimodal_processor_helper.cc:91-103`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/multimodal_processor_helper.cc#L91-L103) |
 | Budget semantics (comment) | `Gemma4DataProcessorArguments` | [`runtime/conversation/model_data_processor/gemma4_data_processor_config.h:85-103`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/model_data_processor/gemma4_data_processor_config.h#L85-L103) |
 | Vision signature choice | `GetVitSignatureIndex` | [`runtime/executor/vision_litert_compiled_model_executor.cc:143-198`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/executor/vision_litert_compiled_model_executor.cc#L143-L198) |
-| Per-layer attention table | `layer_table` | [`tools/model-surgery/inspect_e4b.py:117-145`](https://github.com/PowerBeef/agello-litert-lm/blob/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff/tools/model-surgery/inspect_e4b.py#L117-L145) |
+| Per-layer attention table | `layer_table` | [`tools/model-surgery/inspect_e4b.py:117-145`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/tools/model-surgery/inspect_e4b.py#L117-L145) |
 | The rotary split | `patch_section` | `tools/model-surgery/patch_rope.py` on branch `agello` ([folder](https://github.com/PowerBeef/agello-litert-lm/tree/agello/tools/model-surgery)); not part of a pinned tree |
 | Generated tables | | [../generated/models/e4b-ours.md](../generated/models/e4b-ours.md), [../generated/models/e4b-google.md](../generated/models/e4b-google.md), [../generated/hf-configs.md](../generated/hf-configs.md) |
 

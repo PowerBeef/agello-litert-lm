@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build the LiteRTLM symbol graph in a scratch folder (outside the repos), render
 # generated/swift-api-inventory.md, then delete the build (a few hundred MB).
-# The agello-next worktree must be at the pin, with dist/CLiteRTLM.xcframework built from it.
+# The checkout's swift/ must be the pin's, with dist/CLiteRTLM.xcframework built from the pin.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(python3 -c "import json,sys; print(json.load(open('$HERE/pins.json'))['repos']['litert-lm']['path'])")"

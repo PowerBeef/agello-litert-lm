@@ -1,0 +1,1 @@
+{"id": "X-CON-001", "verdict": "verified", "note": "Re-pin 2026-11-17: a dated record of the contradiction log (C15), about docs/agello/AUDIT.md at 61c03d8e on the agello branch; it names its commits as history and its sources are permalinks to that commit, which still resolve. Nothing in it depends on the new pin."}
