@@ -573,13 +573,21 @@ bool Conversation::IsToolResponse(const Message& message) {
   return is_tool(message);
 }
 
-// Agello: the single token of a Gemma 4 file's tool-response marker, `<|tool_response>`.
-std::optional<int> Conversation::ToolResponseMarker() const {
+// Agello: what the answer to a Gemma 4 tool response can't open with: the file's single-token
+// stop sequences (`<eos>`, `<turn|>`, and `<|tool_response>`, which ends a tool call). Each
+// ended the reply empty right after the date tool's response (probe 36).
+absl::flat_hash_set<int> Conversation::ToolAnswerFirstTokenBans() const {
+  absl::flat_hash_set<int> bans;
   auto metadata = engine_.GetEngineSettings().GetLlmMetadata();
-  if (!metadata.has_value() || !metadata->llm_model_type().has_gemma4()) return std::nullopt;
-  auto ids = const_cast<Tokenizer&>(engine_.GetTokenizer()).TextToTokenIds("<|tool_response>");
-  if (!ids.ok() || ids->size() != 1) return std::nullopt;
-  return (*ids)[0];
+  if (!metadata.has_value() || !metadata->llm_model_type().has_gemma4()) return bans;
+  for (const auto& stop : metadata->stop_tokens()) {
+    if (stop.has_token_ids() && stop.token_ids().ids_size() == 1) {
+      bans.insert(stop.token_ids().ids(0));
+    }
+  }
+  auto marker = const_cast<Tokenizer&>(engine_.GetTokenizer()).TextToTokenIds("<|tool_response>");
+  if (marker.ok() && marker->size() == 1) bans.insert((*marker)[0]);
+  return bans;
 }
 
 absl::Status Conversation::SendMessageAsync(
@@ -722,9 +730,9 @@ absl::Status Conversation::SendMessageAsync(
   // file stops a tool call on it; after a response, the model sometimes emitted it as its first
   // token, which ended the reply empty (probe 36: "What time is it?" under a one-line prompt).
   if (!optional_args.suppress_tokens_config.has_value() && IsToolResponse(message)) {
-    if (auto marker = ToolResponseMarker(); marker.has_value()) {
+    if (auto stops = ToolAnswerFirstTokenBans(); !stops.empty()) {
       optional_args.suppress_tokens_config =
-          SuppressTokensConfig({*marker}, /*first_token_only=*/true);
+          SuppressTokensConfig(std::move(stops), /*first_token_only=*/true);
     }
   }
 

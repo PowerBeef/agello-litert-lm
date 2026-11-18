@@ -24,6 +24,7 @@
 #include "absl/base/thread_annotations.h"  // from @com_google_absl
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
+#include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/status_macros.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -734,7 +735,7 @@ class Conversation {
   // duplicate start tokens.
   // Agello: a tool response gets a reply that can't open with the tool-response marker.
   static bool IsToolResponse(const Message& message);
-  std::optional<int> ToolResponseMarker() const;
+  absl::flat_hash_set<int> ToolAnswerFirstTokenBans() const;
 
   absl::StatusOr<DecodeConfig> CreateDecodeConfig(
       std::optional<RepetitionPenaltyConfig> repetition_penalty_config =
