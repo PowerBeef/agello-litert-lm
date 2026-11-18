@@ -31,6 +31,9 @@ class SuppressTokensConstraint : public Constraint {
   class SuppressTokensState : public Constraint::State {
    public:
     SuppressTokensState() = default;
+    // Agello: whether a token was emitted (for `first_token_only`).
+    explicit SuppressTokensState(bool past_first) : past_first(past_first) {}
+    bool past_first = false;
   };
 
   SuppressTokensConstraint(int vocab_size, SuppressTokensConfig config);
@@ -49,12 +52,16 @@ class SuppressTokensConstraint : public Constraint {
   absl::StatusOr<std::unique_ptr<LogitMask>> ComputeMask(
       const State& state) const override;
 
+  // Agello: with `first_token_only`, every token is allowed once the first was emitted.
+  bool AllowsAnyTokens(const State& state, int steps) const override;
+
   const SuppressTokensConfig& config() const { return config_; }
 
  private:
   const int vocab_size_;
   const SuppressTokensConfig config_;
   std::unique_ptr<BitmapLogitMask> mask_;
+  std::unique_ptr<BitmapLogitMask> all_allowed_;
 };
 
 }  // namespace litert::lm

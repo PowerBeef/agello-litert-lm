@@ -31,6 +31,7 @@ namespace litert::lm {
 SuppressTokensConstraint::SuppressTokensConstraint(int vocab_size,
                                                    SuppressTokensConfig config)
     : vocab_size_(vocab_size), config_(std::move(config)) {
+  all_allowed_ = BitmapLogitMask::CreateAllAllowed(vocab_size_);
   if (!config_.enabled()) {
     mask_ = BitmapLogitMask::CreateAllAllowed(vocab_size_);
   } else {
@@ -63,12 +64,18 @@ SuppressTokensConstraint::ComputeNext(const State& state, int token) const {
   if (token < 0 || token >= vocab_size_) {
     return absl::InvalidArgumentError("Invalid token id.");
   }
-  return std::make_unique<SuppressTokensState>();
+  return std::make_unique<SuppressTokensState>(/*past_first=*/true);
 }
 
 absl::StatusOr<std::unique_ptr<LogitMask>>
 SuppressTokensConstraint::ComputeMask(const State& state) const {
+  if (AllowsAnyTokens(state, 1)) return std::make_unique<BitmapLogitMask>(*all_allowed_);
   return std::make_unique<BitmapLogitMask>(*mask_);
+}
+
+bool SuppressTokensConstraint::AllowsAnyTokens(const State& state, int steps) const {
+  return config_.first_token_only() &&
+         static_cast<const SuppressTokensState&>(state).past_first;
 }
 
 }  // namespace litert::lm

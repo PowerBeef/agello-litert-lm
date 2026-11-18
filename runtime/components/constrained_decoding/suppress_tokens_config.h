@@ -30,6 +30,13 @@ class SuppressTokensConfig {
   explicit SuppressTokensConfig(absl::flat_hash_set<int> suppress_tokens)
       : suppress_tokens_(std::move(suppress_tokens)) {}
 
+  // Agello: suppresses the tokens only as the first token of the reply (the answer to a tool
+  // response, which can't open with the tool-response marker; probe 36).
+  SuppressTokensConfig(absl::flat_hash_set<int> suppress_tokens, bool first_token_only)
+      : suppress_tokens_(std::move(suppress_tokens)), first_token_only_(first_token_only) {}
+
+  bool first_token_only() const { return first_token_only_; }
+
   // Returns a default config with no tokens to suppress.
   static SuppressTokensConfig Default() { return SuppressTokensConfig({}); }
 
@@ -43,6 +50,7 @@ class SuppressTokensConfig {
 
  private:
   absl::flat_hash_set<int> suppress_tokens_;
+  bool first_token_only_ = false;
 };
 
 }  // namespace litert::lm

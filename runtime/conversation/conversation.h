@@ -732,6 +732,10 @@ class Conversation {
   // `SetThinkingStartTokenIds` is configured empty (`{}`) and the constrained
   // decoder starts immediately in active thinking state without waiting for
   // duplicate start tokens.
+  // Agello: a tool response gets a reply that can't open with the tool-response marker.
+  static bool IsToolResponse(const Message& message);
+  std::optional<int> ToolResponseMarker() const;
+
   absl::StatusOr<DecodeConfig> CreateDecodeConfig(
       std::optional<RepetitionPenaltyConfig> repetition_penalty_config =
           std::nullopt,

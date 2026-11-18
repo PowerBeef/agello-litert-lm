@@ -142,6 +142,32 @@ TEST(SuppressTokensConstraintTest, ComputeNextValidatesTokens) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
+// Agello: the first token only (the answer to a tool response can't open with the marker).
+TEST(SuppressTokensConstraintTest, FirstTokenOnly) {
+  constexpr int kVocabSize = 5;
+  SuppressTokensConstraint constraint(kVocabSize,
+                                      SuppressTokensConfig({2}, /*first_token_only=*/true));
+
+  auto first = constraint.Start();
+  EXPECT_FALSE(constraint.AllowsAnyTokens(*first, 1));
+  ASSERT_OK_AND_ASSIGN(auto first_mask, constraint.ComputeMask(*first));
+  std::vector<float> logits = {2.0f, 1.2f, -1.2f, 0.5f, 0.0f};
+  EXPECT_OK(first_mask->Apply(absl::MakeSpan(logits)));
+  EXPECT_TRUE(std::isinf(logits[2]) && logits[2] < 0.0f);
+
+  ASSERT_OK_AND_ASSIGN(auto second, constraint.ComputeNext(*first, 1));
+  EXPECT_TRUE(constraint.AllowsAnyTokens(*second, 4));
+  ASSERT_OK_AND_ASSIGN(auto second_mask, constraint.ComputeMask(*second));
+  logits = {2.0f, 1.2f, -1.2f, 0.5f, 0.0f};
+  EXPECT_OK(second_mask->Apply(absl::MakeSpan(logits)));
+  EXPECT_FLOAT_EQ(logits[2], -1.2f);
+
+  // Without the flag the tokens stay suppressed, and no step allows everything.
+  SuppressTokensConstraint always(kVocabSize, absl::flat_hash_set<int>{2});
+  ASSERT_OK_AND_ASSIGN(auto later, always.ComputeNext(*always.Start(), 1));
+  EXPECT_FALSE(always.AllowsAnyTokens(*later, 1));
+}
+
 INSTANTIATE_TEST_SUITE_P(SuppressTokensConstraintParamTests,
                          SuppressTokensConstraintParamTest,
                          ::testing::Values(LogitsVariant::kFloat,

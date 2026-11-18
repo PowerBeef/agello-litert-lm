@@ -591,6 +591,19 @@ follows it, so its difference starts with `<|tool_response>`, and the answer is 
 `<tool_response|>`, while later renders put `<|turn>model\n` before it (claims MOD-TOK-049,
 MOD-TOK-050) ([`runtime/conversation/conversation.cc:292-315`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L292-L315)). <!-- c:X-GAP-006 -->
 
+**Changed in the fork on 2026-11-17** (Agello's probes 35 and 36). The rows above describe the
+code before these changes:
+- **Pending tokens get their embeddings.** A prefill now looks up a pending token's embeddings
+  before writing it (`LookupPendingTokenEmbeddings`, as upstream's `0101cf3b` does), so no position
+  is written from an id-and-zeros row.
+- **The tool boundary matches the render.** A Gemma 4 file's template gets upstream's tool
+  boundary (`FixGemma4ToolTemplate`, after upstream's `f240215c`): a model message with tool calls
+  ends with `<|tool_response>`, which is the stop token decoding kept, and the tool response
+  continues from it.
+- **The answer can't open with the marker.** The reply to a tool response can't open with
+  `<|tool_response>` (a first-token-only `SuppressTokensConfig`). Under a one-line system prompt,
+  the model emitted it after the date tool's response, and the reply ended empty.
+
 **Token counts.** `GetTokenCount` returns the executor's `current_step`, which counts the pending token
 ([`runtime/conversation/conversation.cc:889-891`](https://github.com/google-ai-edge/LiteRT-LM/blob/df6df5b84d5845b49889f631ed4cac80b4325dd3/runtime/conversation/conversation.cc#L889-L891),
 [`runtime/executor/llm_litert_compiled_model_executor.h:124-126`](https://github.com/PowerBeef/agello-litert-lm/blob/7b872544fdbd81308f98b1e2acf8c5798a549df6/runtime/executor/llm_litert_compiled_model_executor.h#L124-L126),

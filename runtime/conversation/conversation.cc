@@ -45,6 +45,7 @@
 #include "runtime/components/constrained_decoding/repetition_penalty_config.h"
 #include "runtime/components/constrained_decoding/suppress_tokens_config.h"
 #include "runtime/components/prompt_template.h"
+#include "runtime/conversation/agello_gemma4_template.h"
 #include "runtime/conversation/channel_util.h"
 #include "runtime/conversation/internal_callback_util.h"
 #include "runtime/conversation/io_types.h"
@@ -162,7 +163,11 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     prompt_template = *overwrite_prompt_template;
   } else if (metadata.has_value()) {
     if (metadata->has_jinja_prompt_template()) {
-      prompt_template = PromptTemplate(metadata->jinja_prompt_template());
+      // Agello: the Gemma 4 files' tool-call boundary as upstream renders it now (probe 36).
+      prompt_template = PromptTemplate(
+          metadata->llm_model_type().has_gemma4()
+              ? FixGemma4ToolTemplate(metadata->jinja_prompt_template())
+              : metadata->jinja_prompt_template());
     } else if (metadata->has_prompt_templates()) {
       ABSL_ASSIGN_OR_RETURN(
           std::string jinja_source,
@@ -553,6 +558,30 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
   return history_.back();
 }
 
+// Agello: whether `message` is (or is made only of) tool responses.
+bool Conversation::IsToolResponse(const Message& message) {
+  auto is_tool = [](const Message& m) {
+    return m.is_object() && m.contains("role") && m["role"] == "tool";
+  };
+  if (message.is_array()) {
+    if (message.empty()) return false;
+    for (const auto& m : message) {
+      if (!is_tool(m)) return false;
+    }
+    return true;
+  }
+  return is_tool(message);
+}
+
+// Agello: the single token of a Gemma 4 file's tool-response marker, `<|tool_response>`.
+std::optional<int> Conversation::ToolResponseMarker() const {
+  auto metadata = engine_.GetEngineSettings().GetLlmMetadata();
+  if (!metadata.has_value() || !metadata->llm_model_type().has_gemma4()) return std::nullopt;
+  auto ids = const_cast<Tokenizer&>(engine_.GetTokenizer()).TextToTokenIds("<|tool_response>");
+  if (!ids.ok() || ids->size() != 1) return std::nullopt;
+  return (*ids)[0];
+}
+
 absl::Status Conversation::SendMessageAsync(
     const Message& message,
     absl::AnyInvocable<void(absl::StatusOr<Message>)> user_callback,
@@ -687,6 +716,16 @@ absl::Status Conversation::SendMessageAsync(
             }));
     AddTaskController(optional_args.task_group_id, std::move(task_controller));
     return absl::OkStatus();
+  }
+
+  // Agello: the answer to a tool response can't open with the tool-response marker. A Gemma 4
+  // file stops a tool call on it; after a response, the model sometimes emitted it as its first
+  // token, which ended the reply empty (probe 36: "What time is it?" under a one-line prompt).
+  if (!optional_args.suppress_tokens_config.has_value() && IsToolResponse(message)) {
+    if (auto marker = ToolResponseMarker(); marker.has_value()) {
+      optional_args.suppress_tokens_config =
+          SuppressTokensConfig({*marker}, /*first_token_only=*/true);
+    }
   }
 
   ABSL_ASSIGN_OR_RETURN(

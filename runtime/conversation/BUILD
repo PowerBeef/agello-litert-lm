@@ -113,6 +113,7 @@ cc_library(
     srcs = ["conversation.cc"],
     hdrs = ["conversation.h"],
     deps = [
+        ":agello_gemma4_template",
         ":channel_util",
         ":internal_callback_util",
         ":io_types",
@@ -225,6 +226,29 @@ cc_test(
         "@nlohmann_json//:json",
         "//runtime/components:prompt_template",
         "//runtime/conversation/model_data_processor:gemma3_data_processor",
+        "//runtime/util:test_utils",
+    ],
+)
+
+# Agello: the Gemma 4 files' tool-call boundary, as upstream's template has it since f240215c.
+cc_library(
+    name = "agello_gemma4_template",
+    srcs = ["agello_gemma4_template.cc"],
+    hdrs = ["agello_gemma4_template.h"],
+    deps = ["@com_google_absl//absl/strings:string_view"],
+)
+
+cc_test(
+    name = "agello_gemma4_template_test",
+    srcs = ["agello_gemma4_template_test.cc"],
+    data = ["agello_testdata/gemma4_e4b_file_template.jinja"],
+    deps = [
+        ":agello_gemma4_template",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@nlohmann_json//:json",
+        "//runtime/components:prompt_template",
         "//runtime/util:test_utils",
     ],
 )
