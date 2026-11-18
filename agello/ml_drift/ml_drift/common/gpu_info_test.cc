@@ -307,5 +307,23 @@ TEST(PowerVRInfoTest, TestGpuVersionParsing) {
   EXPECT_FALSE(unknown.IsBetterThan(PowerVRGpu::kRogueGe8xxx));
 }
 
+// Agello (G1): a chip the table doesn't know takes the family its device reports.
+TEST(AppleInfo, UnknownChipTakesTheDeviceFamily) {
+  AppleInfo unknown("apple a21 pro");
+  EXPECT_EQ(unknown.gpu_type, AppleGpu::kUnknown);
+  EXPECT_TRUE(unknown.IsFamilyApple1());
+  EXPECT_FALSE(unknown.IsSIMDMatMulSupported());
+  EXPECT_EQ(unknown.GetComputeUnitsCount(), 4);
+  unknown.SetUnknownChipFamily(AppleInfo::Family::kApple10, 6);
+  EXPECT_TRUE(unknown.IsFamilyApple10());
+  EXPECT_TRUE(unknown.IsSIMDMatMulSupported());
+  EXPECT_EQ(unknown.GetComputeUnitsCount(), 6);
+
+  AppleInfo known("apple a19 pro");
+  known.SetUnknownChipFamily(AppleInfo::Family::kApple7, 2);
+  EXPECT_TRUE(known.IsFamilyApple10());
+  EXPECT_EQ(known.GetComputeUnitsCount(), 6);
+}
+
 }  // namespace
 }  // namespace ml_drift

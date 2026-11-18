@@ -970,11 +970,18 @@ int AppleInfo::GetComputeUnitsCount() const {
       // approximate
       return 12;
     case AppleGpu::kUnknown:
-      return 4;
+      // Agello (G1): the estimate SetUnknownChipFamily gave, when it ran.
+      return compute_units != -1 ? compute_units : 4;
   }
 }
 
 void AppleInfo::SetComputeUnits(int compute_units_count) {
+  compute_units = compute_units_count;
+}
+
+void AppleInfo::SetUnknownChipFamily(Family family, int compute_units_count) {
+  if (gpu_type != AppleGpu::kUnknown) return;
+  gpu_family = family;
   compute_units = compute_units_count;
 }
 
@@ -1371,6 +1378,8 @@ void GetGpuInfoFromDeviceDescription(const std::string& gpu_description,
         simulated != nullptr && *simulated != '\0') {
       apple_name = simulated;
       absl::AsciiStrToLower(&apple_name);
+      // Underscores stand for spaces, for environments split at spaces ("Apple_A17_Pro").
+      std::replace(apple_name.begin(), apple_name.end(), '_', ' ');
     }
     gpu_info->apple_info = AppleInfo(apple_name);
     gpu_info->supported_wave_sizes = {32};

@@ -326,6 +326,11 @@ struct AppleInfo {
   // do not use, for internal usage
   void SetComputeUnits(int compute_units_count);
 
+  // Agello (G1): a chip the name table doesn't know gets the family its device reports
+  // (supportsFamily) and an estimate of its cores, instead of Apple1 and four, which turned the
+  // matrix-unit paths off. Does nothing for a known chip.
+  void SetUnknownChipFamily(Family family, int compute_units_count);
+
  private:
   Family GetGpuFamily() const;
   int compute_units = -1;

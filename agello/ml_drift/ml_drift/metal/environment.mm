@@ -14,6 +14,7 @@
 
 #include "ml_drift/metal/environment.h"
 
+#include <TargetConditionals.h>
 #include <sys/utsname.h>
 
 #include <string>
@@ -26,10 +27,32 @@
 namespace ml_drift {
 namespace metal {
 namespace {
+// Agello (G1): the highest Apple family the device supports, by MTLGPUFamilyApple's raw values
+// (Apple1 is 1001), so a newer SDK's families need no new constant. ML Drift's table stops at
+// Apple10, and so does this.
+AppleInfo::Family DeviceAppleFamily(id<MTLDevice> device) {
+  for (int family = 10; family > 1; --family) {
+    if ([device supportsFamily:static_cast<MTLGPUFamily>(1000 + family)]) {
+      return static_cast<AppleInfo::Family>(family);
+    }
+  }
+  return AppleInfo::Family::kApple1;
+}
+
 GpuInfo CreateGpuInfoFromMetalDevice(id<MTLDevice> device) {
   std::string device_name = std::string([[device name] UTF8String]);
   GpuInfo gpu_info;
   GetGpuInfoFromDeviceDescription(device_name, GpuApi::kMetal, &gpu_info);
+  // Agello (G1): a chip newer than the name table (an iPhone 18's) takes its family from the
+  // device, and the cores of the latest chips of its kind: no Metal API gives the core count.
+  if (gpu_info.IsApple() && gpu_info.apple_info.gpu_type == AppleGpu::kUnknown) {
+#if TARGET_OS_IPHONE
+    const int estimated_cores = 6;  // the A19 Pro's
+#else
+    const int estimated_cores = 10;  // an M-series base chip's
+#endif
+    gpu_info.apple_info.SetUnknownChipFamily(DeviceAppleFamily(device), estimated_cores);
+  }
 
   if (gpu_info.apple_info.gpu_type == AppleGpu::kA15) {
     struct utsname system_info;
