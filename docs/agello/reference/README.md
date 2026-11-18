@@ -15,9 +15,14 @@
   the Swift wrapper down to ML Drift's Metal kernels, with every statement tied to code at a pinned
   commit, a model file's bytes, an official model config or card, or a measurement file.
 - It documents two things, and each page says which one a statement is about: the **documented
-  build** (our source build on `agello-next`) and **what Agello ships** (the shipped wrapper with
-  Google's v0.18.0 binary). They differ; [versions.md](versions.md#what-ships-and-what-is-documented)
-  lists how.
+  build** (our source build on `agello-next` at the pins below) and **what Agello ships**. They
+  differ; [versions.md](versions.md#what-ships-and-what-is-documented) lists how.
+- **The layout since 2026-11-15:** one repository, `PowerBeef/agello-litert-lm`, one branch, `main`.
+  LiteRT and ML Drift live in it (`agello/litert`, `agello/ml_drift`), imported at the commits the
+  pins below name. The separate `PowerBeef/LiteRT` and `PowerBeef/ml-drift` forks and the
+  `agello-next` branch were folded into it. The two forks are archived, so this reference's links into
+  them still resolve at their commits. A re-pin to `main` ([maintenance.md](maintenance.md#after-a-re-pin-or-rebase))
+  hasn't been done: statements describe the code at the pins.
 - Start with [stack.md](stack.md) for the whole picture, [facts.md](facts.md) for numbers you
   want to quote, and [glossary.md](glossary.md) for the words to use.
 
@@ -32,10 +37,10 @@ file first ([maintenance.md](maintenance.md#after-a-re-pin-or-rebase)).
 | LiteRT | `PowerBeef/LiteRT` `agello-next` at `362759838` | Google's `ca21dc99` (main, 2026-10-09) plus 12 commits |
 | ML Drift | `PowerBeef/ml-drift` `agello-next` at `15fa9e2` | Google's `1b18771` (main, 2026-10-07) plus 8 commits |
 
-| What Agello ships today | Exactly |
+| What Agello ships (2026-11-17) | Exactly |
 | --- | --- |
-| Swift wrapper | `PowerBeef/agello-litert-lm` `agello` at `85b1a776`: v0.18.0 plus two Swift patches, vendored into Agello as `Vendor/LiteRT-LM` |
-| Native binary | Google's prebuilt v0.18.0 `CLiteRTLM.xcframework` (closed build; LiteRT and ML Drift commits not recorded) |
+| Swift wrapper | `PowerBeef/agello-litert-lm` `main`'s `swift/` with five patches, vendored into Agello as `Vendor/LiteRT-LM` (Agello's `Vendor/README.md` lists them) |
+| Native binary | Our release `agello-one-20261115` (build `0c749789100a`): LiteRT-LM, LiteRT and ML Drift from this repository, Metal on the iPhone and the Mac. Google's prebuilt v0.18.0 binary shipped until 2026-10-28, then our `agello-next-20261024` until 2026-11-15 |
 
 | Model | File and revision |
 | --- | --- |
@@ -94,13 +99,13 @@ settings):
 | --- | --- |
 | [stack.md](stack.md) | How a chat turn flows from Agello to Metal, on which thread, and how the documented build differs from what ships |
 | [versions.md](versions.md) | What ships, what is documented, how upstream versions and tags, and what changed since v0.18.0 |
-| [patches.md](patches.md) | Every commit of ours on the three forks and the shipped wrapper, its evidence and upstream status |
+| [patches.md](patches.md) | Every commit of ours at the pins (then on three forks, now in one repository) and the shipped wrapper, its evidence and upstream status |
 | [configuration.md](configuration.md) | Every setting in every layer, its default, its effect on Apple and what Agello sets |
 | [memory.md](memory.md) | Where every byte of E4B and E2B lives at 4K to 32K allocated context |
 | [apple-platform.md](apple-platform.md) | Apple GPU families, the app memory limit, Metal storage and argument buffers, the iPhone app on a Mac |
 | [troubleshooting.md](troubleshooting.md) | Symptom, cause and fix for each failure mode, by build |
 | [tools.md](tools.md) | The tools for inspecting files, running the engine, measuring builds, telemetry and this reference's scripts |
-| [other-platforms.md](other-platforms.md) | What the three repositories do off Apple's Metal path |
+| [other-platforms.md](other-platforms.md) | What LiteRT-LM, LiteRT and ML Drift do off Apple's Metal path |
 | [facts.md](facts.md) | The canonical numbers and user-facing facts, with conditions and quotable sentences |
 | [glossary.md](glossary.md) | The terms used here, what to prefer and what to avoid |
 | [contributing.md](contributing.md) | How to contribute upstream, our drafts, templates, and checks for user-facing docs |
