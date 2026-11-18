@@ -89,6 +89,8 @@ enum Level : int { kOff = 0, kCounters = 1, kSpans = 2, kTrace = 3, kDeep = 4 };
   X(kMtpAccepted, "mtp_accepted")                           \
   X(kMtpContextRounds, "mtp_context_rounds")                \
   X(kMtpContextAccepted, "mtp_context_accepted")            \
+  X(kMtpLongRounds, "mtp_long_rounds")                      \
+  X(kMtpLongAccepted, "mtp_long_accepted")                  \
   X(kMtpSkippedAtCacheEnd, "mtp_skipped_cache_end")         \
   X(kMtpReplayRounds, "mtp_replay_rounds")                  \
   X(kStopEos, "stop_eos")                                   \

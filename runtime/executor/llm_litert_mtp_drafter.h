@@ -332,6 +332,8 @@ class LlmLiteRtMtpDrafter {
 
   // Agello (B2): drafts copied from the context, or nullptr (AGELLO_CONTEXT_DRAFTS unset).
   std::unique_ptr<ContextDrafts> context_drafts_;
+  // Agello (B2): rounds of 3 drafts copied from the context (AGELLO_CONTEXT_DRAFTS).
+  bool context_rounds_ = false;
   // Agello (B2): in rounds where the context offers drafts, the tokens a millisecond each source
   // has earned (a moving average; negative before its first round), and how many such rounds have
   // run. The round takes the better source and tries the other every eighth time.
@@ -350,6 +352,16 @@ class LlmLiteRtMtpDrafter {
   // tokens, its greedy picks compared with verify's (verify8_rows_compared, verify8_rows_agreed).
   char verify8_probe_ = '0';
   std::vector<int> verify8_picks_;
+  // Agello (B5, phase 3): rounds of verify_8's length when the context offers its drafts
+  // (AGELLO_VERIFY8_ROUNDS=1, with a file that has verify_8).
+  bool verify8_rounds_ = false;
+  // verify_8's greedy picks on the GPU, one a row (the host's argmax over 8 rows of logits took
+  // 4 to 14 ms a round on the M6).
+  std::unique_ptr<Sampler> verify8_sampler_;
+  std::optional<TensorBuffer> verify8_id_tensor_;
+  // Copies verify_8's activations row `row` into row 0 of the verifier's, where the next round's
+  // drafter reads the row of the last accepted token.
+  absl::Status CarryVerify8Activations(int row);
   absl::Status RunVerify8Probe(
       int position, int token_id, const std::vector<int>* drafts,
       absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,

@@ -695,6 +695,7 @@ LlmLiteRtMtpDrafter::Create(
       std::move(drafter_mask_runner), std::move(verifier_mask_runner)));
   if (const int min_ngram = ContextDraftsMinNgram(); min_ngram > 0) {
     drafter->context_drafts_ = std::make_unique<ContextDrafts>(min_ngram);
+    drafter->context_rounds_ = true;
   }
   // Agello (B5, phase 2): the longer verify, when the file has one.
   if (auto verify8 = base_model.FindSignature("verify_8"); verify8) {
@@ -718,12 +719,25 @@ LlmLiteRtMtpDrafter::Create(
     }
     LITERT_ASSIGN_OR_RETURN(auto positions_type, verify8->InputTensorType("input_pos"));
     drafter->verify8_positions_ = positions_type.Layout().Dimensions()[0];
+    ABSL_ASSIGN_OR_RETURN(drafter->verify8_sampler_,
+                          CreateGreedySampler(env, backend, /*output_heads=*/1,
+                                              /*sequence_size=*/drafter->verify8_positions_,
+                                              vocab_size, verifier_logits_data_type));
+    LITERT_ASSIGN_OR_RETURN(auto verify8_ids,
+                            CreateTensorBuffer<int32_t>({1, drafter->verify8_positions_}));
+    drafter->verify8_id_tensor_ = std::move(verify8_ids);
     drafter->verify8_signature_ = std::move(*verify8);
     const char* probe = std::getenv("AGELLO_VERIFY8_PROBE");
     drafter->verify8_probe_ =
         probe != nullptr && (probe[0] == '1' || probe[0] == '2') ? probe[0] : '0';
+    const char* rounds = std::getenv("AGELLO_VERIFY8_ROUNDS");
+    drafter->verify8_rounds_ = rounds != nullptr && rounds[0] == '1' && drafter->verify8_positions_ > 1;
+    if (drafter->verify8_rounds_ && drafter->context_drafts_ == nullptr) {
+      drafter->context_drafts_ = std::make_unique<ContextDrafts>(/*min_ngram=*/3);
+    }
     ABSL_LOG(INFO) << "Agello: verify_8 found (" << drafter->verify8_positions_ << " positions)"
-                   << (drafter->verify8_probe_ != '0' ? ", probed each round" : "");
+                   << (drafter->verify8_probe_ != '0' ? ", probed each round" : "")
+                   << (drafter->verify8_rounds_ ? ", long rounds from the context" : "");
   }
   return drafter;
 }
@@ -794,7 +808,16 @@ absl::Status LlmLiteRtMtpDrafter::RunVerify8Probe(
     LITERT_RETURN_IF_ERROR(base_model_.RunAsync(verify8_signature_->Key(), verify8_input_buffers_,
                                                 verify8_output_buffers_, async));
   }
-  // Wait for it, so the round after it starts on an idle GPU; with drafts, its greedy picks.
+  // With drafts, its greedy picks, on the GPU when the sampler is there.
+  verify8_picks_.clear();
+  if (drafts != nullptr && verify8_sampler_ != nullptr && verify8_id_tensor_.has_value()) {
+    ABSL_RETURN_IF_ERROR(verify8_sampler_->SampleToIdAndScoreBuffer(
+        verify8_output_buffers_.at("logits"), *verify8_id_tensor_, /*scores_tensor=*/nullptr));
+    LITERT_ASSIGN_OR_RETURN(auto ids, CopyFromTensorBuffer<int32_t>(*verify8_id_tensor_));
+    verify8_picks_.assign(ids.begin(), ids.end());
+    return absl::OkStatus();
+  }
+  // Otherwise wait for it, so the round after it starts on an idle GPU, and pick on the host.
   LITERT_ASSIGN_OR_RETURN(auto logits_type, verify8_output_buffers_["logits"].TensorType());
   LITERT_ASSIGN_OR_RETURN(auto lock, TensorBufferScopedLock::Create(
                                          verify8_output_buffers_["logits"],
@@ -819,6 +842,22 @@ absl::Status LlmLiteRtMtpDrafter::RunVerify8Probe(
       verify8_picks_.push_back(best);
     }
   }
+  return absl::OkStatus();
+}
+
+absl::Status LlmLiteRtMtpDrafter::CarryVerify8Activations(int row) {
+  TensorBuffer& from = verify8_output_buffers_["activations"];
+  TensorBuffer& to = verifier_output_buffers_["activations"];
+  LITERT_ASSIGN_OR_RETURN(auto from_type, from.TensorType());
+  LITERT_ASSIGN_OR_RETURN(auto to_type, to.TensorType());
+  RET_CHECK(from_type.ElementType() == to_type.ElementType());
+  LITERT_ASSIGN_OR_RETURN(size_t from_bytes, from_type.Bytes());
+  const size_t row_bytes = from_bytes / verify8_positions_;
+  RET_CHECK_LT(row, verify8_positions_);
+  LITERT_ASSIGN_OR_RETURN(auto read, TensorBufferScopedLock::Create(from, TensorBuffer::LockMode::kRead));
+  LITERT_ASSIGN_OR_RETURN(auto write, TensorBufferScopedLock::Create(to, TensorBuffer::LockMode::kWrite));
+  memcpy(write.second, static_cast<const char*>(read.second) + static_cast<size_t>(row) * row_bytes,
+         row_bytes);
   return absl::OkStatus();
 }
 
@@ -1303,7 +1342,18 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   // the round needs no masks (the drafts can be any tokens). The drafter doesn't run; verify
   // keeps its own picks, as for the drafter's drafts.
   std::vector<int> context_proposal;
-  if (context_drafts_ != nullptr && position > 0 &&
+  // Agello (B5, phase 3): a round the context can fill whole checks its drafts on verify_8, when
+  // its 8 positions fit the cache and need no masks.
+  bool long_round = false;
+  if (verify8_rounds_ && verify8_signature_.has_value() && context_drafts_ != nullptr &&
+      position > 0 && static_cast<int>(context.size()) >= position &&
+      position + verify8_positions_ <= state.GetNumEntries() &&
+      RoundNeedsNoMasks(constraint_, constraint_state_.get(), verify8_positions_ - 1)) {
+    context_drafts_->Sync(context.first(position), token_id);
+    context_proposal = context_drafts_->Propose(verify8_positions_ - 1);
+    long_round = !context_proposal.empty();
+  }
+  if (!long_round && context_rounds_ && context_drafts_ != nullptr && position > 0 &&
       static_cast<int>(context.size()) >= position &&
       RoundNeedsNoMasks(constraint_, constraint_state_.get(), num_draft_steps_)) {
     context_drafts_->Sync(context.first(position), token_id);
@@ -1322,7 +1372,10 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
       if (offered_rounds_ % 8 == 7) use_context = !use_context;
     }
     ++offered_rounds_;
-    if (!use_context) context_proposal.clear();
+    if (!use_context) {
+      context_proposal.clear();
+      long_round = false;
+    }
   }
   // Agello (the GPU-resident round, stage 3): the whole round on the GPU when it can.
   std::optional<std::pair<std::vector<int>, std::vector<int>>> resident_round;
@@ -1356,23 +1409,34 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
                                             constraint_state_.get()));
     }
     drafting_time = absl::Now() - draft_start;
-    if (verify8_probe_ == '2' && verify8_signature_.has_value()) {
+    if (long_round) {
+      // verify_8 over the input token and the 7 drafts, its greedy picks one a row.
+      const absl::Time verify_start = absl::Now();
       ABSL_RETURN_IF_ERROR(RunVerify8Probe(position, token_id, &drafting_result.drafted_tokens,
                                            state_buffers.input_buffers,
                                            state_buffers.output_buffers));
+      verifier_id_vector = std::move(verify8_picks_);
+      verify8_picks_.clear();
+      verify_time = absl::Now() - verify_start;
+    } else {
+      if (verify8_probe_ == '2' && verify8_signature_.has_value()) {
+        ABSL_RETURN_IF_ERROR(RunVerify8Probe(position, token_id, &drafting_result.drafted_tokens,
+                                             state_buffers.input_buffers,
+                                             state_buffers.output_buffers));
+      }
+
+      const absl::Time verify_start = absl::Now();
+      ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
+          position, token_id, drafting_result.drafted_tokens,
+          state_buffers.input_buffers));
+      ABSL_RETURN_IF_ERROR(
+          PrepareVerifierOutputBuffers(state_buffers.output_buffers));
+
+      ABSL_ASSIGN_OR_RETURN(
+          verifier_id_vector,
+          RunVerification(drafting_result.draft_constraint_states));
+      verify_time = absl::Now() - verify_start;
     }
-
-    const absl::Time verify_start = absl::Now();
-    ABSL_RETURN_IF_ERROR(PrepareVerifierInputBuffers(
-        position, token_id, drafting_result.drafted_tokens,
-        state_buffers.input_buffers));
-    ABSL_RETURN_IF_ERROR(
-        PrepareVerifierOutputBuffers(state_buffers.output_buffers));
-
-    ABSL_ASSIGN_OR_RETURN(
-        verifier_id_vector,
-        RunVerification(drafting_result.draft_constraint_states));
-    verify_time = absl::Now() - verify_start;
   }
 
   RET_CHECK_EQ(verifier_id_vector.size(),
@@ -1381,7 +1445,13 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
       CountAcceptedPrefix(verifier_id_vector, drafting_result.drafted_tokens);
   int bonus_token = verifier_id_vector[num_correct_tokens];
   last_verified_token_id_idx_ = num_correct_tokens;
-  if (!context_proposal.empty()) {
+  if (long_round) {
+    AGELLO_COUNT(kMtpLongRounds);
+    AGELLO_COUNT(kMtpLongAccepted, num_correct_tokens);
+    // The next round's drafter reads the last accepted token's row of the verifier's activations.
+    ABSL_RETURN_IF_ERROR(CarryVerify8Activations(num_correct_tokens));
+    last_verified_token_id_idx_ = 0;
+  } else if (!context_proposal.empty()) {
     AGELLO_COUNT(kMtpContextRounds);
     AGELLO_COUNT(kMtpContextAccepted, num_correct_tokens);
   }
@@ -1483,10 +1553,11 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   std::vector<int> output_tokens = std::move(drafting_result.drafted_tokens);
   output_tokens.resize(num_correct_tokens);
   output_tokens.push_back(bonus_token);
-  num_drafted_tokens_ += num_draft_steps_;
+  const int drafted_count = long_round ? verify8_positions_ - 1 : num_draft_steps_;
+  num_drafted_tokens_ += drafted_count;
   num_verified_tokens_ += num_correct_tokens;
   last_round_stats_ = MtpRoundStats{
-      .drafted_tokens = num_draft_steps_,
+      .drafted_tokens = drafted_count,
       .accepted_tokens = num_correct_tokens,
       .emitted_tokens = num_correct_tokens + 1,
       .drafting_time = drafting_time,
