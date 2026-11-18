@@ -46,6 +46,7 @@ void ContextDrafts::Sync(absl::Span<const int> prefix, int last) {
     trigrams_.clear();
     bigrams_.clear();
     ++rebuilds_;
+    proposed_from_ = proposed_at_size_ = diverged_at_ = -1;
   }
   const int from = static_cast<int>(tokens_.size());
   if (tokens_.size() < prefix.size()) {
@@ -53,6 +54,18 @@ void ContextDrafts::Sync(absl::Span<const int> prefix, int last) {
   }
   if (tokens_.size() < target) tokens_.push_back(last);
   Index(from);
+  // What the reply kept of the last proposal: where it stopped matching, the copy diverged.
+  if (proposed_from_ >= 0 && proposed_at_size_ >= 0 &&
+      static_cast<int>(tokens_.size()) > proposed_at_size_) {
+    int kept = 0;
+    while (proposed_at_size_ + kept < static_cast<int>(tokens_.size()) &&
+           proposed_from_ + kept < proposed_at_size_ &&
+           tokens_[proposed_at_size_ + kept] == tokens_[proposed_from_ + kept]) {
+      ++kept;
+    }
+    diverged_at_ = kept > 0 ? proposed_from_ + kept : -1;
+    proposed_from_ = proposed_at_size_ = -1;
+  }
 }
 
 void ContextDrafts::Index(int from) {
@@ -70,6 +83,8 @@ std::vector<int> ContextDrafts::Propose(int count, int* ngram) const {
     const auto found = map.find(key);
     if (found != map.end() && found->second + count <= size) {
       drafts.assign(tokens_.begin() + found->second, tokens_.begin() + found->second + count);
+      proposed_from_ = found->second;
+      proposed_at_size_ = size;
     }
     return drafts;
   };
@@ -86,6 +101,20 @@ std::vector<int> ContextDrafts::Propose(int count, int* ngram) const {
     if (!drafts.empty()) {
       if (ngram != nullptr) *ngram = 2;
       return drafts;
+    }
+  }
+  // Realign past an edit: the context's last token a few tokens after where the copy diverged.
+  constexpr int kRealignWindow = 16;
+  if (realign_ && diverged_at_ >= 0 && size >= 1) {
+    const int last = tokens_[size - 1];
+    const int end = std::min(diverged_at_ + kRealignWindow, size - 1);
+    for (int at = diverged_at_; at < end; ++at) {
+      if (tokens_[at] == last && at + 1 + count <= size - 1) {
+        if (ngram != nullptr) *ngram = 1;
+        proposed_from_ = at + 1;
+        proposed_at_size_ = size;
+        return std::vector<int>(tokens_.begin() + at + 1, tokens_.begin() + at + 1 + count);
+      }
     }
   }
   return {};

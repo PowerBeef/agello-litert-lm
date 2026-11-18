@@ -32,7 +32,9 @@ namespace litert::lm {
 class ContextDrafts {
  public:
   // `min_ngram` is the shortest match a proposal may rest on: 2 or 3.
-  explicit ContextDrafts(int min_ngram) : min_ngram_(min_ngram) {}
+  // `realign`: whether a copy realigns past an edit (Propose).
+  explicit ContextDrafts(int min_ngram, bool realign = true)
+      : min_ngram_(min_ngram), realign_(realign) {}
 
   // Brings the index to `prefix` followed by `last` (the round's input token).
   void Sync(absl::Span<const int> prefix, int last);
@@ -40,6 +42,12 @@ class ContextDrafts {
   // The `count` tokens that followed the latest earlier occurrence of the context's last three
   // tokens, or of its last two when `min_ngram` allows; `ngram` gets the n used. Empty when
   // there's no occurrence or fewer than `count` tokens follow it.
+  //
+  // When no n-gram matches but the reply was copying (an earlier proposal kept at least one
+  // draft), the copy realigns past an edit: the first occurrence of the context's last token in
+  // the 16 tokens after where the copy diverged, and the tokens that follow it (`ngram` 1).
+  // Without it, a reply that fixes a document's typos had nothing to copy until three tokens
+  // after each correction (B5 phase 3, 2026-11-17).
   std::vector<int> Propose(int count, int* ngram = nullptr) const;
 
   int size() const { return static_cast<int>(tokens_.size()); }
@@ -51,11 +59,17 @@ class ContextDrafts {
   void Index(int from);
 
   int min_ngram_;
+  bool realign_ = true;
   int rebuilds_ = 0;
   std::vector<int> tokens_;
   // An n-gram's key → the index of the token that followed its latest occurrence.
   absl::flat_hash_map<uint64_t, int> trigrams_;
   absl::flat_hash_map<uint64_t, int> bigrams_;
+  // The copy's alignment: where the last proposal started and how long the context was then
+  // (Propose records them; Sync reads what was kept), and the token where the copy diverged.
+  mutable int proposed_from_ = -1;
+  mutable int proposed_at_size_ = -1;
+  int diverged_at_ = -1;
 };
 
 }  // namespace litert::lm

@@ -261,6 +261,12 @@ bool ReadTableSet(ModelResources& resources, ModelType type, ResidentRound::Tabl
 
 // Agello (B2): AGELLO_CONTEXT_DRAFTS=3 drafts a round from the context when its last trigram
 // appeared earlier, =2 its last bigram too; unset or anything else, off.
+// Agello (B5 phase 3): AGELLO_CONTEXT_REALIGN=0 keeps a copy from realigning past an edit.
+bool ContextRealigns() {
+  const char* value = std::getenv("AGELLO_CONTEXT_REALIGN");
+  return value == nullptr || value[0] != '0';
+}
+
 int ContextDraftsMinNgram() {
   static const int min_ngram = [] {
     const char* value = std::getenv("AGELLO_CONTEXT_DRAFTS");
@@ -694,7 +700,7 @@ LlmLiteRtMtpDrafter::Create(
       vocab_size, GetAttentionMaskParams(executor_metadata),
       std::move(drafter_mask_runner), std::move(verifier_mask_runner)));
   if (const int min_ngram = ContextDraftsMinNgram(); min_ngram > 0) {
-    drafter->context_drafts_ = std::make_unique<ContextDrafts>(min_ngram);
+    drafter->context_drafts_ = std::make_unique<ContextDrafts>(min_ngram, ContextRealigns());
     drafter->context_rounds_ = true;
   }
   // Agello (B5, phase 2): the longer verify, when the file has one.
@@ -733,7 +739,7 @@ LlmLiteRtMtpDrafter::Create(
     const char* rounds = std::getenv("AGELLO_VERIFY8_ROUNDS");
     drafter->verify8_rounds_ = rounds != nullptr && rounds[0] == '1' && drafter->verify8_positions_ > 1;
     if (drafter->verify8_rounds_ && drafter->context_drafts_ == nullptr) {
-      drafter->context_drafts_ = std::make_unique<ContextDrafts>(/*min_ngram=*/3);
+      drafter->context_drafts_ = std::make_unique<ContextDrafts>(/*min_ngram=*/3, ContextRealigns());
     }
     ABSL_LOG(INFO) << "Agello: verify_8 found (" << drafter->verify8_positions_ << " positions)"
                    << (drafter->verify8_probe_ != '0' ? ", probed each round" : "")

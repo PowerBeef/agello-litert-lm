@@ -95,5 +95,32 @@ TEST(ContextDraftsTest, RebuildsAfterARewind) {
   EXPECT_THAT(drafts.Propose(3), IsEmpty());
 }
 
+// B5 phase 3: a reply copying the context realigns past an edit as soon as it writes a token
+// the context has again, instead of three tokens later.
+TEST(ContextDraftsTest, RealignsAfterAnEdit) {
+  ContextDrafts drafts(3);
+  // The source (1 … 12), then a reply that has copied its start.
+  std::vector<int> context = {30, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 40, 1, 2, 3};
+  SyncTo(drafts, context);
+  EXPECT_THAT(drafts.Propose(3), ElementsAre(4, 5, 6));
+  // The reply keeps 4, then writes 50 where the source has 5: an edit.
+  context.insert(context.end(), {4, 50});
+  SyncTo(drafts, context);
+  EXPECT_THAT(drafts.Propose(3), IsEmpty());
+  // The next token the source has again (6) realigns the copy.
+  context.push_back(6);
+  SyncTo(drafts, context);
+  int ngram = 0;
+  EXPECT_THAT(drafts.Propose(3, &ngram), ElementsAre(7, 8, 9));
+  EXPECT_EQ(ngram, 1);
+}
+
+TEST(ContextDraftsTest, NoRealignmentWithoutACopy) {
+  ContextDrafts drafts(3);
+  // 6 occurs earlier, but nothing was being copied: no proposal on one token.
+  SyncTo(drafts, {1, 2, 3, 4, 5, 6, 7, 8, 9, 40, 6});
+  EXPECT_THAT(drafts.Propose(3), IsEmpty());
+}
+
 }  // namespace
 }  // namespace litert::lm
