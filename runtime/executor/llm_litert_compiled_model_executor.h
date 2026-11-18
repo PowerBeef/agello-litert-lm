@@ -313,6 +313,11 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   // Rolls back the processed tokens to the current step.
   absl::Status RollBackProcessedTokens();
 
+  // Agello: looks up the embeddings a token left pending by decode doesn't have (decode makes
+  // it an id only), before a prefill writes it; without them its row was the id followed by
+  // zeros. Upstream's prefill does the same.
+  absl::Status LookupPendingTokenEmbeddings(TokenData& token);
+
   // Swaps the input tensors before Sampling when the sampler handles input.
   // Current input_pos and mask tensors in decode_input_buffers_ are swapped
   // with decode_prev_input_pos_, decode_prev_mask_, and decode_prev_param_,

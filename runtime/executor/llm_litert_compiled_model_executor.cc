@@ -536,6 +536,32 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::FillInputBufferWithToken(
   return absl::OkStatus();
 }
 
+absl::Status LlmLiteRtCompiledModelExecutorBase::LookupPendingTokenEmbeddings(
+    TokenData& token) {
+  if (signatures_.input_embeddings.has_value() && token.embedding().empty()) {
+    if (embedding_lookup_ == nullptr) {
+      return absl::FailedPreconditionError(
+          "A pending token needs embedding_lookup_ when input_embeddings are used, but "
+          "embedding_lookup_ is null.");
+    }
+    AGELLO_SPAN(kEmbeddingLookup, 1);
+    AGELLO_COUNT(kEmbeddingLookups);
+    ABSL_RETURN_IF_ERROR(embedding_lookup_->LookupPrefill(token.id(), token.mutable_embedding()));
+  }
+  if (signatures_.input_per_layer_embeddings.has_value() && token.per_layer_embedding().empty()) {
+    if (per_layer_embedding_lookup_ == nullptr) {
+      return absl::FailedPreconditionError(
+          "A pending token needs per_layer_embedding_lookup_ when the signature takes per-layer "
+          "embeddings, but per_layer_embedding_lookup_ is null.");
+    }
+    AGELLO_SPAN(kEmbeddingLookup, 1);
+    AGELLO_COUNT(kEmbeddingLookups);
+    ABSL_RETURN_IF_ERROR(per_layer_embedding_lookup_->LookupPrefill(
+        token.id(), token.mutable_per_layer_embedding()));
+  }
+  return absl::OkStatus();
+}
+
 absl::Status LlmLiteRtCompiledModelExecutorBase::RollBackProcessedTokens() {
   int current_step = llm_context_->runtime_state().current_step;
   ProcessedTokens& processed_tokens =
@@ -699,6 +725,10 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::PrefillInternal(
               pending_input_token,
               prefill_input_buffers[signatures_.input_tokens]));
         } else {
+          // Agello: a stop token or a re-pended one left by decode has no embeddings yet; the
+          // turn boundary it sits at (before a user message or a tool's response) got an
+          // id-and-zeros row (X-GAP-003; probe 36: an empty reply after a tool call).
+          ABSL_RETURN_IF_ERROR(LookupPendingTokenEmbeddings(*pending_input_token[0]));
           ABSL_RETURN_IF_ERROR(FillInputBufferWithToken(
               pending_input_token,
               prefill_input_buffers[signatures_.input_embeddings.value()]));
