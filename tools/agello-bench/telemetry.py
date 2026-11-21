@@ -126,14 +126,14 @@ def combine(records):
             gauges[k].append(v)
         for k, v in (t.get("cpu") or {}).items():
             counters["cpu." + k] += v
-        for k, v in t["counters"].items():
+        for k, v in (t.get("counters") or {}).items():
             counters[k] += v
-        for k, v in t["spans"].items():
+        for k, v in (t.get("spans") or {}).items():
             s = spans[k]
-            s["count"] += v["count"]
-            s["total_ms"] += v["total_ms"]
-            s["max_us"] = max(s["max_us"], v["max_us"])
-        for a in t["anomalies"]:
+            s["count"] += v.get("count", 0)
+            s["total_ms"] += v.get("total_ms", 0.0)
+            s["max_us"] = max(s["max_us"], v.get("max_us", 0.0))
+        for a in (t.get("anomalies") or []):
             anomalies[(a["code"], a["message"])] += 1
     return counters, spans, anomalies, gauges
 

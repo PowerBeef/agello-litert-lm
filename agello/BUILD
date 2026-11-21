@@ -8,6 +8,8 @@
 
 load("@build_bazel_rules_apple//apple:apple.bzl", "apple_xcframework")
 
+exports_files(["Info.plist"])
+
 # litert_lm_get_build_info's JSON, from the stamp agello/workspace_status.sh prints.
 genrule(
     name = "build_info_stamp",

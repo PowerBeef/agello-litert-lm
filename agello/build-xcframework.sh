@@ -1,30 +1,48 @@
 #!/bin/sh
 # Build CLiteRTLM.xcframework (iPhone and Mac slices, Metal accelerator linked statically) and
 # unpack it into dist/, where Package.swift's binary target points.
-# Usage: agello/build-xcframework.sh [extra bazel flags...]
+# Usage: agello/build-xcframework.sh [--mac-only] [extra bazel flags...]
+#   --mac-only  Build only the macos-arm64 slice (//agello/mac:CLiteRTLM) for fast Mac CLI
+#               iteration (~2x faster incremental builds). Omit for PLATFORM=mac / iPhone builds.
 # Writes dist/CLiteRTLM.xcframework and dist/BUILD-INFO.txt (commits, flags, toolchain, SHA-256s).
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+MAC_ONLY=0
+if [ "${1:-}" = "--mac-only" ]; then
+  MAC_ONLY=1
+  shift
+fi
+if [ "$MAC_ONLY" -eq 1 ]; then
+  TARGET="//agello/mac:CLiteRTLM"
+  ZIP="bazel-bin/agello/mac/CLiteRTLM.xcframework.zip"
+  SLICES_NOTE="macos-arm64 only (--mac-only dev build)"
+else
+  TARGET="//agello:CLiteRTLM"
+  ZIP="bazel-bin/agello/CLiteRTLM.xcframework.zip"
+  SLICES_NOTE="ios-arm64 + macos-arm64"
+fi
 export AGELLO_BUILD_FLAGS="--config=agello -c opt $*"
-bazelisk build --config=agello -c opt "$@" //agello:CLiteRTLM
+bazelisk build --config=agello -c opt "$@" "$TARGET"
 rm -rf dist/CLiteRTLM.xcframework
 mkdir -p dist
-unzip -q bazel-bin/agello/CLiteRTLM.xcframework.zip -d dist
+unzip -q "$ZIP" -d dist
 
-# rules_apple 3.22.0 builds the iOS environment plist in the default iOS configuration, which is
-# the simulator on Apple silicon: the device slice said iPhoneSimulator. Give it the device SDK's.
-ios_plist=dist/CLiteRTLM.xcframework/ios-arm64/CLiteRTLM.framework/Info.plist
-ios_sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
-ios_sdk_build="$(xcrun --sdk iphoneos --show-sdk-build-version)"
-/usr/libexec/PlistBuddy \
-  -c "Set :CFBundleSupportedPlatforms:0 iPhoneOS" \
-  -c "Set :DTPlatformName iphoneos" \
-  -c "Set :DTPlatformVersion $ios_sdk_version" \
-  -c "Set :DTPlatformBuild $ios_sdk_build" \
-  -c "Set :DTSDKName iphoneos$ios_sdk_version" \
-  -c "Set :DTSDKBuild $ios_sdk_build" \
-  "$ios_plist"
+if [ "$MAC_ONLY" -eq 0 ]; then
+  # rules_apple 3.22.0 builds the iOS environment plist in the default iOS configuration, which is
+  # the simulator on Apple silicon: the device slice said iPhoneSimulator. Give it the device SDK's.
+  ios_plist=dist/CLiteRTLM.xcframework/ios-arm64/CLiteRTLM.framework/Info.plist
+  ios_sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
+  ios_sdk_build="$(xcrun --sdk iphoneos --show-sdk-build-version)"
+  /usr/libexec/PlistBuddy \
+    -c "Set :CFBundleSupportedPlatforms:0 iPhoneOS" \
+    -c "Set :DTPlatformName iphoneos" \
+    -c "Set :DTPlatformVersion $ios_sdk_version" \
+    -c "Set :DTPlatformBuild $ios_sdk_build" \
+    -c "Set :DTSDKName iphoneos$ios_sdk_version" \
+    -c "Set :DTSDKBuild $ios_sdk_build" \
+    "$ios_plist"
+fi
 
 # macOS frameworks are versioned bundles, and rules_apple writes the iOS-style shallow one:
 # Versions/A holds the binary, headers, module map and Resources/Info.plist, and the top level
@@ -56,6 +74,7 @@ source_of() {
   echo "Bazel: $(bazelisk version 2>/dev/null | sed -n 's/^Build label: //p')"
   echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
   echo "Flags: --config=agello -c opt $*"
+  echo "Slices: $SLICES_NOTE"
   echo "Build id: $(sed -n 's/^STABLE_AGELLO_BUILD_ID //p' bazel-out/stable-status.txt)"
   echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   for slice in dist/CLiteRTLM.xcframework/*/CLiteRTLM.framework; do
