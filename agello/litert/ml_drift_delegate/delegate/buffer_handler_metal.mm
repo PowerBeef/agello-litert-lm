@@ -489,17 +489,56 @@ LiteRtStatus LiteRtDestroyMetalMemory(HwMemoryInfoPtr hw_memory_info) {
   return kLiteRtStatusOk;
 }
 
-// Agello (E6): a packed buffer in shared storage holds the host layout byte for byte, so it's
-// locked in place: the caller reads and writes the MTLBuffer's contents, with no host shadow
-// (kept for the buffer's lifetime: about 100 MB of prefill masks and embeddings at a 32K window)
-// and no copy on unlock. The caller already waits for the GPU before a lock: LiteRT waits on the
-// buffer's event, prefill on Metal runs synchronously, and decode's inputs are written after its
-// last logits are read. The unlock's copy into a shared buffer was a CPU memcpy too.
-bool LocksInPlace(const MetalMemoryInfo* memory_info) {
-  if (memory_info->buffer_type != kLiteRtTensorBufferTypeMetalBufferPacked) return false;
-  id<MTLBuffer> buffer = memory_info->metal_tensor.GetBufferHandle();
-  return buffer != nil && buffer.storageMode == MTLStorageModeShared && buffer.contents != nullptr &&
-         buffer.length >= memory_info->packed_bytes;
+// Agello (P1.2): whether a non-packed linear shared MTLBuffer lays out its elements byte-for-byte
+// identically to host BHWDC order (stride 4 between slices, zero inter-row gap). Single-row read
+// locks need no c%4 check; writes and multi-row reads require c%4 == 0 so there is no slice padding.
+bool IsContiguousDirectBuffer(const MetalMemoryInfo* memory_info, bool write) {
+  const auto& tensor = memory_info->metal_tensor;
+  if (!CanCopyLinearBufferDirect(tensor, memory_info->tensor_type.element_type,
+                                 memory_info->packed_bytes, write)) {
+    return false;
+  }
+  id<MTLBuffer> buffer = tensor.GetBufferHandle();
+  if (buffer == nil || buffer.contents == nullptr) return false;
+  const uintptr_t base_addr = reinterpret_cast<uintptr_t>(buffer.contents);
+  const uintptr_t ptr_addr = reinterpret_cast<uintptr_t>(tensor.GetBufferPointer());
+  if (ptr_addr < base_addr || (ptr_addr - base_addr) + memory_info->packed_bytes > buffer.length) {
+    return false;
+  }
+  const ::ml_drift::TensorDescriptor desc = tensor.GetDescriptor();
+  const ::ml_drift::BHWDC shape = desc.GetBHWDCShape();
+  const size_t row_count = static_cast<size_t>(shape.b) * shape.h * shape.w * shape.d;
+  if (row_count == 0) return false;
+  if ((write || row_count > 1) && (shape.c % 4 != 0)) return false;
+  const int slices = ::ml_drift::DivideRoundUp(shape.c, 4);
+  int64_t expected_base = 0;
+  for (int b = 0; b < shape.b; ++b) {
+    for (int y = 0; y < shape.h; ++y) {
+      for (int x = 0; x < shape.w; ++x) {
+        for (int d = 0; d < shape.d; ++d) {
+          const int64_t base = desc.GetLinearIndex(shape, b, x, y, d, 0, 0);
+          if (base != expected_base) return false;
+          if (slices > 1 && desc.GetLinearIndex(shape, b, x, y, d, 1, 0) - base != 4) {
+            return false;
+          }
+          expected_base += shape.c;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+// Agello (E6 / P1.2): a packed or contiguous direct linear buffer in shared storage holds the host
+// layout byte for byte, so it's locked in place: the caller reads and writes the MTLBuffer's
+// contents directly, with no host shadow allocation and no memcpy on lock/unlock.
+bool LocksInPlace(const MetalMemoryInfo* memory_info, bool write) {
+  if (memory_info->buffer_type == kLiteRtTensorBufferTypeMetalBufferPacked) {
+    id<MTLBuffer> buffer = memory_info->metal_tensor.GetBufferHandle();
+    return buffer != nil && buffer.storageMode == MTLStorageModeShared &&
+           buffer.contents != nullptr && buffer.length >= memory_info->packed_bytes;
+  }
+  return IsContiguousDirectBuffer(memory_info, write);
 }
 
 LiteRtStatus LiteRtUnlockMetalMemory(HwMemoryInfoPtr hw_memory_info) {
@@ -513,8 +552,9 @@ LiteRtStatus LiteRtUnlockMetalMemory(HwMemoryInfoPtr hw_memory_info) {
                              << "The Metal memory is already unlocked.");
   absl::Cleanup unlock = [&memory_info] { memory_info->lock_state = LockState::kUnlocked; };
 
-  // Don't upload data if read only, or if it was written in place (Agello, E6).
-  if (memory_info->lock_state == LockState::kReadLocked || LocksInPlace(memory_info)) {
+  // Don't upload data if read only, or if it was written in place (Agello, E6 / P1.2).
+  if (memory_info->lock_state == LockState::kReadLocked ||
+      LocksInPlace(memory_info, /*write=*/true)) {
     return kLiteRtStatusOk;
   }
 
@@ -578,8 +618,8 @@ LiteRtStatus LiteRtLockMetalMemory(HwMemoryInfoPtr hw_memory_info, LiteRtTensorB
   LockState new_lock_state = litert::internal::ToLockState(mode);
   ::agello::telemetry::Count(::agello::telemetry::kHostLocks);
 
-  if (LocksInPlace(memory_info)) {
-    *host_memory_ptr = [memory_info->metal_tensor.GetBufferHandle() contents];
+  if (LocksInPlace(memory_info, /*write=*/new_lock_state != LockState::kReadLocked)) {
+    *host_memory_ptr = memory_info->metal_tensor.GetBufferPointer();
     memory_info->lock_state = new_lock_state;
     return kLiteRtStatusOk;
   }

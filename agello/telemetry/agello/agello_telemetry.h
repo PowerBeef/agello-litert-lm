@@ -312,6 +312,9 @@ void ProbeLogits(const float* logits, int64_t rows, int64_t vocab);
 // ProbeLogits for FP16 logits (IEEE half bits), converting only the calls it checks.
 void ProbeLogitsHalf(const uint16_t* logits, int64_t rows, int64_t vocab);
 
+// ProbeLogits for FP16 logits stored in ML Drift DSHWBC4 layout ([slice][row][4]).
+void ProbeLogitsHalfDSHWBC4(const uint16_t* logits, int64_t rows, int64_t vocab);
+
 // Facts about the engine that outlive Reset (sampler path, GPU family, async mode...), shown in
 // every snapshot. `key` must be a string literal.
 void SetFact(const char* key, const std::string& value);

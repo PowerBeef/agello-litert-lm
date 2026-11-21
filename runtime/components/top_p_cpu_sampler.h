@@ -66,6 +66,11 @@ class TopPSampler : public Sampler {
   }
   bool ComputeExactLogProbs() const { return compute_exact_log_probs_; }
 
+  // Agello (P1.2): zero-copy greedy FP16 argmax directly over ML Drift's DSHWBC4
+  // layout ([vocab/4][rows][4]). Returns false if a positive NaN requires float fallback.
+  static bool GreedyHalfDSHWBC4(const uint16_t* src, int rows, int vocab,
+                                int* out_ids);
+
  private:
   explicit TopPSampler(int k, float p, float temperature, int batch_size,
                        int sequence_size, int seed,

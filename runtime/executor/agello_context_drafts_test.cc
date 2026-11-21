@@ -115,6 +115,24 @@ TEST(ContextDraftsTest, RealignsAfterAnEdit) {
   EXPECT_EQ(ngram, 1);
 }
 
+TEST(ContextDraftsTest, RealignmentAllowsExactEndOfContext) {
+  ContextDrafts drafts(3);
+  // Start copying (1, 2, 3) -> proposes (4, 5, 6), then keeps 4, diverges at 50, realigns at 6.
+  // Source ends with 6, 7, 8, 9, 40, 1, 2, 3, 4, 50, 6; asking for count reaching `size` must work.
+  std::vector<int> context = {1, 2, 3, 4, 5, 6, 40, 1, 2, 3};
+  SyncTo(drafts, context);
+  EXPECT_THAT(drafts.Propose(3), ElementsAre(4, 5, 6));
+  context.insert(context.end(), {4, 50});
+  SyncTo(drafts, context);
+  context.push_back(6);
+  SyncTo(drafts, context);
+  // Token 6 is at index 5 (`at = 5`), `size = 13`, so `at + 1 + 7 == 13 == size`.
+  int ngram = 0;
+  EXPECT_THAT(drafts.Propose(7, &ngram), ElementsAre(40, 1, 2, 3, 4, 50, 6));
+  EXPECT_EQ(ngram, 1);
+  EXPECT_THAT(drafts.Propose(8), IsEmpty());
+}
+
 TEST(ContextDraftsTest, NoRealignmentWithoutACopy) {
   ContextDrafts drafts(3);
   // 6 occurs earlier, but nothing was being copied: no proposal on one token.

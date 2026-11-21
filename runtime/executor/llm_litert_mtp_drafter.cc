@@ -1324,6 +1324,14 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   ABSL_RETURN_IF_ERROR(
       PrepareDrafterInputBuffers(position - 1, state_buffers.output_buffers));
 
+  // Agello (P1.2): reset the per-turn bandit rates when a new turn begins so
+  // a previous Q&A turn doesn't bias context/verify_8 drafting on a copy/edit turn.
+  if (activations.has_value()) {
+    context_rate_ = -1;
+    drafter_rate_ = -1;
+    offered_rounds_ = 0;
+  }
+
   // Initialize or reset constraint state when constraint changes or on first
   // step of decode turn.
   if (constraint == nullptr) {
@@ -1374,6 +1382,12 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
       RoundNeedsNoMasks(constraint_, constraint_state_.get(), num_draft_steps_)) {
     context_drafts_->Sync(context.first(position), token_id);
     context_proposal = context_drafts_->Propose(num_draft_steps_);
+  }
+  if (context_drafts_ != nullptr && context_drafts_->rebuilds() != last_context_rebuilds_) {
+    last_context_rebuilds_ = context_drafts_->rebuilds();
+    context_rate_ = -1;
+    drafter_rate_ = -1;
+    offered_rounds_ = 0;
   }
   // Which source drafts a round the context could draft: the one that has earned more tokens a
   // millisecond in such rounds (the drafter copies well, and its rounds keep more), each tried

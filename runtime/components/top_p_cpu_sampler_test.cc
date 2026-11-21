@@ -336,6 +336,140 @@ TEST(TopPSamplerTest, GreedyFp16MatchesTheFloatPath) {
   EXPECT_EQ(ids_by_type[0], ids_by_type[1]);
 }
 
+// Agello (P1.2): NEON block-tracked GreedyHalf handles >4096-element rows, ties across
+// 4096-element block boundaries, non-multiple-of-32 tails, signed zeros across blocks, and NaN.
+TEST(TopPSamplerTest, GreedyFp16NeonBlockAndBoundaryParity) {
+  const int vocab = 9003;  // > 2 * 4096 and non-multiple of 32
+  const int rows = 5;
+  std::vector<float> logits(rows * vocab, -10.0f);
+  // Row 0: tie straddling block boundary 4095 and 4096 -> must pick 4095.
+  logits[0 * vocab + 4095] = 7.5f;
+  logits[0 * vocab + 4096] = 7.5f;
+  // Row 1: maximum sits in the unaligned tail after the last 32-element NEON vector.
+  logits[1 * vocab + (vocab - 1)] = -0.25f;
+  // Row 2: -0.0 in block 0 and +0.0 in block 1 -> must pick -0.0 in block 0.
+  logits[2 * vocab + 17] = -0.0f;
+  logits[2 * vocab + 5000] = 0.0f;
+  // Row 3: +0.0 in block 0 and -0.0 in block 1 -> must pick +0.0 in block 0.
+  logits[3 * vocab + 25] = 0.0f;
+  logits[3 * vocab + 6000] = -0.0f;
+  // Row 4: all -Inf except one -Inf tie -> picks index 0.
+  for (int i = 0; i < vocab; ++i) {
+    logits[4 * vocab + i] = -std::numeric_limits<float>::infinity();
+  }
+
+  std::vector<int> ids_by_type[2];
+  for (int fp16 = 0; fp16 < 2; ++fp16) {
+    auto sampler = TopPSampler::Create(/*k=*/1, /*p=*/1.0, /*temperature=*/0.0,
+                                       /*batch_size=*/rows, /*sequence_size=*/1,
+                                       /*seed=*/1);
+    ASSERT_TRUE(sampler.ok());
+    auto logits_tensor =
+        fp16 ? CopyFp16ToTensorBuffer(logits, {rows, vocab})
+             : CopyToTensorBuffer<float>(absl::MakeConstSpan(logits), {rows, vocab});
+    ASSERT_TRUE(logits_tensor.HasValue());
+    std::vector<int> ids_vector(rows);
+    auto ids_tensor =
+        CopyToTensorBuffer<int>(absl::MakeConstSpan(ids_vector), {rows});
+    ASSERT_TRUE(ids_tensor.HasValue());
+    ASSERT_TRUE((*sampler)
+                    ->SampleToIdAndScoreBuffer(*logits_tensor, *ids_tensor,
+                                               /*scores_tensor=*/nullptr)
+                    .ok());
+    auto ids = CopyFromTensorBuffer<int>(*ids_tensor);
+    ASSERT_TRUE(ids.HasValue());
+    ids_by_type[fp16] = *ids;
+  }
+  EXPECT_THAT(ids_by_type[1], ElementsAre(4095, vocab - 1, 17, 25, 0));
+  EXPECT_EQ(ids_by_type[0], ids_by_type[1]);
+}
+
+// Agello (P1.2): DSHWBC4 zero-copy NEON greedy argmax matches the row-major FP16/FP32
+// path across 4-row (verify), 8-row (verify_8), and generic (3-row) shapes, including
+// block-boundary ties, signed zeros, -Inf, and positive-NaN fallback.
+TEST(TopPSamplerTest, GreedyFp16DSHWBC4MatchesRowMajor) {
+  const int vocab = 9000;  // multiple of 4, > 2 * 4096
+  const int slices = vocab / 4;
+  for (int rows : {3, 4, 8}) {
+    std::vector<uint16_t> row_major(rows * vocab);
+    std::vector<float> floats(rows * vocab);
+    uint32_t state = 7777u + rows;
+    for (int r = 0; r < rows; ++r) {
+      for (int c = 0; c < vocab; ++c) {
+        state = state * 1664525u + 1013904223u;
+        float val = static_cast<float>(state >> 8) / (1u << 24) * 30.0f - 20.0f;
+        tflite::half h(val);
+        uint16_t bits;
+        std::memcpy(&bits, &h, sizeof(uint16_t));
+        row_major[r * vocab + c] = bits;
+        floats[r * vocab + c] = static_cast<float>(h);
+      }
+    }
+    // Row 0: tie across 4096-token slice block boundary (4095 vs 4096).
+    {
+      tflite::half peak(15.0f);
+      uint16_t bits;
+      std::memcpy(&bits, &peak, sizeof(uint16_t));
+      row_major[0 * vocab + 4095] = bits;
+      row_major[0 * vocab + 4096] = bits;
+      floats[0 * vocab + 4095] = 15.0f;
+      floats[0 * vocab + 4096] = 15.0f;
+    }
+    // Row 1: -0.0 in block 0, +0.0 in block 1, everything else < -1.
+    {
+      tflite::half neg(-2.0f);
+      uint16_t neg_bits;
+      std::memcpy(&neg_bits, &neg, sizeof(uint16_t));
+      for (int c = 0; c < vocab; ++c) {
+        row_major[1 * vocab + c] = neg_bits;
+        floats[1 * vocab + c] = -2.0f;
+      }
+      row_major[1 * vocab + 19] = 0x8000u;  // -0.0
+      floats[1 * vocab + 19] = -0.0f;
+      row_major[1 * vocab + 5003] = 0x0000u;  // +0.0
+      floats[1 * vocab + 5003] = 0.0f;
+    }
+    // Pack into DSHWBC4: [slice][row][4].
+    std::vector<uint16_t> dshwbc4(rows * vocab);
+    for (int s = 0; s < slices; ++s) {
+      for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < 4; ++c) {
+          dshwbc4[(s * rows + r) * 4 + c] = row_major[r * vocab + s * 4 + c];
+        }
+      }
+    }
+    std::vector<int> got(rows, -1);
+    ASSERT_TRUE(TopPSampler::GreedyHalfDSHWBC4(dshwbc4.data(), rows, vocab,
+                                               got.data()));
+    EXPECT_EQ(got[0], 4095);
+    EXPECT_EQ(got[1], 19);
+
+    auto sampler = TopPSampler::Create(/*k=*/1, /*p=*/1.0, /*temperature=*/0.0,
+                                       /*batch_size=*/rows, /*sequence_size=*/1,
+                                       /*seed=*/1);
+    ASSERT_TRUE(sampler.ok());
+    auto logits_tensor =
+        CopyToTensorBuffer<float>(absl::MakeConstSpan(floats), {rows, vocab});
+    ASSERT_TRUE(logits_tensor.HasValue());
+    std::vector<int> ids_vector(rows);
+    auto ids_tensor =
+        CopyToTensorBuffer<int>(absl::MakeConstSpan(ids_vector), {rows});
+    ASSERT_TRUE(ids_tensor.HasValue());
+    ASSERT_TRUE((*sampler)
+                    ->SampleToIdAndScoreBuffer(*logits_tensor, *ids_tensor,
+                                               /*scores_tensor=*/nullptr)
+                    .ok());
+    auto expected = CopyFromTensorBuffer<int>(*ids_tensor);
+    ASSERT_TRUE(expected.HasValue());
+    EXPECT_EQ(got, *expected);
+
+    // Positive NaN must return false so the caller falls back to the float path.
+    dshwbc4[(10 * rows + 0) * 4 + 2] = 0x7e00u;
+    EXPECT_FALSE(TopPSampler::GreedyHalfDSHWBC4(dshwbc4.data(), rows, vocab,
+                                                got.data()));
+  }
+}
+
 TEST(TopPSamplerTest, UpdateConfig) {
   auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
                                         /*batch_size=*/1, /*sequence_size=*/1,

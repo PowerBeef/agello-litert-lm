@@ -109,7 +109,7 @@ std::vector<int> ContextDrafts::Propose(int count, int* ngram) const {
     const int last = tokens_[size - 1];
     const int end = std::min(diverged_at_ + kRealignWindow, size - 1);
     for (int at = diverged_at_; at < end; ++at) {
-      if (tokens_[at] == last && at + 1 + count <= size - 1) {
+      if (tokens_[at] == last && at + 1 + count <= size) {
         if (ngram != nullptr) *ngram = 1;
         proposed_from_ = at + 1;
         proposed_at_size_ = size;

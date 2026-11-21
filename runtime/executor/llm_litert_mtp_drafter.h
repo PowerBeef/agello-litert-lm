@@ -343,6 +343,7 @@ class LlmLiteRtMtpDrafter {
   double context_rate_ = -1;
   double drafter_rate_ = -1;
   int offered_rounds_ = 0;
+  int last_context_rebuilds_ = 0;
 
   // Agello (B5, phase 2): a longer verify (`verify_8`, tools/model-surgery/verify_n.py) when the
   // file has one, with buffers of its own. AGELLO_VERIFY8_PROBE=1 runs it at the start of each

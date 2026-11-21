@@ -534,6 +534,27 @@ void ProbeLogitsHalf(const uint16_t* logits, int64_t rows, int64_t vocab) {
   ProbeLogitRows(converted.data(), rows, vocab, level);
 }
 
+void ProbeLogitsHalfDSHWBC4(const uint16_t* logits, int64_t rows, int64_t vocab) {
+  const int level = GetLevel();
+  if (level < kCounters || logits == nullptr || rows <= 0 || vocab <= 1 || (vocab % 4) != 0) return;
+  const int64_t probe_rows = LogitRowsToProbe(level, rows);
+  if (probe_rows == 0) return;
+  const int64_t slices = vocab / 4;
+  thread_local std::vector<float> converted;
+  converted.resize(static_cast<size_t>(probe_rows * vocab));
+  for (int64_t r = 0; r < probe_rows; ++r) {
+    float* dst = converted.data() + r * vocab;
+    for (int64_t s = 0; s < slices; ++s) {
+      const uint16_t* p = logits + (s * rows + r) * 4;
+      dst[s * 4 + 0] = HalfToFloat(p[0]);
+      dst[s * 4 + 1] = HalfToFloat(p[1]);
+      dst[s * 4 + 2] = HalfToFloat(p[2]);
+      dst[s * 4 + 3] = HalfToFloat(p[3]);
+    }
+  }
+  ProbeLogitRows(converted.data(), probe_rows, vocab, level);
+}
+
 namespace {
 
 void ProbeLogitRows(const float* logits, int64_t rows, int64_t vocab, int level) {
