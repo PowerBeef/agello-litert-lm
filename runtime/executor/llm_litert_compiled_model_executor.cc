@@ -1480,7 +1480,8 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
                                                   step_and_token.token[0]->id(),
                                                   /*activations=*/std::nullopt,
                                                   *active_state, constraint,
-                                                  llm_context_->processed_context().processed_tokens().ProcessedTokenIds()));
+                                                  llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
+                                                  decode_params.GetCancelled()));
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
@@ -1508,7 +1509,8 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
           output_tokens_vector,
           mtp_drafter_->Draft(deferred_step, deferred_token,
                               std::move(*deferred_activations), *active_state,
-                              constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds()));
+                              constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
+                              decode_params.GetCancelled()));
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
@@ -1561,7 +1563,8 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
           output_tokens_vector,
           mtp_drafter_->Draft(llm_context_->runtime_state().current_step - 1,
                               token_id, std::move(activations), *active_state,
-                              constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds()));
+                              constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
+                              decode_params.GetCancelled()));
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
       output_tokens_vector[0].insert(output_tokens_vector[0].begin(), token_id);

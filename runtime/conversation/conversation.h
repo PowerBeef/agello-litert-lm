@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_CONVERSATION_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_CONVERSATION_H_
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
@@ -849,6 +850,10 @@ class Conversation {
   // Whether the saved channel content checkpoint was taken after prefilling the
   // user turn (including the generation prompt).
   bool checkpoint_after_user_prefill_ ABSL_GUARDED_BY(history_mutex_) = false;
+
+  // Set by CancelProcess() so deferred post-decode channel rewinds don't launch
+  // a fresh GPU prefill after cancellation.
+  std::atomic<bool> process_cancelled_{false};
 };
 }  // namespace litert::lm
 

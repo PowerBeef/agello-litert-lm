@@ -594,6 +594,7 @@ absl::Status Conversation::SendMessageAsync(
     const Message& message,
     absl::AnyInvocable<void(absl::StatusOr<Message>)> user_callback,
     OptionalArgs optional_args) {
+  process_cancelled_.store(false, std::memory_order_release);
   if (optional_args.args.has_value() &&
       engine_.GetEngineSettings().GetMaxVisionTokensPerImage().has_value()) {
     ABSL_RETURN_IF_ERROR(ValidateVisualTokenBudget(
@@ -787,10 +788,22 @@ absl::Status Conversation::SendMessageAsync(
             return;
           }
 
+          if (process_cancelled_.load(std::memory_order_acquire)) {
+            checkpoint_message_index_ = std::nullopt;
+            checkpoint_after_user_prefill_ = false;
+            *defer_completion = true;
+            (*shared_user_callback)(absl::CancelledError("Task cancelled"));
+            return;
+          }
+
           // Eagerly rewind to the checkpoint and refill the model response
           // without channel content before signaling completion to the caller.
           *defer_completion = true;
           refill_session_inputs = RewindAndGetInputDataVector(optional_args);
+        }
+        if (process_cancelled_.load(std::memory_order_acquire)) {
+          (*shared_user_callback)(absl::CancelledError("Task cancelled"));
+          return;
         }
         if (!refill_session_inputs.ok()) {
           (*shared_user_callback)(refill_session_inputs.status());
@@ -971,7 +984,10 @@ absl::StatusOr<BenchmarkInfo*> Conversation::GetMutableBenchmarkInfo() {
   return session_->GetMutableBenchmarkInfo();
 }
 
-void Conversation::CancelProcess() { session_->CancelProcess(); }
+void Conversation::CancelProcess() {
+  process_cancelled_.store(true, std::memory_order_release);
+  session_->CancelProcess();
+}
 
 void Conversation::CancelGroup(absl::string_view task_group_id) {
   absl::MutexLock lock(task_controllers_mutex_);

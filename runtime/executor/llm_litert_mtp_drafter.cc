@@ -922,8 +922,12 @@ absl::StatusOr<LlmLiteRtMtpDrafter::DraftingResult>
 LlmLiteRtMtpDrafter::RunDraftingLoop(
     int token_id, std::optional<TensorBuffer>& activations,
     const Constraint* constraint,
-    const Constraint::State* verified_constraint_state) {
+    const Constraint::State* verified_constraint_state,
+    const std::atomic<bool>* cancelled) {
   AGELLO_SPAN(kMtpDraft);
+  if (cancelled != nullptr && cancelled->load(std::memory_order_relaxed)) {
+    return absl::CancelledError("Process cancelled.");
+  }
   if (resident_ != nullptr &&
       RoundNeedsNoMasks(constraint, verified_constraint_state, num_draft_steps_)) {
     auto resident = RunResidentDraftingLoop(token_id, activations);
@@ -944,6 +948,9 @@ LlmLiteRtMtpDrafter::RunDraftingLoop(
       activations.has_value() ? &activations.value() : nullptr;
   const Constraint::State* current_draft_state = verified_constraint_state;
   for (int i = 0; i < num_draft_steps_; ++i) {
+    if (cancelled != nullptr && cancelled->load(std::memory_order_relaxed)) {
+      return absl::CancelledError("Process cancelled.");
+    }
     LITERT_RETURN_IF_ERROR(PrepareDrafterOutputBuffers());
     // Concat and lookup embeddings with previous activations.
     // Embedding lookup has shape [B = 1, T = 1, D = 1536]
@@ -1303,8 +1310,11 @@ absl::StatusOr<std::vector<int>> LlmLiteRtMtpDrafter::RunVerification(
 absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     int position, int token_id, std::optional<TensorBuffer> activations,
     StateInterface& state, const Constraint* constraint,
-    absl::Span<const int> context) {
+    absl::Span<const int> context, const std::atomic<bool>* cancelled) {
   ::agello::telemetry::ScopedSpan round_span(::agello::telemetry::kMtpRound);
+  if (cancelled != nullptr && cancelled->load(std::memory_order_relaxed)) {
+    return absl::CancelledError("Process cancelled.");
+  }
   auto* litert_state = dynamic_cast<LitertState*>(&state);
   RET_CHECK(litert_state != nullptr);
   LITERT_ASSIGN_OR_RETURN(
@@ -1412,7 +1422,10 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     } else {
       ABSL_ASSIGN_OR_RETURN(drafting_result,
                             RunDraftingLoop(token_id, activations, constraint_,
-                                            constraint_state_.get()));
+                                            constraint_state_.get(), cancelled));
+    }
+    if (cancelled != nullptr && cancelled->load(std::memory_order_relaxed)) {
+      return absl::CancelledError("Process cancelled.");
     }
     drafting_time = absl::Now() - draft_start;
     if (long_round) {

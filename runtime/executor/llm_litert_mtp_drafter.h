@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_LLM_LITERT_MTP_DRAFTER_H_
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -136,7 +137,8 @@ class LlmLiteRtMtpDrafter {
   absl::StatusOr<std::vector<std::vector<int>>> Draft(
       int position, int token_id, std::optional<TensorBuffer> activations,
       StateInterface& state, const Constraint* constraint = nullptr,
-      absl::Span<const int> context = {});
+      absl::Span<const int> context = {},
+      const std::atomic<bool>* cancelled = nullptr);
 
   const MtpRoundStats& last_round_stats() const { return last_round_stats_; }
 
@@ -226,7 +228,8 @@ class LlmLiteRtMtpDrafter {
   absl::StatusOr<DraftingResult> RunDraftingLoop(
       int token_id, std::optional<TensorBuffer>& activations,
       const Constraint* constraint,
-      const Constraint::State* verified_constraint_state);
+      const Constraint::State* verified_constraint_state,
+      const std::atomic<bool>* cancelled = nullptr);
 
   // `embeddings_on_gpu` leaves verify's token and per-layer embeddings to the resident round.
   absl::Status PrepareVerifierInputBuffers(
