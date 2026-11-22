@@ -80,17 +80,41 @@ absl::Status CreateBoundedMaskFromNode(const std::vector<::ml_drift::Value*>& in
 }
 
 namespace {
-// Agello (engine review, step 4): one thread per row of the mask.
+// Parallel row-wise mask bound scan: on Apple Metal, 256 threads per row scan
+// Slices() in parallel and reduce with simd_max (+ 8-element shared max);
+// other backends fall back to one thread per row.
 class MaskBoundsOp : public ::ml_drift::GPUOperation {
  public:
-  MaskBoundsOp() = default;
+  explicit MaskBoundsOp(bool parallel_row_scan)
+      : parallel_row_scan_(parallel_row_scan) {
+    if (parallel_row_scan_) {
+      work_group_size_ = ::ml_drift::int3(256, 1, 1);
+    }
+  }
+  std::vector<::ml_drift::int3> GetPossibleKernelWorkGroups(
+      ::ml_drift::TuningType tuning_type, const ::ml_drift::GpuInfo& gpu_info,
+      const ::ml_drift::KernelInfo& kernel_info) const override {
+    if (parallel_row_scan_) {
+      return {work_group_size_};
+    }
+    return ::ml_drift::GPUOperation::GetPossibleKernelWorkGroups(
+        tuning_type, gpu_info, kernel_info);
+  }
   ::ml_drift::int3 GetGridSize() const override {
-    return ::ml_drift::int3(dst_[0]->Width() * dst_[0]->Batch(), dst_[0]->Height(), 1);
+    if (parallel_row_scan_) {
+      return ::ml_drift::int3(256, dst_[0]->Width() * dst_[0]->Batch(),
+                              dst_[0]->Height());
+    }
+    return ::ml_drift::int3(dst_[0]->Width() * dst_[0]->Batch(),
+                            dst_[0]->Height(), 1);
   }
   MaskBoundsOp(MaskBoundsOp&&) = default;
   MaskBoundsOp& operator=(MaskBoundsOp&&) = default;
   MaskBoundsOp(const MaskBoundsOp&) = delete;
   MaskBoundsOp& operator=(const MaskBoundsOp&) = delete;
+
+ private:
+  bool parallel_row_scan_ = false;
 };
 }  // namespace
 
@@ -109,12 +133,47 @@ absl::Status CreateMaskBoundsFromNode(const std::vector<::ml_drift::Value*>& inp
   dst_desc.SetBHWCShape(dst_shape);
   auto dst = model_builder->AddTensor(dst_desc);
 
-  MaskBoundsOp op;
+  const bool parallel_row_scan =
+      model_builder->gpu_info().IsApple() && model_builder->gpu_info().IsApiMetal();
+  MaskBoundsOp op(parallel_row_scan);
   op.AddSrcTensor("src_tensor", mask.tensor_desc);
   op.AddDstTensor("dst_tensor", dst.tensor_desc);
-  // One thread per row (W, with the batch and the height folded in): one past the last kept
-  // key, so a row that isn't a prefix still bounds every key it keeps.
-  op.code_ = R"(
+  if (parallel_row_scan) {
+    // 256 threads per row scan Slices() coalesced and reduce with simd_max.
+    op.code_ = R"(
+MAIN_FUNCTION($0) {
+  int tid = ucl::GetLocalId<0>();
+  int X = ucl::GetGroupId<1>();
+  int Y = ucl::GetGroupId<2>();
+  if (X >= args.dst_tensor.Width() || Y >= args.dst_tensor.Height()) {
+    return;
+  }
+  int end = 0;
+  int slices = args.src_tensor.Slices();
+  for (int s = tid; s < slices; s += 256) {
+    int4 kept = ucl::Convert<int4>(args.src_tensor.Read(X, Y, s));
+    if (kept.x != 0) end = s * 4 + 1;
+    if (kept.y != 0) end = s * 4 + 2;
+    if (kept.z != 0) end = s * 4 + 3;
+    if (kept.w != 0) end = s * 4 + 4;
+  }
+  end = simd_max(end);
+  threadgroup int smem[8];
+  if ((tid & 31) == 0) {
+    smem[tid >> 5] = end;
+  }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  if (tid == 0) {
+    int best = max(max(max(smem[0], smem[1]), max(smem[2], smem[3])),
+                   max(max(smem[4], smem[5]), max(smem[6], smem[7])));
+    args.dst_tensor.Write(ucl::Convert<args.dst_tensor::type>(int4(best, 0, 0, 0)), X, Y, 0);
+  }
+}
+)";
+  } else {
+    // One thread per row (W, with the batch and the height folded in): one past the last kept
+    // key, so a row that isn't a prefix still bounds every key it keeps.
+    op.code_ = R"(
 MAIN_FUNCTION($0) {
   int X = ucl::GetGlobalId<0>();
   int Y = ucl::GetGlobalId<1>();
@@ -132,6 +191,7 @@ MAIN_FUNCTION($0) {
   args.dst_tensor.Write(ucl::Convert<args.dst_tensor::type>(int4(end, 0, 0, 0)), X, Y, 0);
 }
 )";
+  }
   model_builder->AddGpuOperation({mask}, {dst},
                                  std::make_unique<MaskBoundsOp>(std::move(op)),
                                  kMaskBoundsType);

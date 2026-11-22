@@ -247,6 +247,16 @@ class GPUOperation {
   int3 work_group_launch_order_ = int3(0, 1, 2);
   int3 grid_size_ = int3(0, 0, 0);
 
+ protected:
+  // Called at the start of AssembleCode after all AddOperation fusions have
+  // completed, allowing kernels to tailor their epilogue to linked ops and the
+  // final destination descriptor.
+  virtual absl::Status PrepareCode(const GpuInfo& gpu_info) {
+    return absl::OkStatus();
+  }
+  bool HasLinkedElementwise() const { return !elementwise_code_.empty(); }
+  void ResetConstExprResolved() { const_expr_resolved_ = false; }
+
  private:
   absl::Status GetTensorDescriptor(const std::string& tensor_name,
                                    TensorDescriptor** result);

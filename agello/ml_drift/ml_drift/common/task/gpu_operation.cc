@@ -1397,6 +1397,7 @@ void GPUOperation::AddDstBuffer(const std::string& buffer_name,
 }
 
 absl::Status GPUOperation::AssembleCode(const GpuInfo& gpu_info) {
+  ABSL_RETURN_IF_ERROR(PrepareCode(gpu_info));
   ABSL_RETURN_IF_ERROR(
       ResolveWaveMemory(gpu_info, &code_, &args_, &compiler_options_));
   ABSL_RETURN_IF_ERROR(ResolveWaveMatrix(gpu_info, &code_));

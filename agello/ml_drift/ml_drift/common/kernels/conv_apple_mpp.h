@@ -22,6 +22,7 @@
 #include <variant>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/types/span.h"
 #include "ml_drift/common/data_type.h"
 #include "ml_drift/common/gpu_info.h"
@@ -40,6 +41,17 @@
 
 namespace ml_drift {
 
+// Optional INT8 -> FP16 dequantization parameters executed directly in
+// ConvAppleMPP's cooperative_tensor registers (eliminating the 32 KiB int32
+// threadgroup staging array).
+struct ConvAppleMPPDequantParams {
+  const TensorDescriptor* src_params = nullptr;
+  const TensorDescriptor* weights_sum = nullptr;
+  const TensorDescriptor* weights_scale = nullptr;
+  const TensorDescriptor* weights_zero_point = nullptr;
+  int in_channels = 0;
+};
+
 // Convolution implementation for Apple GPUs with MetalPerformancePrimitives.
 class ConvAppleMPP : public GPUOperation {
  public:
@@ -55,6 +67,10 @@ class ConvAppleMPP : public GPUOperation {
     bool softmax_input_activation = false;
     bool batched_weights = false;
     bool has_bias = true;
+    bool has_dequant = false;
+    bool dequant_has_zero_point = false;
+    bool dequant_params_has_batch = false;
+    DataType dequant_dst_type = DataType::kFloat16;
     ConvRuntimeCheckDesc runtime_check;
 
     void InitKernelXY(const Convolution2DAttributes& attr) {
@@ -112,13 +128,18 @@ class ConvAppleMPP : public GPUOperation {
   template <DataType T>
   void UploadBias(const Tensor<Linear, T>& bias);
 
+ protected:
+  absl::Status PrepareCode(const GpuInfo& gpu_info) override;
+
  private:
   ConvParams params_;
+  TensorDescriptor src_desc_;
   int m_tile_ = 64;
   int n_tile_ = 64;
   int simdgroups_ = 4;
 
-  std::string GetKernelCode(const TensorDescriptor& src) const;
+  std::string GetKernelCode(const TensorDescriptor& src,
+                            const TensorDescriptor& dst) const;
 };
 
 template <DataType T>
@@ -184,14 +205,16 @@ ConvAppleMPP CreateConvAppleMPPInt8(
     const Tensor<OHWI, DataType::kInt8>& weights);
 
 // Creates an Apple MPP convolution operation with INT8 external weights.
-ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
-                                    const TensorDescriptor& dst,
-                                    const OHWI& weights_shape);
+ConvAppleMPP CreateConvAppleMPPInt8(
+    const TensorDescriptor& src, const TensorDescriptor& dst,
+    const OHWI& weights_shape,
+    const ConvAppleMPPDequantParams* dequant = nullptr);
 
 // Creates an Apple MPP convolution operation with INT8 external weights.
-ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
-                                    const TensorDescriptor& dst,
-                                    const ExternalWeights& weights);
+ConvAppleMPP CreateConvAppleMPPInt8(
+    const TensorDescriptor& src, const TensorDescriptor& dst,
+    const ExternalWeights& weights,
+    const ConvAppleMPPDequantParams* dequant = nullptr);
 
 }  // namespace ml_drift
 

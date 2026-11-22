@@ -14,12 +14,15 @@
 
 #include "ml_drift/common/kernels/conv_apple_mpp.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <variant>
 
 #include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/status_macros.h"
 #include "absl/strings/str_replace.h"
 #include "ml_drift/common/data_type.h"
 #include "ml_drift/common/gpu_info.h"
@@ -123,9 +126,80 @@ void AddYKernelParams(const Convolution2DAttributes& attr, GPUOperation* op) {
   op->args_.AddInt("kernel_size_y", weights_shape.h);
   op->args_.AddInt("dilation_y", attr.dilations.h);
 }
+
+void ApplyDequantParams(ConvAppleMPP::ConvParams& params,
+                        const TensorDescriptor& dst,
+                        const ConvAppleMPPDequantParams* dequant) {
+  if (dequant == nullptr) return;
+  params.has_dequant = true;
+  params.dequant_has_zero_point = dequant->weights_zero_point != nullptr;
+  params.dequant_params_has_batch = dequant->src_params->HasAxis(Axis::kBatch);
+  params.dequant_dst_type = dst.GetDataType();
+}
+
+void AttachDequantArgs(ConvAppleMPP& conv,
+                       const ConvAppleMPPDequantParams* dequant) {
+  if (dequant == nullptr) return;
+  conv.AddSrcTensor("params_tensor", *dequant->src_params);
+  conv.AddSrcTensor("weights_sum", *dequant->weights_sum);
+  conv.AddSrcTensor("weights_scale", *dequant->weights_scale);
+  if (dequant->weights_zero_point != nullptr) {
+    conv.AddSrcTensor("weights_zero_point", *dequant->weights_zero_point);
+  }
+  conv.args_.AddFloat("in_channels", dequant->in_channels);
+}
+
+std::string EmitRowCoords(const ConvAppleMPP::ConvParams& params,
+                          bool has_batch, const std::string& row_expr,
+                          const std::string& pfx, const std::string& indent) {
+  std::string c;
+  if (params.runtime_check.packed_groups.has_value()) {
+    c += indent + "int " + pfx + "_h = 0;\n";
+    c += indent + "int " + pfx + "_w = w_group_offset + (" + row_expr + ");\n";
+    c += indent + "bool " + pfx + "_ok = ((" + row_expr +
+         ") < w_group_size) && (" + pfx + "_w < args.dst.Width());\n";
+  } else if (params.batched_weights) {
+    c += indent + "int " + pfx + "_h = w_batch_id;\n";
+    if (has_batch) {
+      c += indent + "int " + pfx + "_b = (" + row_expr +
+           ") % args.dst.Batch();\n";
+      c += indent + "int " + pfx + "_w = (" + row_expr +
+           ") / args.dst.Batch();\n";
+    } else {
+      c += indent + "int " + pfx + "_w = (" + row_expr + ");\n";
+    }
+    c += indent + "bool " + pfx + "_ok = (" + pfx + "_w < args.dst.Width());\n";
+  } else {
+    if (has_batch) {
+      c += indent + "int " + pfx + "_b = (" + row_expr +
+           ") % args.dst.Batch();\n";
+      c += indent + "int " + pfx + "_rem = (" + row_expr +
+           ") / args.dst.Batch();\n";
+      c += indent + "int " + pfx + "_w = " + pfx + "_rem % args.dst.Width();\n";
+      c += indent + "int " + pfx + "_h = " + pfx + "_rem / args.dst.Width();\n";
+    } else {
+      c += indent + "int " + pfx + "_w = (" + row_expr +
+           ") % args.dst.Width();\n";
+      c += indent + "int " + pfx + "_h = (" + row_expr +
+           ") / args.dst.Width();\n";
+    }
+    c += indent + "bool " + pfx + "_ok = (" + pfx +
+         "_h < args.dst.Height());\n";
+  }
+  return c;
+}
 }  // namespace
 
-std::string ConvAppleMPP::GetKernelCode(const TensorDescriptor& src) const {
+absl::Status ConvAppleMPP::PrepareCode(const GpuInfo& gpu_info) {
+  TensorDescriptor dst_desc;
+  ABSL_RETURN_IF_ERROR(GetTensorDescriptor("dst", &dst_desc));
+  code_ = GetKernelCode(src_desc_, dst_desc);
+  ResetConstExprResolved();
+  return absl::OkStatus();
+}
+
+std::string ConvAppleMPP::GetKernelCode(const TensorDescriptor& src,
+                                        const TensorDescriptor& dst) const {
   const bool weights_conversion =
       params_.weights_desc.layout == WeightsLayout::kOSpatialIOGroupI4O4;
   const bool quantized_weights =
@@ -140,9 +214,16 @@ std::string ConvAppleMPP::GetKernelCode(const TensorDescriptor& src) const {
   const int k_tile =
       manual_k_tiling ? 32 : AlignByN(params_.weights_shape.i, 4);
   const bool has_batch = src.HasAxis(Axis::kBatch);
+  const bool dst_has_batch = dst.HasAxis(Axis::kBatch);
+  const DataType accum_type = params_.weights_data_type == DataType::kInt8
+                                  ? DataType::kInt32
+                                  : DataType::kFloat16;
+  const DataType out_type =
+      params_.has_dequant ? params_.dequant_dst_type : accum_type;
   std::string c;
   c += "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>\n";
-  if (weights_conversion && params_.weights_data_type != DataType::kFloat16) {
+  if (weights_conversion && params_.weights_data_type != DataType::kFloat16 &&
+      params_.weights_desc.type == DataType::kUint4) {
     c += R"(
 uint32_t expand_int4_to_int8(uint32_t val) {
   uint32_t x = val & 0xFFFF;
@@ -158,7 +239,70 @@ uint32_t expand_int4_to_int8(uint32_t val) {
 MAIN_FUNCTION($0) {
   int slice_tile_id = ucl::GetGroupId<0>();
   int spatial_tile_id = ucl::GetGroupId<1>();
-  int sub_spatial_id = ucl::GetLocalId<0>() % M_TILE;
+)";
+  if (!params_.runtime_check.packed_groups.has_value()) {
+    c += R"(  {
+    int gx = slice_tile_id;
+    int gy = spatial_tile_id;
+    int GX = (args.dst.Slices() + N_TILE_SLICES - 1) / N_TILE_SLICES;
+    int GY = (SPATIAL_SIZE + M_TILE - 1) / M_TILE;
+    if (GX > 1 && GY > 1) {
+      int linear = gy * GX + gx;
+      int band_size = 4 * GX;
+      int full_bands = GY >> 2;
+      int full_count = full_bands * band_size;
+      if (linear < full_count) {
+        int band_id = linear / band_size;
+        int in_band = linear - band_id * band_size;
+        int full_x = GX & ~3;
+        int full_band_tiles = full_x << 2;
+        if (in_band < full_band_tiles) {
+          int blk_x = in_band >> 4;
+          int idx = in_band & 15;
+          int lx = (idx & 1) | ((idx >> 1) & 2);
+          int ly = ((idx >> 1) & 1) | ((idx >> 2) & 2);
+          slice_tile_id = (blk_x << 2) + lx;
+          spatial_tile_id = (band_id << 2) + ly;
+        } else {
+          int rem = in_band - full_band_tiles;
+          int tail_w = GX - full_x;
+          slice_tile_id = full_x + (rem % tail_w);
+          spatial_tile_id = (band_id << 2) + (rem / tail_w);
+        }
+      } else {
+        int rem = linear - full_count;
+        int y0 = full_bands << 2;
+        int rem_h = GY - y0;
+        if (rem_h >= 2) {
+          int band2_size = 2 * GX;
+          if (rem < band2_size) {
+            int full_x2 = GX & ~1;
+            int full_b2 = full_x2 << 1;
+            if (rem < full_b2) {
+              int blk_x = rem >> 2;
+              int idx = rem & 3;
+              slice_tile_id = (blk_x << 1) + (idx & 1);
+              spatial_tile_id = y0 + (idx >> 1);
+            } else {
+              int t = rem - full_b2;
+              slice_tile_id = full_x2;
+              spatial_tile_id = y0 + t;
+            }
+          } else {
+            int t = rem - band2_size;
+            slice_tile_id = t;
+            spatial_tile_id = y0 + 2;
+          }
+        } else {
+          slice_tile_id = rem;
+          spatial_tile_id = y0;
+        }
+      }
+    }
+  }
+)";
+  }
+  c += R"(  int sub_spatial_id = ucl::GetLocalId<0>() % M_TILE;
   int sub_slice_id = ucl::GetLocalId<0>() / M_TILE;
   int slices_per_wg = WG_SIZE / M_TILE;
   int spatial_id = spatial_tile_id * M_TILE + sub_spatial_id;
@@ -197,17 +341,16 @@ MAIN_FUNCTION($0) {
     c += "  if (slice_tile_id * N_TILE_SLICES >= dst_end_slice_runtime) "
          "return;\n";
   }
-  // Agello (T4): a sliding attention window (ConvRuntimeCheckDesc), with manual
-  // K tiling and 1x1 kernels. A PV product starts its K loop at the window (a
-  // whole K tile: the start is 32-aligned); a QK product runs no K iterations for
-  // tiles of keys wholly below it, so they hold the epilogue applied to zero (a
-  // fused attention mask masks them). Uniform per threadgroup.
   const ConvRuntimeCheckDesc& window = params_.runtime_check;
-  const bool use_window = window.window_pos_index.has_value() &&
-                          manual_k_tiling && params_.x_kernel_is_1 &&
-                          params_.y_kernel_is_1 &&
-                          !window.packed_groups.has_value();
-  if (use_window && (window.src_window || window.dst_window)) {
+  const bool use_window_src = window.window_pos_index.has_value() &&
+                              window.src_window && manual_k_tiling &&
+                              params_.x_kernel_is_1 && params_.y_kernel_is_1 &&
+                              !window.packed_groups.has_value();
+  const bool use_window_dst = window.window_pos_index.has_value() &&
+                              window.dst_window && params_.x_kernel_is_1 &&
+                              params_.y_kernel_is_1 &&
+                              !window.packed_groups.has_value();
+  if (use_window_src || use_window_dst) {
     c += "  int window_start_slice = " +
          RuntimeWindowStartSlice(window.window_size) + ";\n";
   }
@@ -239,15 +382,12 @@ MAIN_FUNCTION($0) {
     if (quantized_weights && params_.weights_data_type == DataType::kFloat16) {
       c += "  half4 w_scale, w_bias;\n";
       if (params_.scale_zp_shape.i != 1) {
-        // grouped quantization
         c += "  int last_src_group_id = -1;\n";
       } else if (params_.scale_zp_shape.o != 1) {
-        // linear quantization
         c += fc::ReadScaleZeroPointLinear(
             "w_o_slice", params_.scale_zp_shape, params_.has_zero_point,
             fc::GetDataTypeForWeights(params_.weights_desc.type));
       } else {
-        // scalar quantization
         c += fc::ReadScaleZeroPointScalar(
             params_.has_zero_point,
             fc::GetDataTypeForWeights(params_.weights_desc.type));
@@ -304,7 +444,7 @@ MAIN_FUNCTION($0) {
   constexpr auto matmul_desc = mpp::tensor_ops::matmul2d_descriptor(M_TILE, N_TILE, K_TILE, false, false, false, MAT_MUL_MODE);
   mpp::tensor_ops::matmul2d<matmul_desc, execution_simdgroups<SIMDGROUPS>> matmul_op;
 
-  auto c_tile = matmul_op.get_destination_cooperative_tensor<decltype(a_tile), decltype(b_tile), args.dst::scalar_type>();
+  auto c_tile = matmul_op.get_destination_cooperative_tensor<decltype(a_tile), decltype(b_tile), ACCUM_SCALAR>();
   #pragma unroll_full
   for (uint16_t i = 0; i < c_tile.get_capacity(); ++i) {
     if(c_tile.is_valid_element(i)) c_tile[i] = 0;
@@ -345,13 +485,13 @@ MAIN_FUNCTION($0) {
   if (manual_k_tiling) {
     std::string k_start = "0";
     std::string k_end = src_end_slice;
-    if (use_window && window.src_window) {
+    if (use_window_src) {
       k_start = "window_start_slice";
       if (weights_conversion) {
         c += "  w_wg_offset += (window_start_slice / K_TILE_SLICES) * w_stride;\n";
       }
     }
-    if (use_window && window.dst_window) {
+    if (use_window_dst) {
       c += "  int k_end = (slice_tile_id + 1) * N_TILE_SLICES <= window_start_slice ? 0 : " +
            src_end_slice + ";\n";
       k_end = "k_end";
@@ -361,6 +501,14 @@ MAIN_FUNCTION($0) {
       if (params_.weights_data_type == DataType::kFloat16) {
         c += "    half4 w0, w1, w2, w3;\n";
         c += ReadFloatWeights(params_);
+      } else if (params_.weights_desc.type == DataType::kUint8) {
+        c += R"(
+    uint4 u8_i4o4 = args.weights.Read(w_wg_offset);
+    uint w0 = u8_i4o4.x ^ 0x80808080u;
+    uint w1 = u8_i4o4.y ^ 0x80808080u;
+    uint w2 = u8_i4o4.z ^ 0x80808080u;
+    uint w3 = u8_i4o4.w ^ 0x80808080u;
+)";
       } else {
         c += R"(
     uint2 u4_i4o4 = args.weights.Read(w_wg_offset);
@@ -426,7 +574,13 @@ MAIN_FUNCTION($0) {
     c += "    matmul_op.run(a_tile, b_tile, c_tile);\n";
     c += "  }\n";
   } else {
-    c += "  matmul_op.run(a_tile, b_tile, c_tile);\n";
+    if (use_window_dst) {
+      c += "  if ((slice_tile_id + 1) * N_TILE_SLICES > window_start_slice) {\n";
+      c += "    matmul_op.run(a_tile, b_tile, c_tile);\n";
+      c += "  }\n";
+    } else {
+      c += "  matmul_op.run(a_tile, b_tile, c_tile);\n";
+    }
   }
   if (!params_.x_kernel_is_1) {
     c += "  }\n";
@@ -434,40 +588,227 @@ MAIN_FUNCTION($0) {
   if (!params_.y_kernel_is_1) {
     c += "  }\n";
   }
-  c += R"(
-  threadgroup args.dst::scalar_type tmp[N_TILE * M_TILE];
+  const int strip_m = std::min(m_tile_, 32);
+  if (params_.has_dequant && (m_tile_ % strip_m == 0) && (n_tile_ % 16 == 0)) {
+    // Param-cached 32-row half strip epilogue: shrinks threadgroup memory from
+    // 32,768 B (int32[128*64], 1 TG/core cap) to 9,728-10,496 B (3 TG/core),
+    // with zero global loads or div/mod inside the c_tile register loop and
+    // fully coalesced vec4 writes for all linked elementwise ops.
+    c += "  {\n";
+    c += "    threadgroup float tg_s_scale[M_TILE];\n";
+    c += "    threadgroup float tg_s_zp[M_TILE];\n";
+    if (params_.dequant_has_zero_point) {
+      c += "    threadgroup float tg_s_zp_term[M_TILE];\n";
+    }
+    c += "    threadgroup float4 tg_w_scale4[N_TILE_SLICES];\n";
+    c += "    threadgroup float4 tg_w_ssum4[N_TILE_SLICES];\n";
+    if (params_.dequant_has_zero_point) {
+      c += "    threadgroup float4 tg_w_zp4[N_TILE_SLICES];\n";
+    }
+    c += "    threadgroup float* tg_w_scale = (threadgroup float*)(tg_w_scale4);\n";
+    c += "    threadgroup float* tg_w_ssum = (threadgroup float*)(tg_w_ssum4);\n";
+    if (params_.dequant_has_zero_point) {
+      c += "    threadgroup float* tg_w_zp = (threadgroup float*)(tg_w_zp4);\n";
+    }
+    c += "    int ep_tid = ucl::GetLocalId<0>();\n";
+    c += "    if (ep_tid < M_TILE) {\n";
+    c += "      int p_row = spatial_tile_id * M_TILE + ep_tid;\n";
+    c += EmitRowCoords(params_, dst_has_batch, "p_row", "pr", "      ");
+    c += "      if (pr_ok) {\n";
+    std::string pr_coords = "pr_w, pr_h, 0";
+    if (params_.dequant_params_has_batch) {
+      pr_coords += ", pr_b";
+    }
+    c += "        float4 sp = args.params_tensor.Read<float>(" + pr_coords + ");\n";
+    c += "        tg_s_scale[ep_tid] = sp.x;\n";
+    c += "        tg_s_zp[ep_tid] = sp.y;\n";
+    if (params_.dequant_has_zero_point) {
+      c += "        tg_s_zp_term[ep_tid] = sp.x * sp.z + sp.y * args.in_channels;\n";
+    }
+    c += "      } else {\n";
+    c += "        tg_s_scale[ep_tid] = 0.0f;\n";
+    c += "        tg_s_zp[ep_tid] = 0.0f;\n";
+    if (params_.dequant_has_zero_point) {
+      c += "        tg_s_zp_term[ep_tid] = 0.0f;\n";
+    }
+    c += "      }\n";
+    c += "    }\n";
+    c += "    if (ep_tid < N_TILE_SLICES) {\n";
+    c += "      int w_sl = slice_tile_id * N_TILE_SLICES + ep_tid;\n";
+    c += "      if (w_sl < args.dst.Slices()) {\n";
+    c += "        float4 ws = args.weights_scale.Read<float>(w_sl);\n";
+    c += "        float4 wm = ucl::Convert<float4>(args.weights_sum.Read(w_sl));\n";
+    c += "        tg_w_scale4[ep_tid] = ws;\n";
+    c += "        tg_w_ssum4[ep_tid] = ws * wm;\n";
+    if (params_.dequant_has_zero_point) {
+      c += "        tg_w_zp4[ep_tid] = args.weights_zero_point.Read<float>(w_sl);\n";
+    }
+    c += "      } else {\n";
+    c += "        tg_w_scale4[ep_tid] = float4(0.0f);\n";
+    c += "        tg_w_ssum4[ep_tid] = float4(0.0f);\n";
+    if (params_.dequant_has_zero_point) {
+      c += "        tg_w_zp4[ep_tid] = float4(0.0f);\n";
+    }
+    c += "      }\n";
+    c += "    }\n";
+    c += "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    c += "    threadgroup OUT_SCALAR tmp_h[N_TILE * STRIP_M];\n";
+    c += "    threadgroup OUT_VEC4* tmp_h_x4 = (threadgroup OUT_VEC4*)(tmp_h);\n";
+    c += "    int ep_sub_m = ep_tid % STRIP_M;\n";
+    c += "    int ep_sub_s = ep_tid / STRIP_M;\n";
+    c += "    int ep_spw = WG_SIZE / STRIP_M;\n";
+    c += "    #pragma unroll_full\n";
+    c += "    for (int m_base = 0; m_base < M_TILE; m_base += STRIP_M) {\n";
+    c += "      if (m_base > 0) threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    c += "      #pragma unroll_full\n";
+    c += "      for (uint16_t i = 0; i < c_tile.get_capacity(); ++i) {\n";
+    c += "        if (c_tile.is_valid_element(i)) {\n";
+    c += "          auto coord = c_tile.get_multidimensional_index(i);\n";
+    c += "          int lm = coord[1] - m_base;\n";
+    c += "          if (lm >= 0 && lm < STRIP_M) {\n";
+    c += "            int n = coord[0];\n";
+    c += "            int m = coord[1];\n";
+    c += "            float res = float(c_tile[i]) * (tg_w_scale[n] * tg_s_scale[m]) + tg_s_zp[m] * tg_w_ssum[n];\n";
+    if (params_.dequant_has_zero_point) {
+      c += "            res += tg_s_zp_term[m] * tg_w_zp[n];\n";
+    }
+    c += "            tmp_h[lm * N_TILE + n] = ucl::Convert<OUT_SCALAR>(res);\n";
+    c += "          }\n";
+    c += "        }\n";
+    c += "      }\n";
+    c += "      threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    c += "      int ep_row = spatial_tile_id * M_TILE + m_base + ep_sub_m;\n";
+    c += EmitRowCoords(params_, dst_has_batch, "ep_row", "ep", "      ");
+    c += "      if (ep_ok) {\n";
+    c += "        for (int i = 0; i < N_TILE_SLICES / ep_spw; ++i) {\n";
+    c += "          int tile_n_id = i * ep_spw + ep_sub_s;\n";
+    c += "          int slice_id = slice_tile_id * N_TILE_SLICES + tile_n_id;\n";
+    c += "          if (slice_id < args.dst.Slices()) {\n";
+    c += "            OUT_VEC4 res_value = tmp_h_x4[ep_sub_m * N_TILE_SLICES + tile_n_id];\n";
+    std::string ep_coords = "ep_w, ep_h, slice_id";
+    if (dst_has_batch) {
+      ep_coords += ", ep_b";
+    }
+    c += "            args.dst.Write(res_value, " + ep_coords + ");\n";
+    c += "          }\n";
+    c += "        }\n";
+    c += "      }\n";
+    c += "    }\n";
+    c += "  }\n";
+  } else if (manual_src_reading && !params_.has_dequant &&
+             (m_tile_ % strip_m == 0) && (m_tile_ > strip_m) &&
+             (n_tile_ % 16 == 0)) {
+    // PV attention (a_loc 4 KiB + tmp 8 KiB = 12 KiB -> 2 TG/core instead of
+    // 20 KiB -> 1 TG/core cap).
+    c += "  {\n";
+    c += "    threadgroup OUT_SCALAR tmp_h[N_TILE * STRIP_M];\n";
+    c += "    threadgroup OUT_VEC4* tmp_h_x4 = (threadgroup OUT_VEC4*)(tmp_h);\n";
+    c += "    int ep_tid = ucl::GetLocalId<0>();\n";
+    c += "    int ep_sub_m = ep_tid % STRIP_M;\n";
+    c += "    int ep_sub_s = ep_tid / STRIP_M;\n";
+    c += "    int ep_spw = WG_SIZE / STRIP_M;\n";
+    c += "    #pragma unroll_full\n";
+    c += "    for (int m_base = 0; m_base < M_TILE; m_base += STRIP_M) {\n";
+    c += "      if (m_base > 0) threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    c += "      #pragma unroll_full\n";
+    c += "      for (uint16_t i = 0; i < c_tile.get_capacity(); ++i) {\n";
+    c += "        if (c_tile.is_valid_element(i)) {\n";
+    c += "          auto coord = c_tile.get_multidimensional_index(i);\n";
+    c += "          int lm = coord[1] - m_base;\n";
+    c += "          if (lm >= 0 && lm < STRIP_M) {\n";
+    c += "            tmp_h[lm * N_TILE + coord[0]] = c_tile[i];\n";
+    c += "          }\n";
+    c += "        }\n";
+    c += "      }\n";
+    c += "      threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+    c += "      int ep_row = spatial_tile_id * M_TILE + m_base + ep_sub_m;\n";
+    c += EmitRowCoords(params_, dst_has_batch, "ep_row", "ep", "      ");
+    c += "      if (ep_ok) {\n";
+    c += "        for (int i = 0; i < N_TILE_SLICES / ep_spw; ++i) {\n";
+    c += "          int tile_n_id = i * ep_spw + ep_sub_s;\n";
+    c += "          int slice_id = slice_tile_id * N_TILE_SLICES + tile_n_id;\n";
+    c += "          if (slice_id < args.dst.Slices()) {\n";
+    c += "            OUT_VEC4 res_value = tmp_h_x4[ep_sub_m * N_TILE_SLICES + tile_n_id];\n";
+    if (params_.has_bias) {
+      c += "            res_value += args.biases.Read(slice_id);\n";
+    }
+    std::string ep_coords = "ep_w, ep_h, slice_id";
+    if (dst_has_batch) {
+      ep_coords += ", ep_b";
+    }
+    c += "            args.dst.Write(res_value, " + ep_coords + ");\n";
+    c += "          }\n";
+    c += "        }\n";
+    c += "      }\n";
+    c += "    }\n";
+    c += "  }\n";
+  } else {
+    c += R"(
+  threadgroup ACCUM_SCALAR tmp[N_TILE * M_TILE];
   auto c_local = tensor(tmp, dextents<int, 2>(N_TILE, M_TILE));
   c_tile.store(c_local);
   threadgroup_barrier(mem_flags::mem_threadgroup);
 
-  threadgroup args.dst::type* tmp_x4 = (threadgroup args.dst::type*)(tmp);
+  threadgroup ACCUM_VEC4* tmp_x4 = (threadgroup ACCUM_VEC4*)(tmp);
 )";
-  const std::string oob_check = params_.batched_weights
-                                    ? "dst_w >= args.dst.Width()"
-                                    : "dst_h >= args.dst.Height()";
-  c += "  if (" + oob_check + ") return;\n";
-  if (params_.runtime_check.packed_groups.has_value()) {
-    c += "  if (dst_w >= w_group_offset + w_group_size) return;\n";
-  }
-  c += R"(
+    const std::string oob_check = params_.batched_weights
+                                      ? "dst_w >= args.dst.Width()"
+                                      : "dst_h >= args.dst.Height()";
+    c += "  if (" + oob_check + ") return;\n";
+    if (params_.runtime_check.packed_groups.has_value()) {
+      c += "  if (dst_w >= w_group_offset + w_group_size) return;\n";
+    }
+    if (params_.has_dequant) {
+      std::string p_coords = "dst_w, dst_h, 0";
+      if (params_.dequant_params_has_batch) {
+        p_coords += ", dst_b";
+      }
+      c += "  float4 src_params = args.params_tensor.Read<float>(" + p_coords +
+           ");\n";
+      c += "  float src_scale = src_params.x;\n";
+      c += "  float src_zero_point = src_params.y;\n";
+      if (params_.dequant_has_zero_point) {
+        c += "  float src_sum = src_params.z;\n";
+      }
+    }
+    c += R"(
   for (int i = 0; i < N_TILE_SLICES / slices_per_wg; ++i) {
     int tile_n_id = i * slices_per_wg + sub_slice_id;
     int slice_id = slice_tile_id * N_TILE_SLICES + tile_n_id;
+    if (slice_id < args.dst.Slices()) {
 )";
-  c += "    if (slice_id < args.dst.Slices()) {\n";
-  c += "      args.dst::type res_value = tmp_x4[sub_spatial_id * N_TILE_SLICES "
-       "+ "
-       "tile_n_id];\n";
-  if (params_.has_bias) {
-    c += "      res_value += args.biases.Read(slice_id);\n";
+    if (params_.has_dequant) {
+      c += "      float4 resf32 = ucl::Convert<float4>(tmp_x4[sub_spatial_id * "
+           "N_TILE_SLICES + tile_n_id]);\n";
+      c += "      float4 weights_scale = "
+           "args.weights_scale.Read<float>(slice_id);\n";
+      c += "      resf32 *= weights_scale * src_scale;\n";
+      c += "      float4 weights_sum = "
+           "ucl::Convert<float4>(args.weights_sum.Read(slice_id));\n";
+      c += "      resf32 += weights_scale * src_zero_point * weights_sum;\n";
+      if (params_.dequant_has_zero_point) {
+        c += "      float4 weights_zero_point = "
+             "args.weights_zero_point.Read<float>(slice_id);\n";
+        c += "      resf32 += src_scale * weights_zero_point * src_sum;\n";
+        c += "      resf32 += src_zero_point * weights_zero_point * "
+             "args.in_channels;\n";
+      }
+      c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(resf32);\n";
+    } else {
+      c += "      OUT_VEC4 res_value = tmp_x4[sub_spatial_id * N_TILE_SLICES + "
+           "tile_n_id];\n";
+      if (params_.has_bias) {
+        c += "      res_value += args.biases.Read(slice_id);\n";
+      }
+    }
+    std::string coords = "dst_w, dst_h, slice_id";
+    if (dst_has_batch) {
+      coords += ", dst_b";
+    }
+    c += "      args.dst.Write(res_value, " + coords + ");\n";
+    c += "    }\n";
+    c += "  }\n";
   }
-  std::string coords = "dst_w, dst_h, slice_id";
-  if (has_batch) {
-    coords += ", dst_b";
-  }
-  c += "      args.dst.Write(res_value, " + coords + ");\n";
-  c += "    }\n";
-  c += "  }\n";
   c += "}\n";
   const std::string type =
       params_.weights_data_type == DataType::kFloat16 ? "half" : "int8_t";
@@ -488,12 +829,17 @@ MAIN_FUNCTION($0) {
   absl::StrReplaceAll(
       {
           {"M_TILE", std::to_string(m_tile_)},
-          {"N_TILE", std::to_string(n_tile_)},
+          {"STRIP_M", std::to_string(strip_m)},
           {"N_TILE_SLICES", std::to_string(n_tile_ / 4)},
-          {"K_TILE", std::to_string(k_tile)},
+          {"N_TILE", std::to_string(n_tile_)},
           {"K_TILE_SLICES", std::to_string(k_tile / 4)},
+          {"K_TILE", std::to_string(k_tile)},
           {"SIMDGROUPS", std::to_string(simdgroups_)},
           {"WG_SIZE", std::to_string(32 * simdgroups_)},
+          {"ACCUM_SCALAR", ToUclDataType(accum_type, 1)},
+          {"ACCUM_VEC4", ToUclDataType(accum_type, 4)},
+          {"OUT_SCALAR", ToUclDataType(out_type, 1)},
+          {"OUT_VEC4", ToUclDataType(out_type, 4)},
           {"Type", ToUclDataType(DataType::kFloat16, 4)},
           {"SType", type},
           {"SPATIAL_SIZE", spatial_size},
@@ -503,19 +849,14 @@ MAIN_FUNCTION($0) {
   return c;
 }
 
-// Tile size M(64)xN(128) shows better and more stable performance on big convs.
-// This include:
-//   square size (src_ch == dst_ch = spatial) (2048x2048 -> 2048x2048)
-//   longer src_ch (src_ch > dst_ch) (1024x(1536 * 8) -> 1024x1536)
-//   longer dst_ch (dst_ch > src_ch) (1024x1536 -> 1024x(1536 * 8))
 ConvAppleMPP::ConvAppleMPP(const TensorDescriptor& src,
                            const ConvParams& params, int m_tile, int n_tile)
     : params_(params), m_tile_(m_tile), n_tile_(n_tile), simdgroups_(4) {
+  src.CopyWithoutData(&src_desc_);
   work_group_size_ = int3(32 * simdgroups_, 1, 1);
   if (params_.weights_shape.o % 128 != 0) {
     n_tile_ = 64;
   }
-  code_ = GetKernelCode(src);
 }
 
 int3 ConvAppleMPP::GetGridSize() const {
@@ -745,13 +1086,15 @@ ConvAppleMPP CreateConvAppleMPPInt8(
 
 ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
                                     const TensorDescriptor& dst,
-                                    const OHWI& weights_shape) {
+                                    const OHWI& weights_shape,
+                                    const ConvAppleMPPDequantParams* dequant) {
   ConvAppleMPP::ConvParams params;
   params.weights_desc.layout = WeightsLayout::kUnknown;
   params.weights_data_type = DataType::kInt8;
   params.weights_shape = weights_shape;
   params.has_bias = false;
   params.batched_weights = weights_shape.h != 1;
+  ApplyDequantParams(params, dst, dequant);
 
   ConvAppleMPP conv(src, params);
   conv.AddSrcTensor("src", src);
@@ -761,13 +1104,15 @@ ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
   weights_desc.element_type = DataType::kInt8;
   weights_desc.element_size = 1;
   conv.AddSrcBuffer("weights", weights_desc);
+  AttachDequantArgs(conv, dequant);
   return conv;
 }
 
 // Creates an Apple MPP convolution operation with INT8 external weights.
 ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
                                     const TensorDescriptor& dst,
-                                    const ExternalWeights& weights) {
+                                    const ExternalWeights& weights,
+                                    const ConvAppleMPPDequantParams* dequant) {
   ConvAppleMPP::ConvParams params;
   params.weights_desc.layout = WeightsLayout::kUnknown;
   params.weights_data_type = DataType::kInt8;
@@ -775,6 +1120,7 @@ ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
   params.has_bias = false;
   params.batched_weights = weights.shape.h != 1;
   params.weights_desc = weights.desc;
+  ApplyDequantParams(params, dst, dequant);
 
   ConvAppleMPP conv(src, params, /*m_tile=*/64, /*n_tile=*/64);
   conv.AddSrcTensor("src", src);
@@ -782,9 +1128,10 @@ ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
 
   BufferDescriptor weights_desc;
   weights_desc.element_type = DataType::kUint32;
-  weights_desc.element_size = 2;
+  weights_desc.element_size = SizeInBitsOf(weights.desc.type) / 2;
   weights_desc.memory_type = MemoryType::kGlobal;
   conv.AddSrcBuffer("weights", weights_desc);
+  AttachDequantArgs(conv, dequant);
   return conv;
 }
 

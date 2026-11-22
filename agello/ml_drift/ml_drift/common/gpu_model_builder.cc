@@ -1328,35 +1328,49 @@ GpuModelBuilder::FullyConnectedInt8QuantizedWithSrcQuantization(
     const TensorDescriptor* zero_point_desc =
         weights.zero_point.has_value() ? &weights.zero_point->tensor_desc
                                        : nullptr;
-    // Agello (PERFORMANCE.md, D1, first step): on runs of up to 128 rows, read
-    // the INT4 weights where they are (the decode layout) and expand them to
-    // INT8 in the kernel, instead of a WeightsConversion node that rewrites
-    // every weight to INT8 on every run (28 % of a 128-token prefill run on
-    // the M6). The expansion gives the value the converter writes (the nibble
-    // less 8), and the products accumulate in INT32, so the result is the
-    // same; a zero-point tensor is the dequantization's to apply either way
-    // (the converter ignores it for INT8). Larger runs keep the converted
-    // weights: there each weight tile would be expanded once per 64 rows.
     const ExternalWeights external_weights = ToExternalWeights(weights);
     const int src_rows = src_shape.b * src_shape.h * src_shape.w;
-    if (src_rows <= 128 && weights.desc.type == DataType::kUint4 &&
-        SupportsConvAppleMPP(gpu_info_, external_weights)) {
-      conv_int8 = std::make_unique<ConvAppleMPP>(CreateConvAppleMPPInt8(
-          op_def.src_tensors[0], op_def.dst_tensors[0], external_weights));
-      conv_weights_desc = weights.desc;  // read in place: no conversion node
+    bool built_in_dequant = false;
+    if (SupportsConvAppleMPP(gpu_info_)) {
+      ConvAppleMPPDequantParams dequant;
+      dequant.src_params = &src_params.tensor_desc;
+      dequant.weights_sum = &weights.sum_i->tensor_desc;
+      dequant.weights_scale = &weights.scale->tensor_desc;
+      dequant.weights_zero_point = zero_point_desc;
+      dequant.in_channels = weights.shape.i;
+      // On runs of up to 128 rows, read INT4 weights in place (decode layout)
+      // and expand to INT8 in the kernel instead of running a separate
+      // WeightsConversion node. Larger runs (and UINT8 weights, which beat
+      // K=32 in-place expansion when pre-converted) keep pre-converted INT8.
+      if (src_rows <= 128 && weights.desc.type == DataType::kUint4 &&
+          SupportsConvAppleMPP(gpu_info_, external_weights)) {
+        conv_int8 = std::make_unique<ConvAppleMPP>(CreateConvAppleMPPInt8(
+            op_def.src_tensors[0], dst.tensor_desc, external_weights,
+            &dequant));
+        conv_weights_desc = weights.desc;  // read in place: no conversion node
+      } else {
+        auto conv = CreateConvAppleMPPInt8(op_def.src_tensors[0],
+                                           dst.tensor_desc, weights.shape,
+                                           &dequant);
+        conv_weights_desc = conv.GetWeightsDescription();
+        conv_int8 = std::make_unique<ConvAppleMPP>(std::move(conv));
+      }
+      built_in_dequant = true;
     } else {
       conv_int8 = SelectConvolutionInt8(gpu_info_, op_def, src_packed_type,
                                         weights.shape, dst_shape,
                                         &conv_weights_desc);
     }
 
-    auto dequant_op = CreateDequantization(
-        weights.shape, gpu_info_, interm_dst, dst.tensor_desc,
-        src_params.tensor_desc, weights.sum_i->tensor_desc,
-        weights.scale->tensor_desc, zero_point_desc);
-    auto s = conv_int8->AddOperation(gpu_info_, &dequant_op);
-    if (!s.ok()) {
-      ABSL_LOG(ERROR) << s.message();
+    if (!built_in_dequant) {
+      auto dequant_op = CreateDequantization(
+          weights.shape, gpu_info_, interm_dst, dst.tensor_desc,
+          src_params.tensor_desc, weights.sum_i->tensor_desc,
+          weights.scale->tensor_desc, zero_point_desc);
+      auto s = conv_int8->AddOperation(gpu_info_, &dequant_op);
+      if (!s.ok()) {
+        ABSL_LOG(ERROR) << s.message();
+      }
     }
   }
   const std::string dequant_name =
