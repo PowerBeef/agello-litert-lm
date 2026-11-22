@@ -8,11 +8,12 @@ edit, graph only (the weights are untouched):
   the largest multiple of 256 below it, and anything below on request): tensor shapes, the small
   INT32 shape constants, RESHAPE options, composite attributes (the global cache_update's
   cache_size), and the 0..32002 position constants of an unringed local window, rebuilt;
-- F2: the rotary block split reaches 256 blocks of 512. The block's phase is read with GATHER
-  from tables of 256 rows, indexed by h = FLOOR_DIV(p, 512), and the position within it is
-  l = FLOOR_MOD(p, 512), both in INT32: the candidates p - 512k it replaces were cast to float,
-  which on the GPU is float16, whose largest finite value is 65,504. The tables keep the +2 the
-  one-hot path stored, and l is the same value, so below 32,768 every result is the same.
+- F2: unshifted Dual-GATHER rotary tables covering 256 blocks of 512 (positions 0..131,071).
+  h = FLOOR_DIV(p, 512) and l = FLOOR_MOD(p, 512) in INT32 index precomputed FP64->FP32
+  sin/cos tables ([256, F] for 512*h, [512, F] for l, unshifted in [-1, 1], shared across
+  signatures), replacing the one-hot block path, the +2 shift/ADD(-2), and the FP16 l*freq
+  MUL/SIN/COS ops. Angle addition combines the four exact [-1, 1] lookups, cutting worst-case
+  binary16 rotary phase error ~240-300x (~0.237 rad -> <0.001 rad) across 0..131,071.
 
 Run it on a file with ring-buffer local caches (ring_kv.py): at 131,072 positions full-length
 local caches would take 2.7 GB more.
@@ -174,7 +175,15 @@ def patch_section(begin, end, kind):
     print(f"  F1: {shapes} tensor shapes, {consts} shape constants, {rebuilt} position runs rebuilt, "
           f"{reshapes} reshape options, {attrs} composite attributes: {OLD} -> {NEW}", flush=True)
 
-    # ---- F2: the rotary block split, per signature.
+    # ---- F2: unshifted Dual-GATHER rotary tables ([256, F] high + [512, F] low), per signature.
+    # Tables are shared across all signatures in the section via `table_buffers`.
+    table_buffers = {}
+
+    def shared_table_buffer(key, array):
+        if key not in table_buffers:
+            table_buffers[key] = add_buffer(array)
+        return table_buffers[key]
+
     signatures = [(s.signatureKey.decode(), s.subgraphIndex) for s in mt.signatureDefs] or [("main", 0)]
     for sig_name, index in signatures:
         g = mt.subgraphs[index]
@@ -210,58 +219,92 @@ def patch_section(begin, end, kind):
         N = int(g.tensors[pos4].shape[1])
         low4 = by_name["rope_position_low4"]
         low = by_name["rope_position_low"]
-        block_c = const("rope_block_size_i", np.full([1, 1, 1, 1], BLOCK, np.int32), S.TensorType.INT32)
-        l4 = tensor("rope_position_l4", S.TensorType.INT32, [1, N, 1, 1])
-        h4 = tensor("rope_position_h4", S.TensorType.INT32, [1, N, 1, 1])
-        h1 = tensor("rope_position_h", S.TensorType.INT32, [N])
-        h1_shape = const("rope_position_h_shape", np.array([N], np.int32), S.TensorType.INT32)
-        cast_o = S.CastOptionsT(); cast_o.inDataType, cast_o.outDataType = S.TensorType.INT32, S.TensorType.FLOAT32
-        reshape_h = S.ReshapeOptionsT(); reshape_h.newShape = [N]
-        new_low = [
-            op("FLOOR_MOD", [pos4, block_c], [l4], S.BuiltinOptions.FloorModOptions, S.FloorModOptionsT()),
-            op("CAST", [l4], [low4], S.BuiltinOptions.CastOptions, cast_o),
-            op("FLOOR_DIV", [pos4, block_c], [h4], S.BuiltinOptions.FloorDivOptions, S.FloorDivOptionsT()),
-            op("RESHAPE", [h4, h1_shape], [h1], S.BuiltinOptions.ReshapeOptions, reshape_h),
-        ]
-        # The one-hot path it replaces: candidates, the block test, its casts, select and max.
-        dead = {by_name[n] for n in ("rope_candidates", "rope_candidates_ge0", "rope_candidates_lt2048",
-                                     "rope_block_valid", "rope_block_onehot", "rope_candidates_f",
-                                     "rope_candidates_masked")}
-        dead.add(low4)
-        old_low = [o for o in g.operators if any(int(t) in dead for t in o.outputs)]
-        at = min(g.operators.index(o) for o in old_low)
-        for o in old_low:
-            g.operators.remove(o)
-        g.operators[at:at] = new_low
 
-        # Per frequency set: the +2 tables read with GATHER at h.
+        # Inspect frequency sets before mutating the operator list.
         muls = consumers(low)
         assert len(muls) == 2, f"{kind}/{sig_name}: expected 2 rotary MULs, found {len(muls)}"
-        tables = 0
+        freq_sets = []
         for mul in muls:
             inv = next(int(t) for t in mul.inputs if int(t) != low)
             freqs = np.frombuffer(raw(g.tensors[inv]), dtype=np.float32).astype(np.float64).reshape(-1)
             F = freqs.size
-            angles = np.outer(BLOCK * np.arange(BLOCKS), freqs)          # [BLOCKS, F]
-            for fn, label in ((np.sin, "sin"), (np.cos, "cos")):
-                r4 = by_name[f"rope_max4_{label}_{F}"]                   # [1, N, 1, F], was the +2 value
-                sel = by_name[f"rope_sel_{label}_{F}"]
-                red = by_name[f"rope_max_{label}_{F}"]
-                old = [o for o in g.operators if any(int(t) in (sel, red, r4) for t in o.outputs)]
-                at = min(g.operators.index(o) for o in old)
-                for o in old:
-                    g.operators.remove(o)
-                table = const(f"rope_rows2_{label}_{F}", (fn(angles) + 2).astype(np.float32), S.TensorType.FLOAT32)
-                rows = tensor(f"rope_rows_{label}_{F}", S.TensorType.FLOAT32, [N, F])
-                shape_c = const(f"rope_rows_shape_{label}_{F}", np.array([1, N, 1, F], np.int32), S.TensorType.INT32)
-                gather_o = S.GatherOptionsT(); gather_o.axis, gather_o.batchDims = 0, 0
-                reshape_o = S.ReshapeOptionsT(); reshape_o.newShape = [1, N, 1, F]
-                g.operators[at:at] = [
-                    op("GATHER", [table, h1], [rows], S.BuiltinOptions.GatherOptions, gather_o),
-                    op("RESHAPE", [rows, shape_c], [r4], S.BuiltinOptions.ReshapeOptions, reshape_o),
-                ]
-                tables += 1
-        print(f"  {sig_name}: rotary to {BLOCKS} blocks of {BLOCK} ({tables} tables read with GATHER)", flush=True)
+            mul_reshapes = consumers(int(mul.outputs[0]))
+            assert len(mul_reshapes) == 1 and code_of(mul_reshapes[0]) == S.BuiltinOperator.RESHAPE
+            trig = consumers(int(mul_reshapes[0].outputs[0]))
+            assert len(trig) == 2
+            sin_op = next(o for o in trig if code_of(o) == S.BuiltinOperator.SIN)
+            cos_op = next(o for o in trig if code_of(o) == S.BuiltinOperator.COS)
+            sin_l, cos_l = int(sin_op.outputs[0]), int(cos_op.outputs[0])
+            ts = by_name[f"rope_high_sin_{F}"]
+            tc = by_name[f"rope_high_cos_{F}"]
+            add_s, add_c = producer(ts), producer(tc)
+            assert code_of(add_s) == S.BuiltinOperator.ADD and code_of(add_c) == S.BuiltinOperator.ADD
+            assert len(consumers(sin_l)) == 2 and len(consumers(cos_l)) == 2
+            assert len(consumers(ts)) == 2 and len(consumers(tc)) == 2
+            freq_sets.append((freqs, F, mul, mul_reshapes[0], sin_op, cos_op, sin_l, cos_l, ts, tc))
+
+        block_c = const("rope_block_size_i", np.full([1, 1, 1, 1], BLOCK, np.int32), S.TensorType.INT32)
+        l4 = tensor("rope_position_l4", S.TensorType.INT32, [1, N, 1, 1])
+        l1 = tensor("rope_position_l", S.TensorType.INT32, [N])
+        l1_shape = const("rope_position_l_shape", np.array([N], np.int32), S.TensorType.INT32)
+        h4 = tensor("rope_position_h4", S.TensorType.INT32, [1, N, 1, 1])
+        h1 = tensor("rope_position_h", S.TensorType.INT32, [N])
+        h1_shape = const("rope_position_h_shape", np.array([N], np.int32), S.TensorType.INT32)
+        reshape_l = S.ReshapeOptionsT(); reshape_l.newShape = [N]
+        reshape_h = S.ReshapeOptionsT(); reshape_h.newShape = [N]
+        new_split = [
+            op("FLOOR_MOD", [pos4, block_c], [l4], S.BuiltinOptions.FloorModOptions, S.FloorModOptionsT()),
+            op("RESHAPE", [l4, l1_shape], [l1], S.BuiltinOptions.ReshapeOptions, reshape_l),
+            op("FLOOR_DIV", [pos4, block_c], [h4], S.BuiltinOptions.FloorDivOptions, S.FloorDivOptionsT()),
+            op("RESHAPE", [h4, h1_shape], [h1], S.BuiltinOptions.ReshapeOptions, reshape_h),
+        ]
+        # Replace the one-hot path and low-position float reshape with pure INT32 h1 and l1.
+        dead = {by_name[n] for n in ("rope_candidates", "rope_candidates_ge0", "rope_candidates_lt2048",
+                                     "rope_block_valid", "rope_block_onehot", "rope_candidates_f",
+                                     "rope_candidates_masked", "rope_position_low4", "rope_position_low")}
+        old_low = [o for o in g.operators if any(int(t) in dead for t in o.outputs)]
+        at = min(g.operators.index(o) for o in old_low)
+        for o in old_low:
+            g.operators.remove(o)
+        g.operators[at:at] = new_split
+
+        # Per frequency set: four unshifted GATHERs ([256, F] high + [512, F] low, sin & cos).
+        tables = 0
+        for freqs, F, mul, mul_reshape, sin_op, cos_op, sin_l, cos_l, ts, tc in freq_sets:
+            high_angles = np.outer(BLOCK * np.arange(BLOCKS), freqs)     # [BLOCKS, F] in FP64
+            low_angles = np.outer(np.arange(BLOCK), freqs)               # [BLOCK, F] in FP64
+            old_high_t = {by_name[f"rope_sel_{label}_{F}"] for label in ("sin", "cos")} | \
+                         {by_name[f"rope_max_{label}_{F}"] for label in ("sin", "cos")} | \
+                         {by_name[f"rope_max4_{label}_{F}"] for label in ("sin", "cos")} | \
+                         {ts, tc}
+            old_ops = [o for o in g.operators if any(int(t) in old_high_t for t in o.outputs)]
+            old_ops.extend([mul, mul_reshape, sin_op, cos_op])
+            for o in old_ops:
+                g.operators.remove(o)
+
+            # Insert right before the angle-addition ops consuming ts/tc/sin_l/cos_l.
+            angle_consumers = consumers(ts) + consumers(tc) + consumers(sin_l) + consumers(cos_l)
+            at = min(g.operators.index(o) for o in angle_consumers)
+            new_ops = []
+            for part, idx_t, angles, targets in (
+                ("high", h1, high_angles, (("sin", np.sin, ts), ("cos", np.cos, tc))),
+                ("low", l1, low_angles, (("sin", np.sin, sin_l), ("cos", np.cos, cos_l))),
+            ):
+                for label, fn, dst_t in targets:
+                    arr = fn(angles).astype(np.float32)
+                    buf = shared_table_buffer((part, label, F, freqs.tobytes()), arr)
+                    table = tensor(f"rope_{part}_{label}_table_{F}", S.TensorType.FLOAT32, list(arr.shape), buf)
+                    rows = tensor(f"rope_{part}_{label}_rows_{F}", S.TensorType.FLOAT32, [N, F])
+                    shape_c = const(f"rope_{part}_{label}_shape_{F}", np.array([1, N, 1, F], np.int32), S.TensorType.INT32)
+                    gather_o = S.GatherOptionsT(); gather_o.axis, gather_o.batchDims = 0, 0
+                    reshape_o = S.ReshapeOptionsT(); reshape_o.newShape = [1, N, 1, F]
+                    new_ops.extend([
+                        op("GATHER", [table, idx_t], [rows], S.BuiltinOptions.GatherOptions, gather_o),
+                        op("RESHAPE", [rows, shape_c], [dst_t], S.BuiltinOptions.ReshapeOptions, reshape_o),
+                    ])
+                    tables += 1
+            g.operators[at:at] = new_ops
+        print(f"  {sig_name}: Dual-GATHER rotary ({BLOCKS}x{BLOCK}, {tables} unshifted tables)", flush=True)
 
     def pack():
         builder = flatbuffers.Builder(graph_end + 2**22)
