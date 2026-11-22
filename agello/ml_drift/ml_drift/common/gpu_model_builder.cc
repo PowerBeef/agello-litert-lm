@@ -1349,9 +1349,21 @@ GpuModelBuilder::FullyConnectedInt8QuantizedWithSrcQuantization(
             &dequant));
         conv_weights_desc = weights.desc;  // read in place: no conversion node
       } else {
+        // On MSL 4.1, use native int2b_format for 2-bit weights (e.g. LM head
+        // when batched > 16 rows). For 4-bit weights on compute-bound M > 128,
+        // int8_t x int8_t runs ~25% faster than int8_t x int4b_format on
+        // Apple10/11 Neural Accelerators, so keep pre-converted INT8 with the
+        // bitwise SWAR converter.
+        DataType mpp_weights_type = DataType::kInt8;
+        if (gpu_info_.metal_info.IsMslVersionEqualOrHigher(4, 1) &&
+            weights.desc.layout == WeightsLayout::kOSpatialIOGroupI4O4 &&
+            weights.desc.type == DataType::kUint2 &&
+            weights.shape.i % 32 == 0 && weights.shape.o % 512 == 0) {
+          mpp_weights_type = DataType::kInt2;
+        }
         auto conv = CreateConvAppleMPPInt8(op_def.src_tensors[0],
                                            dst.tensor_desc, weights.shape,
-                                           &dequant);
+                                           &dequant, mpp_weights_type);
         conv_weights_desc = conv.GetWeightsDescription();
         conv_int8 = std::make_unique<ConvAppleMPP>(std::move(conv));
       }

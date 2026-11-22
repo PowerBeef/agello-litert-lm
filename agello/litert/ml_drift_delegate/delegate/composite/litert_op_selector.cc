@@ -194,6 +194,17 @@ absl::Status LiteRtOpSelector::GPUOperationFromNode(
     return CreateBoundedSoftmaxReduceFromNode(reduce_inputs, outputs, node,
                                               model_builder);
   }
+  if (node.operation.type == kFlashAttentionType) {
+    std::vector<::ml_drift::Value*> flash_inputs = inputs;
+    if (inputs.size() == 5) {
+      ParamTensorToBuffer(4, inputs, model_builder);
+      if (replaced_tensors_.contains(inputs[4]->id)) {
+        flash_inputs[4] = replaced_tensors_[inputs[4]->id].get();
+      }
+    }
+    return CreateFlashAttentionFromNode(flash_inputs, outputs, node,
+                                        model_builder);
+  }
   if (node.operation.type == kRuntimeBatchedMatMulType) {
     std::vector<::ml_drift::Value*> bmm_inputs = inputs;
     if (inputs.size() > 2) {

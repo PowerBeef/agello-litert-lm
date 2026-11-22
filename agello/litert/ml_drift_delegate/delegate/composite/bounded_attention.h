@@ -48,6 +48,24 @@ constexpr const char kMaskBoundsType[] = "agello_mask_bounds";
 // Agello (engine review, step 4): whether each row keeps any key (bound > 0), the flag the graph
 // made from the mask by REDUCE_MAXIMUM; boolean, one per chunk row ([1, R, 1, 1] or [1, 1, R, 1]).
 constexpr const char kBoundsFlagType[] = "agello_bounds_flag";
+// Agello (P2.3): fused MSL 4.1 cooperative-tensor FlashAttention over the INT8 KV cache.
+// Inputs: [Q, cache_k, cache_v, mask_or_bounds, params] -> out.
+constexpr const char kFlashAttentionType[] = "agello_flash_attention";
+
+struct FlashAttentionAttributes {
+  int head_dim = 0;
+  int kv_heads = 0;
+  int cache_size = 0;
+  float scale_k = 1.0f;
+  float scale_v = 1.0f;
+  float mask_value = -10000.0f;
+  std::optional<float> clamp_low;
+  std::optional<float> clamp_high;
+  int end_ch_index = 2;
+  std::optional<int> window_pos_index;
+  int window_size = 0;
+  bool row_end = false;
+};
 
 // out = mask ? clamp(logits, clamp_low, clamp_high) : mask_value, with the
 // logits as the first input so the op links into their producer.
@@ -99,8 +117,13 @@ bool SliceAttentionEnabled();
 // AGELLO_MASK_BOUNDS=0 (for A/B measurements). Part of the program cache key.
 bool MaskBoundsEnabled();
 
+// Agello (P2.3): whether prefill attention tails fuse into MSL 4.1 FlashAttention:
+// yes unless AGELLO_FLASH_ATTENTION=0 (for A/B measurements). Part of the program cache key.
+bool FlashAttentionEnabled();
+
 // Rewrites every matching attention tail; returns how many it rewrote.
-absl::StatusOr<int> FuseBoundedAttentionSoftmax(::ml_drift::GraphFloat32* graph);
+absl::StatusOr<int> FuseBoundedAttentionSoftmax(::ml_drift::GraphFloat32* graph,
+                                                bool enable_flash_attention = false);
 
 }  // namespace litert::ml_drift
 

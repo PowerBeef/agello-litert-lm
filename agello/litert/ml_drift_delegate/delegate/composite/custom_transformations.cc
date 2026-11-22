@@ -32,7 +32,8 @@ namespace litert::ml_drift {
 
 absl::Status ApplyCustomTransformations(
     ::ml_drift::GraphFloat32* graph,
-    const MlDriftDelegateOptions& options) {
+    const MlDriftDelegateOptions& options,
+    const ::ml_drift::GpuInfo* gpu_info) {
   // Sequentially apply independent graph fusions. Both passes can run on
   // hybrid models containing both attention and convolution blocks.
   if (options.enable_qkv_norm_rope_fusion) {
@@ -42,13 +43,20 @@ absl::Status ApplyCustomTransformations(
     ABSL_RETURN_IF_ERROR(FuseShortConvStep(graph));
   }
   ABSL_RETURN_IF_ERROR(FuseSdpaTransposedReshape(graph));
-  // Agello (T4): bound attention select and softmax to the filled KV length.
+  // Agello (T4 / P2.3): bound attention select and softmax to the filled KV length,
+  // and fuse prefill attention tails into MSL 4.1 FlashAttention on Apple10+ Metal.
   if (BoundedAttentionEnabled()) {
     const std::optional<int> window = FindSlidingWindow(*graph);
-    ABSL_ASSIGN_OR_RETURN(const int rewritten, FuseBoundedAttentionSoftmax(graph));
+    const bool enable_flash =
+        gpu_info != nullptr && gpu_info->IsApple() && gpu_info->IsApiMetal() &&
+        gpu_info->apple_info.gpu_family >= ::ml_drift::AppleInfo::Family::kApple10 &&
+        gpu_info->metal_info.IsMslVersionEqualOrHigher(4, 1);
+    ABSL_ASSIGN_OR_RETURN(const int rewritten,
+                          FuseBoundedAttentionSoftmax(graph, enable_flash));
     if (rewritten > 0) {
       ABSL_LOG(INFO) << "Bounded " << rewritten << " attention softmaxes to the filled KV length"
                      << (window ? ", local layers to a window of " + std::to_string(*window) : "")
+                     << (enable_flash && FlashAttentionEnabled() ? " (MSL 4.1 FlashAttention)" : "")
                      << ".";
     }
   }

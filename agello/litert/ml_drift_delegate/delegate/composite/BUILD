@@ -527,14 +527,18 @@ cc_library(
     deps = [
         ":runtime_batched_matmul_parser",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@ml_drift//ml_drift/common:data_type",
         "@ml_drift//ml_drift/common:model",
         "@ml_drift//ml_drift/common:operations",
         "@ml_drift//ml_drift/common:shape",
+        "@ml_drift//ml_drift/common:tensor",
+        "@ml_drift//ml_drift/common/task:weights_layout",
     ],
 )
 
@@ -549,6 +553,8 @@ cc_test(
         "@ml_drift//ml_drift/common:model",
         "@ml_drift//ml_drift/common:operations",
         "@ml_drift//ml_drift/common:shape",
+        "@ml_drift//ml_drift/common:tensor",
+        "@ml_drift//ml_drift/common/task:weights_layout",
     ],
 )
 
@@ -560,9 +566,19 @@ cc_library(
         ":bounded_attention",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/strings",
+        "@ml_drift//ml_drift/common:data_type",
+        "@ml_drift//ml_drift/common:gpu_info",
         "@ml_drift//ml_drift/common:gpu_model_builder",
+        "@ml_drift//ml_drift/common:kernel_info",
         "@ml_drift//ml_drift/common:model",
+        "@ml_drift//ml_drift/common:shape",
+        "@ml_drift//ml_drift/common:types",
+        "@ml_drift//ml_drift/common:util",
+        "@ml_drift//ml_drift/common/task:buffer_desc",
         "@ml_drift//ml_drift/common/task:gpu_operation",
+        "@ml_drift//ml_drift/common/task:tensor_desc",
+        "@ml_drift//ml_drift/common/task:tuning_type",
     ],
 )
 
@@ -579,6 +595,7 @@ cc_library(
         "//ml_drift_delegate/delegate:delegate_options",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
+        "@ml_drift//ml_drift/common:gpu_info",
         "@ml_drift//ml_drift/common:ir_model",
         "@ml_drift//ml_drift/common:model",
     ],

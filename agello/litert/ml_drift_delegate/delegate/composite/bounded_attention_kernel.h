@@ -49,6 +49,12 @@ absl::Status CreateBoundedSoftmaxReduceFromNode(const std::vector<::ml_drift::Va
                                                 const ::ml_drift::Node& node,
                                                 ::ml_drift::GpuModelBuilder* model_builder);
 
+// kFlashAttentionType: inputs [Q, cache_k, cache_v, mask_or_bounds, params (buffer storage)].
+absl::Status CreateFlashAttentionFromNode(const std::vector<::ml_drift::Value*>& inputs,
+                                          const std::vector<::ml_drift::Value*>& outputs,
+                                          const ::ml_drift::Node& node,
+                                          ::ml_drift::GpuModelBuilder* model_builder);
+
 }  // namespace litert::ml_drift
 
 #endif  // ML_DRIFT_DELEGATE_DELEGATE_COMPOSITE_BOUNDED_ATTENTION_KERNEL_H_

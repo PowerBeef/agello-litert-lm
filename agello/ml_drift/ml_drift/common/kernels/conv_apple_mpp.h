@@ -204,11 +204,13 @@ ConvAppleMPP CreateConvAppleMPPInt8(
     const TensorDescriptor& src, const TensorDescriptor& dst,
     const Tensor<OHWI, DataType::kInt8>& weights);
 
-// Creates an Apple MPP convolution operation with INT8 external weights.
+// Creates an Apple MPP convolution operation with INT8/INT4/INT2 external
+// weights (INT4/INT2 use MSL 4.1 int4b_format/int2b_format TensorOps).
 ConvAppleMPP CreateConvAppleMPPInt8(
     const TensorDescriptor& src, const TensorDescriptor& dst,
     const OHWI& weights_shape,
-    const ConvAppleMPPDequantParams* dequant = nullptr);
+    const ConvAppleMPPDequantParams* dequant = nullptr,
+    DataType weights_data_type = DataType::kInt8);
 
 // Creates an Apple MPP convolution operation with INT8 external weights.
 ConvAppleMPP CreateConvAppleMPPInt8(

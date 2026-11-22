@@ -22,6 +22,8 @@
 #include "ml_drift/common/model.h"  // from @ml_drift
 #include "ml_drift/common/operations.h"  // from @ml_drift
 #include "ml_drift/common/shape.h"  // from @ml_drift
+#include "ml_drift/common/task/weights_layout.h"  // from @ml_drift
+#include "ml_drift/common/tensor.h"  // from @ml_drift
 #include "ml_drift_delegate/delegate/composite/runtime_batched_matmul_parser.h"
 
 namespace litert::ml_drift {
@@ -354,6 +356,87 @@ TEST(BoundedAttentionTest, GlobalLayersReadEveryFilledKey) {
   const auto& reduce =
       std::any_cast<const BoundedSoftmaxReduceAttributes&>(a.softmax->operation.attributes);
   EXPECT_FALSE(reduce.window_pos_index.has_value());
+}
+
+TEST(BoundedAttentionTest, FusesPrefillTailIntoFlashAttentionWhenEnabled) {
+  auto build_int8_prefill = [](Attention& a, int rows, int head_dim, int keys, bool is_global) {
+    GraphFloat32& g = a.graph;
+    Value* q = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, head_dim));
+    Value* k = NewValue(g, DataType::kUint8, BHWC(1, 2, keys, head_dim));
+    a.v = NewValue(g, DataType::kUint8, BHWC(1, 2, head_dim, keys));
+    a.params = NewValue(g, DataType::kInt32, BHWC(1, 1, 1, 7));
+    a.mask = NewValue(g, DataType::kBool, BHWC(1, 1, rows, keys));
+    a.logits = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
+
+    RuntimeBatchedMatMulAttributes qk_attr;
+    qk_attr.runtime_check.dst_end_ch_index = 2;
+    qk_attr.is_global = is_global;
+    ExternalWeightsAttributes k_ext;
+    k_ext.weights_shape = ::ml_drift::OHWI(keys, 2, 1, head_dim);
+    k_ext.desc.type = DataType::kUint8;
+    k_ext.desc.layout = ::ml_drift::WeightsLayout::kOSpatialIOGroupO4I4;
+    k_ext.desc.output_group_size = keys / 4;
+    qk_attr.external_weights = k_ext;
+    ::ml_drift::Tensor<::ml_drift::Linear, DataType::kFloat32> scale_k;
+    scale_k.shape = ::ml_drift::Linear(keys);
+    scale_k.data = std::vector<float>(keys, 0.05f);
+    qk_attr.scale = scale_k;
+    NewNode(g, kRuntimeBatchedMatMulType, {q, k, a.params}, a.logits)->operation.attributes =
+        qk_attr;
+
+    Value* fill = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 1));
+    Node* constant = g.NewNode();
+    constant->operation.type = ToString(OperationType::kConstant);
+    g.SetProducer(constant->id, fill->id);
+    a.selected = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
+    a.select = NewNode(g, ToString(OperationType::kSelectV2), {a.mask, a.logits, fill}, a.selected);
+    a.probabilities = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, keys));
+    a.softmax = NewNode(g, ToString(OperationType::kSoftmax), {a.selected}, a.probabilities);
+    a.softmax->operation.attributes = ::ml_drift::SoftmaxAttributes{::ml_drift::Axis::kChannels};
+
+    a.out = NewValue(g, DataType::kFloat32, BHWC(1, 2, rows, head_dim));
+    RuntimeBatchedMatMulAttributes pv_attr;
+    pv_attr.runtime_check.src_end_ch_index = 2;
+    ExternalWeightsAttributes v_ext;
+    v_ext.weights_shape = ::ml_drift::OHWI(head_dim, 2, 1, keys);
+    v_ext.desc.type = DataType::kUint8;
+    v_ext.desc.layout = ::ml_drift::WeightsLayout::kOSpatialIOGroupI4O4;
+    v_ext.desc.output_group_size = head_dim / 4;
+    pv_attr.external_weights = v_ext;
+    ::ml_drift::Tensor<::ml_drift::Linear, DataType::kFloat32> scale_v;
+    scale_v.shape = ::ml_drift::Linear(head_dim);
+    scale_v.data = std::vector<float>(head_dim, 0.02f);
+    pv_attr.scale = scale_v;
+    a.pv = NewNode(g, kRuntimeBatchedMatMulType, {a.probabilities, a.v, a.params}, a.out);
+    a.pv->operation.attributes = pv_attr;
+  };
+
+  // Prefill D=256 local tail collapses into one kFlashAttentionType node (no SliceRows).
+  Attention local_prefill;
+  build_int8_prefill(local_prefill, /*rows=*/4096, /*head_dim=*/256, /*keys=*/32768,
+                     /*is_global=*/false);
+  const auto rewritten = FuseBoundedAttentionSoftmax(&local_prefill.graph,
+                                                     /*enable_flash_attention=*/true);
+  ASSERT_TRUE(rewritten.ok()) << rewritten.status();
+  EXPECT_EQ(*rewritten, 1);
+  EXPECT_EQ(local_prefill.graph.nodes().size(), 1u);
+  const Node* flash = local_prefill.graph.FindProducer(local_prefill.out->id);
+  ASSERT_NE(flash, nullptr);
+  EXPECT_EQ(flash->operation.type, kFlashAttentionType);
+  EXPECT_EQ(local_prefill.graph.FindInputs(flash->id).size(), 5u);
+  const auto& fattr = std::any_cast<const FlashAttentionAttributes&>(flash->operation.attributes);
+  EXPECT_EQ(fattr.head_dim, 256);
+  EXPECT_EQ(fattr.kv_heads, 2);
+  EXPECT_EQ(fattr.cache_size, 32768);
+  EXPECT_FLOAT_EQ(fattr.scale_k, 0.05f);
+  EXPECT_FLOAT_EQ(fattr.scale_v, 0.02f);
+  EXPECT_FALSE(fattr.row_end);
+
+  // Decode tail (rows=4 < 256) stays on bounded QK -> mask -> reduce -> PV.
+  Attention decode;
+  build_int8_prefill(decode, /*rows=*/4, /*head_dim=*/256, /*keys=*/32768, /*is_global=*/false);
+  ASSERT_EQ(*FuseBoundedAttentionSoftmax(&decode.graph, /*enable_flash_attention=*/true), 1);
+  EXPECT_EQ(decode.graph.nodes().size(), 4u);
 }
 
 }  // namespace

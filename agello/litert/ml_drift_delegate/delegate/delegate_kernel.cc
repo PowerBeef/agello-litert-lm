@@ -291,7 +291,7 @@ absl::Status DelegateKernel::InitializeGraphFloat32(
       tensor_to_external_buffer_id_map, &custom_parser_factory));
 
   ABSL_RETURN_IF_ERROR(::litert::ml_drift::ApplyCustomTransformations(
-      &graph, *delegate_data_->options));
+      &graph, *delegate_data_->options, &gpu_info));
 
   const TfLiteIntArray* input_tensors = delegate_params->input_tensors;
   const std::vector<::ml_drift::Value*> inputs =
@@ -865,7 +865,8 @@ std::string DelegateKernel::ComputeOptionsFingerprint() const {
     absl::StrAppend(&options_fingerprint, "|agello-bounded-attention-2",
                     BoundedWindowEnabled() ? "" : "-nowindow",
                     SliceAttentionEnabled() ? "-sliced" : "",
-                    MaskBoundsEnabled() ? "-bounds-prefill" : "");
+                    MaskBoundsEnabled() ? "-bounds-prefill" : "",
+                    FlashAttentionEnabled() ? "-flash41-v3" : "");
     // Agello (D2 sweep): the score-slice limit, the x V tile and the drafter's window change
     // the program.
     for (const char* name : {"AGELLO_SLICE_SCORE_MB", "AGELLO_PV_TILE", "AGELLO_DRAFTER_WINDOW"}) {

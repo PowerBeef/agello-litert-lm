@@ -215,9 +215,12 @@ std::string ConvAppleMPP::GetKernelCode(const TensorDescriptor& src,
       manual_k_tiling ? 32 : AlignByN(params_.weights_shape.i, 4);
   const bool has_batch = src.HasAxis(Axis::kBatch);
   const bool dst_has_batch = dst.HasAxis(Axis::kBatch);
-  const DataType accum_type = params_.weights_data_type == DataType::kInt8
-                                  ? DataType::kInt32
-                                  : DataType::kFloat16;
+  const bool subbyte_weights = params_.weights_data_type == DataType::kInt4 ||
+                               params_.weights_data_type == DataType::kInt2;
+  const DataType accum_type =
+      (params_.weights_data_type == DataType::kInt8 || subbyte_weights)
+          ? DataType::kInt32
+          : DataType::kFloat16;
   const DataType out_type =
       params_.has_dequant ? params_.dequant_dst_type : accum_type;
   std::string c;
@@ -393,6 +396,34 @@ MAIN_FUNCTION($0) {
             fc::GetDataTypeForWeights(params_.weights_desc.type));
       }
     }
+  } else if (subbyte_weights) {
+    const std::string fmt = params_.weights_data_type == DataType::kInt4
+                                ? "metal::int4b_format"
+                                : "metal::int2b_format";
+    const int div_shift = params_.weights_data_type == DataType::kInt4 ? 1 : 2;
+    c += R"(
+  device uchar* w_ptr = reinterpret_cast<device uchar*>(args.weights.GetPtr());
+  int b_rows = args.src.Slices() * 4;
+  int b_cols = args.dst.Slices() * 4;
+)";
+    std::string spatial_size;
+    if (!params_.x_kernel_is_1) {
+      spatial_size += " * args.kernel_size_x";
+    }
+    if (!params_.y_kernel_is_1) {
+      spatial_size += " * args.kernel_size_y";
+    }
+    if (!spatial_size.empty()) {
+      c += "  b_rows = b_rows" + spatial_size + ";\n";
+    }
+    if (params_.batched_weights) {
+      c += "  w_ptr += w_batch_id * ((b_rows * b_cols) >> " +
+           std::to_string(div_shift) + ");\n";
+    }
+    c += "  auto b_tensor = metal::tensor<device " + fmt +
+         ", metal::dextents<int, 2>, metal::tensor_inline>(w_ptr, "
+         "metal::dextents<int, 2>(b_cols, b_rows));\n";
+    c += "  auto b_tile = b_tensor.slice(slice_tile_id * N_TILE, 0);\n";
   } else {
     c += R"(
   device SType* w_ptr = reinterpret_cast<device SType*>(args.weights.GetPtr());
@@ -1087,10 +1118,11 @@ ConvAppleMPP CreateConvAppleMPPInt8(
 ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
                                     const TensorDescriptor& dst,
                                     const OHWI& weights_shape,
-                                    const ConvAppleMPPDequantParams* dequant) {
+                                    const ConvAppleMPPDequantParams* dequant,
+                                    DataType weights_data_type) {
   ConvAppleMPP::ConvParams params;
   params.weights_desc.layout = WeightsLayout::kUnknown;
-  params.weights_data_type = DataType::kInt8;
+  params.weights_data_type = weights_data_type;
   params.weights_shape = weights_shape;
   params.has_bias = false;
   params.batched_weights = weights_shape.h != 1;
@@ -1101,7 +1133,11 @@ ConvAppleMPP CreateConvAppleMPPInt8(const TensorDescriptor& src,
   conv.AddDstTensor("dst", dst);
 
   BufferDescriptor weights_desc;
-  weights_desc.element_type = DataType::kInt8;
+  weights_desc.element_type =
+      (weights_data_type == DataType::kInt4 ||
+       weights_data_type == DataType::kInt2)
+          ? DataType::kUint8
+          : DataType::kInt8;
   weights_desc.element_size = 1;
   conv.AddSrcBuffer("weights", weights_desc);
   AttachDequantArgs(conv, dequant);

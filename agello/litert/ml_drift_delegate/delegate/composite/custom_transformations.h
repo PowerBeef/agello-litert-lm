@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_ML_DRIFT_DELEGATE_COMPOSITE_CUSTOM_TRANSFORMATIONS_H_
 
 #include "absl/status/status.h"  // from @com_google_absl
+#include "ml_drift/common/gpu_info.h"  // from @ml_drift
 #include "ml_drift/common/ir_model.h"  // from @ml_drift
 #include "ml_drift/common/model.h"  // from @ml_drift
 #include "ml_drift_delegate/delegate/delegate_options.h"
@@ -26,7 +27,8 @@ namespace litert::ml_drift {
 // controlled by delegate options.
 absl::Status ApplyCustomTransformations(
     ::ml_drift::GraphFloat32* graph,
-    const MlDriftDelegateOptions& options);
+    const MlDriftDelegateOptions& options,
+    const ::ml_drift::GpuInfo* gpu_info = nullptr);
 
 // Applies custom graph transformations and fusions for the LiteRT delegate (IrModel path),
 // controlled by delegate options.

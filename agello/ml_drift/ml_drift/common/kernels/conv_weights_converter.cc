@@ -150,7 +150,11 @@ bool IsLastBlockHas4IAnd4OElements(const WeightsDescription& dst_weights_desc) {
   if (dst_weights_desc.layout == WeightsLayout::kCustomGroups &&
       dst_weights_desc.group_sizes[0].second > 4 &&
       (dst_weights_desc.type == DataType::kInt8 ||
-       dst_weights_desc.type == DataType::kUint8)) {
+       dst_weights_desc.type == DataType::kUint8 ||
+       dst_weights_desc.type == DataType::kInt4 ||
+       dst_weights_desc.type == DataType::kUint4 ||
+       dst_weights_desc.type == DataType::kInt2 ||
+       dst_weights_desc.type == DataType::kUint2)) {
     return false;
   }
   return true;
@@ -700,15 +704,35 @@ std::string WriteResults(const WeightsDescription& dst_weights_desc,
     } else if (dst_weights_desc.type == DataType::kInt4 ||
                dst_weights_desc.type == DataType::kUint4) {
       c += Get4BitPacked();
-      c += "  uint2 value;\n";
-      c += "  value.x = (p1 << 16u) | p0;\n";
-      c += "  value.y = (p3 << 16u) | p2;\n";
-      c += "  args.dst_buffer.Write(value, dst_offset / 4);\n";
+      if (IsLastBlockHas4IAnd4OElements(dst_weights_desc)) {
+        c += "  uint2 value;\n";
+        c += "  value.x = (p1 << 16u) | p0;\n";
+        c += "  value.y = (p3 << 16u) | p2;\n";
+        c += "  args.dst_buffer.Write(value, dst_offset / 4);\n";
+      } else {
+        c += "  args.dst_buffer.Write(ucl::Convert<ushort>(p0), dst_offset + 0);\n";
+        c += "  args.dst_buffer.Write(ucl::Convert<ushort>(p1), dst_offset + " +
+             tile_size_x + " * 1);\n";
+        c += "  args.dst_buffer.Write(ucl::Convert<ushort>(p2), dst_offset + " +
+             tile_size_x + " * 2);\n";
+        c += "  args.dst_buffer.Write(ucl::Convert<ushort>(p3), dst_offset + " +
+             tile_size_x + " * 3);\n";
+      }
     } else if (dst_weights_desc.type == DataType::kInt2 ||
                dst_weights_desc.type == DataType::kUint2) {
       c += Get2BitPacked();
-      c += "  uint value = (p3 << 24u) | (p2 << 16u) | (p1 << 8u) | p0;\n";
-      c += "  args.dst_buffer.Write(value, dst_offset / 4);\n";
+      if (IsLastBlockHas4IAnd4OElements(dst_weights_desc)) {
+        c += "  uint value = (p3 << 24u) | (p2 << 16u) | (p1 << 8u) | p0;\n";
+        c += "  args.dst_buffer.Write(value, dst_offset / 4);\n";
+      } else {
+        c += "  args.dst_buffer.Write(ucl::Convert<uchar>(p0), dst_offset + 0);\n";
+        c += "  args.dst_buffer.Write(ucl::Convert<uchar>(p1), dst_offset + " +
+             tile_size_x + " * 1);\n";
+        c += "  args.dst_buffer.Write(ucl::Convert<uchar>(p2), dst_offset + " +
+             tile_size_x + " * 2);\n";
+        c += "  args.dst_buffer.Write(ucl::Convert<uchar>(p3), dst_offset + " +
+             tile_size_x + " * 3);\n";
+      }
     } else {
       c += "  args.dst_tensor.WriteLinear(r0, dst_offset + 0);\n";
       c += "  args.dst_tensor.WriteLinear(r1, dst_offset + " + tile_size_x +
@@ -1356,6 +1380,106 @@ std::string GetWeightsConverterCode(const GpuInfo& gpu_info, DataType dst_type,
          ";\n";
     c += "  if (i_slice >= src_end_slice_runtime) return;\n";
   }
+  const bool fast_int_convert =
+      src_weights_desc.layout == WeightsLayout::kOSpatialIOGroupI4O4 &&
+      dst_weights_desc.layout == WeightsLayout::kCustomGroups &&
+      !IsLastBlockHas4IAnd4OElements(dst_weights_desc) &&
+      dst_weights_desc.group_sizes[0].first == Axis::kOutputChannels &&
+      !runtime_check.ring_o_offset_index.has_value() &&
+      !runtime_check.ring_i_offset_index.has_value() &&
+      ((src_weights_desc.type == DataType::kUint4 &&
+        (dst_weights_desc.type == DataType::kInt4 ||
+         dst_weights_desc.type == DataType::kInt8)) ||
+       (src_weights_desc.type == DataType::kUint8 &&
+        dst_weights_desc.type == DataType::kInt8) ||
+       (src_weights_desc.type == DataType::kUint2 &&
+        dst_weights_desc.type == DataType::kInt2));
+  if (fast_int_convert) {
+    c += R"(  int dst_offset = last_group_id * (args.last_i_group_slices * args.last_o_group_slices * 4)
+                 + (last_local_id / args.last_o_group_slices) * (args.last_o_group_slices * 4)
+                 + (last_local_id % args.last_o_group_slices);
+)";
+    if (src_weights_desc.type == DataType::kUint4 &&
+        dst_weights_desc.type == DataType::kInt8) {
+      c += R"(  uint r0 = 0u, r1 = 0u, r2 = 0u, r3 = 0u;
+  if (o_slice < args.o_slices && i_slice < args.i_slices) {
+    int src_o_group = o_slice % args.src_o_group_size;
+    int src_o = o_slice / args.src_o_group_size;
+    int src_linear = ((src_o * args.wshape_spatial + spatial_linear) * args.i_slices + i_slice) * args.src_o_group_size + src_o_group;
+    uint2 w = args.src_buffer.Read(src_linear);
+    w.x ^= 0x88888888u;
+    w.y ^= 0x88888888u;
+    uint x0 = w.x & 0xFFFFu;
+    x0 = (x0 | (x0 << 8u)) & 0x00FF00FFu;
+    x0 = (x0 | (x0 << 4u)) & 0x0F0F0F0Fu;
+    r0 = x0 | ((x0 & 0x08080808u) * 0x1Eu);
+    uint x1 = w.x >> 16u;
+    x1 = (x1 | (x1 << 8u)) & 0x00FF00FFu;
+    x1 = (x1 | (x1 << 4u)) & 0x0F0F0F0Fu;
+    r1 = x1 | ((x1 & 0x08080808u) * 0x1Eu);
+    uint x2 = w.y & 0xFFFFu;
+    x2 = (x2 | (x2 << 8u)) & 0x00FF00FFu;
+    x2 = (x2 | (x2 << 4u)) & 0x0F0F0F0Fu;
+    r2 = x2 | ((x2 & 0x08080808u) * 0x1Eu);
+    uint x3 = w.y >> 16u;
+    x3 = (x3 | (x3 << 8u)) & 0x00FF00FFu;
+    x3 = (x3 | (x3 << 4u)) & 0x0F0F0F0Fu;
+    r3 = x3 | ((x3 & 0x08080808u) * 0x1Eu);
+  }
+  args.dst_buffer.Write(r0, dst_offset + 0);
+  args.dst_buffer.Write(r1, dst_offset + args.last_o_group_slices * 1);
+  args.dst_buffer.Write(r2, dst_offset + args.last_o_group_slices * 2);
+  args.dst_buffer.Write(r3, dst_offset + args.last_o_group_slices * 3);
+}
+)";
+    } else if (src_weights_desc.type == DataType::kUint8 &&
+               dst_weights_desc.type == DataType::kInt8) {
+      c += R"(  uint4 w = ucl::Init<uint4>(0u);
+  if (o_slice < args.o_slices && i_slice < args.i_slices) {
+    int src_o_group = o_slice % args.src_o_group_size;
+    int src_o = o_slice / args.src_o_group_size;
+    int src_linear = ((src_o * args.wshape_spatial + spatial_linear) * args.i_slices + i_slice) * args.src_o_group_size + src_o_group;
+    w = args.src_buffer.Read(src_linear) ^ ucl::Init<uint4>(0x80808080u);
+  }
+  args.dst_buffer.Write(w.x, dst_offset + 0);
+  args.dst_buffer.Write(w.y, dst_offset + args.last_o_group_slices * 1);
+  args.dst_buffer.Write(w.z, dst_offset + args.last_o_group_slices * 2);
+  args.dst_buffer.Write(w.w, dst_offset + args.last_o_group_slices * 3);
+}
+)";
+    } else if (src_weights_desc.type == DataType::kUint4) {
+      c += R"(  uint2 w = ucl::Init<uint2>(0u);
+  if (o_slice < args.o_slices && i_slice < args.i_slices) {
+    int src_o_group = o_slice % args.src_o_group_size;
+    int src_o = o_slice / args.src_o_group_size;
+    int src_linear = ((src_o * args.wshape_spatial + spatial_linear) * args.i_slices + i_slice) * args.src_o_group_size + src_o_group;
+    w = args.src_buffer.Read(src_linear);
+    w.x ^= 0x88888888u;
+    w.y ^= 0x88888888u;
+  }
+  args.dst_buffer.Write(ucl::Convert<ushort>(w.x & 0xFFFFu), dst_offset + 0);
+  args.dst_buffer.Write(ucl::Convert<ushort>(w.x >> 16u), dst_offset + args.last_o_group_slices * 1);
+  args.dst_buffer.Write(ucl::Convert<ushort>(w.y & 0xFFFFu), dst_offset + args.last_o_group_slices * 2);
+  args.dst_buffer.Write(ucl::Convert<ushort>(w.y >> 16u), dst_offset + args.last_o_group_slices * 3);
+}
+)";
+    } else {
+      c += R"(  uint w = 0u;
+  if (o_slice < args.o_slices && i_slice < args.i_slices) {
+    int src_o_group = o_slice % args.src_o_group_size;
+    int src_o = o_slice / args.src_o_group_size;
+    int src_linear = ((src_o * args.wshape_spatial + spatial_linear) * args.i_slices + i_slice) * args.src_o_group_size + src_o_group;
+    w = args.src_buffer.Read(src_linear) ^ 0xAAAAAAAAu;
+  }
+  args.dst_buffer.Write(ucl::Convert<uchar>(w & 0xFFu), dst_offset + 0);
+  args.dst_buffer.Write(ucl::Convert<uchar>((w >> 8u) & 0xFFu), dst_offset + args.last_o_group_slices * 1);
+  args.dst_buffer.Write(ucl::Convert<uchar>((w >> 16u) & 0xFFu), dst_offset + args.last_o_group_slices * 2);
+  args.dst_buffer.Write(ucl::Convert<uchar>((w >> 24u) & 0xFFu), dst_offset + args.last_o_group_slices * 3);
+}
+)";
+    }
+    return c;
+  }
   c += "  Type w0, w1, w2, w3;\n";
   if (runtime_check.ring_o_offset_index.has_value() ||
       runtime_check.ring_i_offset_index.has_value()) {
@@ -1568,8 +1692,24 @@ WeightsConverter::WeightsConverter(const GpuInfo& gpu_info,
     } else if (dst_weights_desc.type == DataType::kInt4 ||
                dst_weights_desc.type == DataType::kUint4) {
       BufferDescriptor desc;
-      desc.element_type = DataType::kUint32;
-      desc.element_size = 2;
+      if (IsLastBlockHas4IAnd4OElements(dst_weights_desc)) {
+        desc.element_type = DataType::kUint32;
+        desc.element_size = 2;
+      } else {
+        desc.element_type = DataType::kUint16;
+        desc.element_size = 1;
+      }
+      AddDstBuffer("dst_buffer", desc);
+    } else if (dst_weights_desc.type == DataType::kInt2 ||
+               dst_weights_desc.type == DataType::kUint2) {
+      BufferDescriptor desc;
+      if (IsLastBlockHas4IAnd4OElements(dst_weights_desc)) {
+        desc.element_type = DataType::kUint32;
+        desc.element_size = 1;
+      } else {
+        desc.element_type = DataType::kUint8;
+        desc.element_size = 1;
+      }
       AddDstBuffer("dst_buffer", desc);
     } else {
       AddDstTensor("dst_tensor", definition.dst_tensors[0]);

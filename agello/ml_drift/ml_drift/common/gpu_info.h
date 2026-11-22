@@ -801,6 +801,7 @@ enum class MetalLanguageVersion {
   kMetal3_1,
   kMetal3_2,
   kMetal4_0,
+  kMetal4_1,
   kUnknown,
 };
 

@@ -37,6 +37,7 @@
 #include "ml_drift/common/model.h"  // from @ml_drift
 #include "ml_drift/common/operations.h"  // from @ml_drift
 #include "ml_drift/common/shape.h"  // from @ml_drift
+#include "ml_drift/common/task/weights_layout.h"  // from @ml_drift
 #include "ml_drift_delegate/delegate/composite/runtime_batched_matmul_parser.h"
 
 namespace litert::ml_drift {
@@ -626,7 +627,133 @@ absl::StatusOr<Value*> AddBoundsFlag(GraphFloat32* graph, Value* bounds, Value* 
   return replacement;
 }
 
+std::optional<float> UniformScale(
+    const std::optional<::ml_drift::Tensor<::ml_drift::Linear, ::ml_drift::DataType::kFloat32>>&
+        scale) {
+  if (!scale.has_value() || scale->data.empty()) return std::nullopt;
+  const float s = scale->data[0];
+  for (float v : scale->data) {
+    if (v != s) return std::nullopt;
+  }
+  return s;
+}
+
+// Agello (P2.3): collapses a rewritten prefill attention tail
+// (QK -> BoundedMask -> BoundedSoftmaxReduce -> PV) into one fused MSL 4.1
+// FlashAttention node reading the INT8 KV cache directly without materializing
+// the [H_kv, Q_rows, cache_size] score matrix. Returns true if fused.
+absl::StatusOr<bool> TryFuseFlashAttention(GraphFloat32* graph, const Tail& tail) {
+  const auto qk_inputs = graph->FindInputs(tail.qk->id);
+  const auto mask_inputs = graph->FindInputs(tail.select->id);
+  const auto pv_inputs = graph->FindInputs(tail.pv->id);
+  const auto pv_outputs = graph->FindOutputs(tail.pv->id);
+  if (qk_inputs.size() != 3 || mask_inputs.size() != 2 || pv_inputs.size() != 4 ||
+      pv_outputs.size() != 1) {
+    return false;
+  }
+  Value* q = qk_inputs[0];
+  Value* k = qk_inputs[1];
+  Value* params = qk_inputs[2];
+  Value* mask = mask_inputs[1];
+  Value* v = pv_inputs[1];
+  Value* out = pv_outputs[0];
+
+  const ::ml_drift::BHWC& q_shape = q->tensor.shape;
+  const int rows = q_shape.w;
+  const int head_dim = q_shape.c;
+  const int kv_heads = q_shape.h;
+  const int cache_size = tail.selected->tensor.shape.c;
+  if (q_shape.b != 1 || out->tensor.shape != q_shape || rows < 256 ||
+      (head_dim != 256 && head_dim != 512) || kv_heads < 1 || cache_size < 4 ||
+      (cache_size % 4) != 0) {
+    return false;
+  }
+
+  const auto* qk_attr =
+      std::any_cast<RuntimeBatchedMatMulAttributes>(&tail.qk->operation.attributes);
+  const auto* pv_attr =
+      std::any_cast<RuntimeBatchedMatMulAttributes>(&tail.pv->operation.attributes);
+  const auto* mask_attr =
+      std::any_cast<BoundedMaskAttributes>(&tail.select->operation.attributes);
+  const auto* reduce_attr =
+      std::any_cast<BoundedSoftmaxReduceAttributes>(&tail.softmax->operation.attributes);
+  if (qk_attr == nullptr || pv_attr == nullptr || mask_attr == nullptr ||
+      reduce_attr == nullptr) {
+    return false;
+  }
+  if (!qk_attr->external_weights.has_value() || !pv_attr->external_weights.has_value()) {
+    return false;
+  }
+  const auto& k_ext = *qk_attr->external_weights;
+  const auto& v_ext = *pv_attr->external_weights;
+  if (k_ext.desc.type != ::ml_drift::DataType::kUint8 ||
+      v_ext.desc.type != ::ml_drift::DataType::kUint8 ||
+      k_ext.desc.layout != ::ml_drift::WeightsLayout::kOSpatialIOGroupO4I4 ||
+      v_ext.desc.layout != ::ml_drift::WeightsLayout::kOSpatialIOGroupI4O4 ||
+      k_ext.weights_shape != ::ml_drift::OHWI(cache_size, kv_heads, 1, head_dim) ||
+      v_ext.weights_shape != ::ml_drift::OHWI(head_dim, kv_heads, 1, cache_size)) {
+    return false;
+  }
+  if (k_ext.desc.output_group_size != cache_size / 4 ||
+      v_ext.desc.output_group_size != head_dim / 4) {
+    return false;
+  }
+  const auto scale_k = UniformScale(qk_attr->scale);
+  const auto scale_v = UniformScale(pv_attr->scale);
+  if (!scale_k.has_value() || !scale_v.has_value()) {
+    return false;
+  }
+
+  // Ring-buffer caches and packed groups are handled by the general path.
+  if (qk_attr->runtime_check.src_end_ch_index.has_value() ||
+      pv_attr->runtime_check.dst_end_ch_index.has_value()) {
+    return false;
+  }
+
+  FlashAttentionAttributes attr;
+  attr.head_dim = head_dim;
+  attr.kv_heads = kv_heads;
+  attr.cache_size = cache_size;
+  attr.scale_k = *scale_k;
+  attr.scale_v = *scale_v;
+  attr.mask_value = mask_attr->mask_value;
+  attr.clamp_low = mask_attr->clamp_low;
+  attr.clamp_high = mask_attr->clamp_high;
+  attr.end_ch_index = reduce_attr->end_ch_index;
+  attr.window_pos_index = reduce_attr->window_pos_index;
+  attr.window_size = reduce_attr->window_size;
+  attr.row_end = mask_attr->row_end;
+
+  Node* flash_node = nullptr;
+  ABSL_RETURN_IF_ERROR(graph->InsertNodeAfter(tail.pv->id, &flash_node));
+  flash_node->operation.type = kFlashAttentionType;
+  flash_node->operation.attributes = std::move(attr);
+  for (Value* input : {q, k, v, mask, params}) {
+    graph->AddConsumer(flash_node->id, input->id);
+  }
+
+  const ::ml_drift::ValueId logits_id = tail.logits->id;
+  const ::ml_drift::ValueId selected_id = tail.selected->id;
+  const ::ml_drift::ValueId probabilities_id = tail.probabilities->id;
+  for (Node* node : {tail.qk, tail.select, tail.softmax, tail.pv}) {
+    ABSL_RETURN_IF_ERROR(graph->DeleteNode(node->id));
+  }
+  for (::ml_drift::ValueId id : {logits_id, selected_id, probabilities_id}) {
+    ABSL_RETURN_IF_ERROR(graph->DeleteValue(id));
+  }
+  graph->SetProducer(flash_node->id, out->id);
+  return true;
+}
+
 }  // namespace
+
+bool FlashAttentionEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_FLASH_ATTENTION");
+    return value == nullptr || value[0] != '0';
+  }();
+  return enabled;
+}
 
 bool MaskBoundsEnabled() {
   static const bool enabled = [] {
@@ -660,8 +787,10 @@ bool BoundedWindowEnabled() {
   return enabled;
 }
 
-absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
+absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph,
+                                                bool enable_flash_attention) {
   if (graph == nullptr) return 0;
+  const bool flash_enabled = enable_flash_attention && FlashAttentionEnabled();
   const std::optional<int> window =
       BoundedWindowEnabled() ? FindSlidingWindow(*graph) : std::nullopt;
   std::vector<::ml_drift::NodeId> softmax_ids;
@@ -671,6 +800,7 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
     }
   }
   int rewritten = 0;
+  int flashed = 0;
   MaskSlices mask_slices;
   // Agello (engine review, step 6): the drafter's graph is the one with a handful of attention
   // tails (four: three local, one global; the main graphs have 42). AGELLO_DRAFTER_WINDOW sets
@@ -734,8 +864,15 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
         }
       }
     }
+    // Agello (P2.3): fuse eligible prefill tails into MSL 4.1 FlashAttention
+    // (zero materialized score matrix, skips SliceRows).
+    bool fused_flash = false;
+    if (flash_enabled) {
+      ABSL_ASSIGN_OR_RETURN(fused_flash, TryFuseFlashAttention(graph, *tail));
+      if (fused_flash) ++flashed;
+    }
     // Agello (D2): a prefill's tail in slices of query rows.
-    if (SliceAttentionEnabled()) {
+    if (!fused_flash && SliceAttentionEnabled()) {
       if (const int slices = RowSlices(*tail); slices > 1) {
         ABSL_RETURN_IF_ERROR(SliceRows(graph, *tail, slices, &mask_slices));
       }
@@ -747,9 +884,9 @@ absl::StatusOr<int> FuseBoundedAttentionSoftmax(GraphFloat32* graph) {
   if (std::getenv("AGELLO_LOG_ATTENTION") != nullptr) {
     int nodes = 0;
     for (const Node* node : graph->nodes()) nodes += node != nullptr;
-    fprintf(stderr, "Agello attention: %d tails, %d read row bounds (%zu bounds, %d row flags, "
-            "%zu chains freed), %d nodes left\n", rewritten, bounded, bounds_of.size(), flags,
-            replaced_masks.size(), nodes);
+    fprintf(stderr, "Agello attention: %d tails (%d flash), %d read row bounds (%zu bounds, %d row flags, "
+            "%zu chains freed), %d nodes left\n", rewritten, flashed, bounded, bounds_of.size(),
+            flags, replaced_masks.size(), nodes);
   }
   return rewritten;
 }

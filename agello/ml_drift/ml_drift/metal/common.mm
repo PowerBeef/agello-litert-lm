@@ -290,6 +290,14 @@ void FlushPipelineArchive() {
 }
 
 MetalLanguageVersion ToMetalLanguageVersion(MTLLanguageVersion version) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000 || __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000 || \
+    __TV_OS_VERSION_MAX_ALLOWED >= 270000
+  if (@available(macOS 27.0, iOS 27.0, tvOS 27.0, *)) {
+    if (version == MTLLanguageVersion4_1) {
+      return MetalLanguageVersion::kMetal4_1;
+    }
+  }
+#endif
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000 || __IPHONE_OS_VERSION_MAX_ALLOWED >= 260000 || \
     __TV_OS_VERSION_MAX_ALLOWED >= 260000
   if (@available(macOS 26.0, iOS 26.0, tvOS 26.0, *)) {
@@ -389,6 +397,12 @@ MTLLanguageVersion GetMaxSupportedMTLLanguageVersion(id<MTLDevice> device) {
     MTLGPUFamily family_v4 = static_cast<MTLGPUFamily>(5002);
     if ([device supportsFamily:family_v4]) {
       max_supported_version = MTLLanguageVersion4_0;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000 || __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000 || \
+    __TV_OS_VERSION_MAX_ALLOWED >= 270000
+      if (@available(macOS 27.0, iOS 27.0, tvOS 27.0, *)) {
+        max_supported_version = MTLLanguageVersion4_1;
+      }
+#endif
     }
   }
 #endif
