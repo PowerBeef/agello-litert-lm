@@ -17,6 +17,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#if defined(__APPLE__)
+#include <pthread.h>
+#include <pthread/qos.h>
+#endif
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -1092,6 +1096,28 @@ AudioLiteRtCompiledModelExecutor::EncodeSpecsAndMasks(
     const std::vector<float>& spectrogram_host_buffer,
     const std::vector<uint8_t>& spectrogram_mask_host_buffer, int total_frames,
     bool is_flush) {
+#if defined(__APPLE__)
+  // Agello (P4.2): run the caller thread of Conformer XNNPACK inference at
+  // USER_INTERACTIVE QoS so thread 0 and its workers stay on P-cores.
+  struct ScopedAudioQoS {
+    qos_class_t prev_qos = QOS_CLASS_UNSPECIFIED;
+    int prev_rel = 0;
+    bool restore = false;
+    ScopedAudioQoS() {
+      if (pthread_get_qos_class_np(pthread_self(), &prev_qos, &prev_rel) == 0 &&
+          prev_qos != QOS_CLASS_USER_INTERACTIVE) {
+        if (pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) == 0) {
+          restore = true;
+        }
+      }
+    }
+    ~ScopedAudioQoS() {
+      if (restore) {
+        pthread_set_qos_class_self_np(prev_qos, prev_rel);
+      }
+    }
+  } scoped_audio_qos;
+#endif
   ScopedLatency scoped_total_latency(latency_stats_);
   const int feature_dim = spectrogram_feature_dimensions_;
 

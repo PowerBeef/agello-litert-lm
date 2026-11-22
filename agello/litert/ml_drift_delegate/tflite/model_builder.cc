@@ -4081,9 +4081,7 @@ class OneHotOperationParser : public TFLiteOperationParser {
         static_cast<const TfLiteOneHotParams*>(tflite_node->builtin_data);
     if (one_hot_options) {
       const int num_dims = indices_tensor->dims->size;
-      if (one_hot_options->axis != -1 &&
-          (num_dims == 0 ||
-           one_hot_options->axis != indices_tensor->dims->data[num_dims - 1])) {
+      if (one_hot_options->axis != -1 && one_hot_options->axis != num_dims) {
         return absl::InvalidArgumentError(
             "OneHot axis must be -1 or the last dimension.");
       }

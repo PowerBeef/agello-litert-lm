@@ -110,7 +110,11 @@ class ConvAppleMPP : public GPUOperation {
         {Axis::kOutputChannels, AlignByN(params_.weights_shape.o, 4)},
         {Axis::kInputChannels, AlignByN(params_.weights_shape.i, 4)}};
     if (params_.batched_weights) {
-      weights_desc.group_sizes.push_back({Axis::kHeight, 0});
+      if (params_.weights_shape.w > 1 && params_.weights_shape.h == 1) {
+        weights_desc.group_sizes.push_back({Axis::kWidth, 0});
+      } else {
+        weights_desc.group_sizes.push_back({Axis::kHeight, 0});
+      }
     }
     if (!params_.x_kernel_is_1) {
       weights_desc.group_sizes.push_back({Axis::kWidth, 0});

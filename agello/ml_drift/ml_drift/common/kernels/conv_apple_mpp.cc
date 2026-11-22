@@ -695,6 +695,11 @@ MAIN_FUNCTION($0) {
       manual_k_tiling
           ? "mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate"
           : "mpp::tensor_ops::matmul2d_descriptor::mode::multiply";
+  const int k_align = subbyte_weights ? 32 : 16;
+  const std::string k_tile_expr =
+      (!manual_k_tiling && (k_tile % k_align) != 0)
+          ? "static_cast<int>(metal::dynamic_extent)"
+          : std::to_string(k_tile);
   absl::StrReplaceAll(
       {
           {"M_TILE", std::to_string(m_tile_)},
@@ -702,7 +707,7 @@ MAIN_FUNCTION($0) {
           {"N_TILE_SLICES", std::to_string(n_tile_ / 4)},
           {"N_TILE", std::to_string(n_tile_)},
           {"K_TILE_SLICES", std::to_string(k_tile / 4)},
-          {"K_TILE", std::to_string(k_tile)},
+          {"K_TILE", k_tile_expr},
           {"SIMDGROUPS", std::to_string(simdgroups_)},
           {"WG_SIZE", std::to_string(32 * simdgroups_)},
           {"ACCUM_SCALAR", ToUclDataType(accum_type, 1)},

@@ -150,9 +150,24 @@ class ResourceManager {
   absl::Status TryLoadingAudioExecutor()
       ABSL_LOCKS_EXCLUDED(audio_executor_mutex_);
 
-  // Acquires the audio executor.
+  // Agello (P4.2): an error when the audio executor couldn't be created (no
+  // audio settings and no injected executor), without creating it.
+  absl::Status CanLoadAudioExecutor()
+      ABSL_LOCKS_EXCLUDED(audio_executor_mutex_);
+
+  // Acquires the audio executor. Agello (P4.2): creates it lazily on first
+  // audio input instead of eagerly at session creation.
   absl::StatusOr<std::unique_ptr<AudioExecutor>> AcquireAudioExecutor()
       ABSL_LOCKS_EXCLUDED(audio_executor_mutex_);
+
+  // Agello (P4.2): acquires the audio executor only if already loaded, without
+  // triggering lazy creation (used for Flush / Reset on session teardown).
+  absl::StatusOr<std::unique_ptr<AudioExecutor>> AcquireLoadedAudioExecutor()
+      ABSL_LOCKS_EXCLUDED(audio_executor_mutex_);
+
+  // Agello (P4.2): releases a non-injected audio executor and its XNNPACK
+  // working memory after static audio encoding.
+  void ReleaseAudioExecutor() ABSL_LOCKS_EXCLUDED(audio_executor_mutex_);
 
   // Returns the audio executor properties.
   absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
@@ -218,9 +233,17 @@ class ResourceManager {
 
   std::shared_ptr<AudioExecutor> audio_executor_
       ABSL_GUARDED_BY(audio_executor_mutex_);
+  // Agello (P4.2): creates the audio executor; the caller holds its mutex.
+  absl::Status CreateAudioExecutorLocked()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(audio_executor_mutex_);
+  // True when an audio executor was injected via the constructor (tests).
+  const bool audio_executor_injected_ = false;
 
   // The audio executor options, needed for loading the audio executor.
   std::unique_ptr<AudioExecutorSettings> audio_executor_settings_;
+
+  // Non-owning pointer to model resources (outlives ResourceManager when set).
+  ModelResources* absl_nullable model_resources_ = nullptr;
 
   // The potential litert compiled model environment for the vision and audio
   // executor.

@@ -17,7 +17,13 @@ limitations under the License.
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
+#if defined(__APPLE__)
+#include <pthread.h>
+#include <pthread/qos.h>
+#include <sched.h>
+#endif
 #include <cinttypes>
 #include <cmath>
 #include <cstddef>
@@ -674,6 +680,36 @@ class Delegate {
         threadpool_.reset(
             pthreadpool_create(static_cast<size_t>(options_.num_threads)));
         threadpool = threadpool_.get();
+#if defined(__APPLE__)
+        // Agello (P4.2): promote XNNPACK worker pthreads to USER_INTERACTIVE so
+        // Conformer / CPU ops stay on P-cores instead of E-cores.
+        if (threadpool != nullptr) {
+          const size_t n = pthreadpool_get_threads_count(threadpool);
+          if (n > 1) {
+            struct QoSContext {
+              pthread_t caller;
+              std::atomic<size_t> arrived{0};
+              size_t target;
+            } qos_ctx{pthread_self(), 0, n};
+            pthreadpool_parallelize_1d(
+                threadpool,
+                [](void* raw_ctx, size_t /*i*/) {
+                  auto* c = static_cast<QoSContext*>(raw_ctx);
+                  if (!pthread_equal(pthread_self(), c->caller)) {
+                    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+                  }
+                  c->arrived.fetch_add(1, std::memory_order_acq_rel);
+                  for (int spins = 0;
+                       spins < 200 &&
+                       c->arrived.load(std::memory_order_acquire) < c->target;
+                       ++spins) {
+                    sched_yield();
+                  }
+                },
+                &qos_ctx, n, /*flags=*/0);
+          }
+        }
+#endif
       }
     }
 

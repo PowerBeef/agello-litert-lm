@@ -92,8 +92,17 @@ constexpr absl::string_view kPositionsXy = "positions_xy";
 
 // Set the default GPU options for the model.
 absl::Status SetGpuOptions(const VisionExecutorSettings& executor_settings,
-                           litert::GpuOptions& gpu_options) {
-  return ::litert::lm::SetCommonGpuOptions(executor_settings, gpu_options);
+                           litert::GpuOptions& gpu_options,
+                           ActivationDataType fallback_activation_data_type =
+                               ActivationDataType::FLOAT16) {
+  ABSL_RETURN_IF_ERROR(::litert::lm::SetCommonGpuOptions(
+      executor_settings, gpu_options, fallback_activation_data_type));
+  // Agello (P4.2): enable INT8xINT8 Neural Accelerator kernels for quantized
+  // ViT linear layers and passive waits so the CPU does not spin during encode.
+  gpu_options.EnableAllowSrcQuantizedFcConvOps(true);
+  gpu_options.SetSyncExecutionModeWaitType(
+      litert::GpuOptions::SyncExecutionModeWaitType::kPassive);
+  return absl::OkStatus();
 }
 
 // Set the default CPU options for the model.
@@ -249,8 +258,8 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize(
           const auto cache_files,
           GetGpuModelCacheData(vision_executor_settings_,
                                VisionExecutorSettings::kEncoderName));
-      ABSL_RETURN_IF_ERROR(
-          SetGpuOptions(vision_executor_settings_, gpu_options));
+      ABSL_RETURN_IF_ERROR(SetGpuOptions(
+          vision_executor_settings_, gpu_options, activation_data_type));
       ABSL_RETURN_IF_ERROR(SetGpuCacheOptions(
           cache_files.weight_cache_file, cache_files.program_cache_file,
           cache_files.cache_key,
@@ -366,12 +375,14 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionAdapter::Initialize(
           const auto cache_files,
           GetGpuModelCacheData(vision_executor_settings_,
                                VisionExecutorSettings::kAdapterName));
+      ABSL_RETURN_IF_ERROR(
+          SetGpuOptions(vision_executor_settings_, gpu_options));
       ABSL_RETURN_IF_ERROR(SetGpuCacheOptions(
           cache_files.weight_cache_file, cache_files.program_cache_file,
           cache_files.cache_key,
           /*logging_prefix=*/VisionExecutorSettings::kAdapterName,
           /*cache_compiled_shaders_only=*/false, gpu_options));
-
+      options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
       break;
     }
 #if !defined(LITERT_DISABLE_NPU)
@@ -876,24 +887,27 @@ absl::StatusOr<ExecutorVisionData> VisionLiteRtCompiledModelExecutor::Encode(
 
     const int output_dim = output_tensor_type.Layout().Dimensions()[2];
 
-#if !defined(LITERT_DISABLE_NPU)
-    LITERT_ASSIGN_OR_RETURN(int adapter_output_num_elements,
-                            adapter_output_tensor_type.Layout().NumElements());
-    std::vector<float> adapter_output_data(adapter_output_num_elements);
-    LITERT_RETURN_IF_ERROR(adapter_output_tensor_buffers[0].Read<float>(
-        absl::MakeSpan(adapter_output_data)));
+    auto adapter_buffer_type = adapter_output_tensor_buffers[0].BufferType();
+    if (adapter_buffer_type.HasValue() &&
+        *adapter_buffer_type == TensorBufferType::kHostMemory) {
+      LITERT_ASSIGN_OR_RETURN(
+          auto adapter_output_data,
+          ReferTensorBufferAsSpan<float>(adapter_output_tensor_buffers[0]));
 
-    LITERT_RETURN_IF_ERROR(
-        output_tensor.Write<float>(absl::MakeConstSpan(adapter_output_data)
-                                       .subspan(0, output_rows * output_dim)));
-#else
-    LITERT_ASSIGN_OR_RETURN(
-        auto adapter_output_data,
-        ReferTensorBufferAsSpan<float>(adapter_output_tensor_buffers[0]));
+      LITERT_RETURN_IF_ERROR(output_tensor.Write<float>(
+          adapter_output_data.subspan(0, output_rows * output_dim)));
+    } else {
+      LITERT_ASSIGN_OR_RETURN(
+          int adapter_output_num_elements,
+          adapter_output_tensor_type.Layout().NumElements());
+      std::vector<float> adapter_output_data(adapter_output_num_elements);
+      LITERT_RETURN_IF_ERROR(adapter_output_tensor_buffers[0].Read<float>(
+          absl::MakeSpan(adapter_output_data)));
 
-    LITERT_RETURN_IF_ERROR(output_tensor.Write<float>(
-        adapter_output_data.subspan(0, output_rows * output_dim)));
-#endif  // !defined(LITERT_DISABLE_NPU)
+      LITERT_RETURN_IF_ERROR(
+          output_tensor.Write<float>(absl::MakeConstSpan(adapter_output_data)
+                                         .subspan(0, output_rows * output_dim)));
+    }
 
     AccumulateStat(latency_stats_, kVisionNumImagesMetric, int64_t{1});
     AccumulateStat(latency_stats_, kVisionNumPatchesMetric,

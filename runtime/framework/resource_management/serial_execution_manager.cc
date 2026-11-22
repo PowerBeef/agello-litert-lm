@@ -226,7 +226,9 @@ absl::StatusOr<SessionId> SerialExecutionManager::RegisterNewSession(
         "Session ", session_id, " already exists in session list."));
   }
   if (session_info->session_config.AudioModalityEnabled()) {
-    ABSL_RETURN_IF_ERROR(resource_manager_->TryLoadingAudioExecutor());
+    // Agello (P4.2): static audio encoders are loaded lazily on first audio
+    // input rather than eagerly at session open.
+    ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadAudioExecutor());
   }
   if (session_info->session_config.VisionModalityEnabled()) {
     ABSL_RETURN_IF_ERROR(resource_manager_->TryLoadingVisionExecutor());
@@ -248,9 +250,10 @@ absl::Status SerialExecutionManager::ReleaseSession(SessionId session_id) {
   }
   if (session_lookup_.at(session_id)->session_config.AudioModalityEnabled() &&
       session_lookup_.size() == 1) {
-    ABSL_ASSIGN_OR_RETURN(auto audio_executor,
-                          resource_manager_->AcquireAudioExecutor());
-    audio_executor->Reset().IgnoreError();
+    auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
+    if (audio_executor.ok()) {
+      (*audio_executor)->Reset().IgnoreError();
+    }
   }
   std::erase_if(ready_queue_, [this, session_id](TaskId tid) {
     return task_lookup_.at(tid).session_id == session_id;
@@ -692,8 +695,8 @@ SerialExecutionManager::ProcessAndCombineContents(
     } else if (const auto* input_audio_end =
                    std::get_if<InputAudioEnd>(&preprocessed_content)) {
       // We allow audio end token even if the audio executor is not
-      // available.
-      auto audio_executor = resource_manager_->AcquireAudioExecutor();
+      // available or was not loaded for this turn (e.g. precomputed embeddings).
+      auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
       if (audio_executor.ok()) {
         // Flush any remaining buffered spectrogram frames from streaming
         // Encode() calls.
@@ -713,6 +716,18 @@ SerialExecutionManager::ProcessAndCombineContents(
     } else {
       return absl::InvalidArgumentError(
           "Unsupported input type in preprocessed_contents.");
+    }
+  }
+
+  if (!all_audio_data.empty()) {
+    bool should_release_audio = false;
+    if (auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
+        audio_executor.ok()) {
+      auto props = (*audio_executor)->GetAudioExecutorProperties();
+      should_release_audio = props.ok() && !props->is_streaming_model;
+    }
+    if (should_release_audio) {
+      resource_manager_->ReleaseAudioExecutor();
     }
   }
 

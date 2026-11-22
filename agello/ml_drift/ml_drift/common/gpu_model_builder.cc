@@ -3450,6 +3450,17 @@ absl::StatusOr<GpuModelBuilder::TensorHandle> GpuModelBuilder::BatchedMatMul(
 
   std::unique_ptr<GPUOperation> conv_op;
   WeightsDescription conv_weights_desc;
+  const auto conv_precision = GetConvPrecision(left.tensor_desc.GetDataType());
+  const bool use_apple_mpp =
+      SupportsConvAppleMPP(gpu_info_) &&
+      conv_precision == CalculationsPrecision::kF16 &&
+      src_exp == nullptr &&
+      !runtime_check.HasValues() &&
+      left_shape.b == 1 && right_shape.b == 1 &&
+      spatial_size >= 64;
+  if (use_apple_mpp) {
+    mat_left = ToDHWBCC4(mat_left);
+  }
   {
     OperationDef op_def;
     op_def.src_tensors.push_back(mat_left.tensor_desc);
@@ -3465,11 +3476,19 @@ absl::StatusOr<GpuModelBuilder::TensorHandle> GpuModelBuilder::BatchedMatMul(
 
     const TensorDescriptor* src_exp_td =
         src_exp ? &src_exp->tensor_desc : nullptr;
-    conv_op = SelectConvolutionWithExternalWeights(
-        attr, /*bias_desc*/ nullptr, dst_shape, gpu_info_, op_def,
-        GetConvPrecision(left.tensor_desc.GetDataType()), hints_,
-        &conv_weights_desc, src_exp_td,
-        /*different_weights_for_height=*/true, runtime_check);
+    if (use_apple_mpp) {
+      ConvAppleMPP conv_mpp = CreateConvAppleMPPExternalWeights(
+          op_def.src_tensors[0], op_def.dst_tensors[0], weights_shape,
+          /*bias=*/nullptr, src_exp_td,
+          /*different_weights_for_height=*/true, runtime_check);
+      conv_weights_desc = conv_mpp.GetWeightsDescription();
+      conv_op = std::make_unique<ConvAppleMPP>(std::move(conv_mpp));
+    } else {
+      conv_op = SelectConvolutionWithExternalWeights(
+          attr, /*bias_desc*/ nullptr, dst_shape, gpu_info_, op_def,
+          conv_precision, hints_, &conv_weights_desc, src_exp_td,
+          /*different_weights_for_height=*/true, runtime_check);
+    }
   }
 
   std::vector<TensorHandle> conv_weights = WeightsConversion(

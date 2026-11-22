@@ -177,7 +177,9 @@ absl::StatusOr<SessionId> ThreadedExecutionManager::RegisterNewSession(
           "Session ", session_id, " already exists in session list."));
     }
     if (session_info->session_config.AudioModalityEnabled()) {
-      ABSL_RETURN_IF_ERROR(resource_manager_->TryLoadingAudioExecutor());
+      // Agello (P4.2): static audio encoders are loaded lazily on first audio
+      // input rather than eagerly at session open.
+      ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadAudioExecutor());
     }
     if (session_info->session_config.VisionModalityEnabled()) {
       // Agello (PERFORMANCE.md, E1): the vision executor is created by the
@@ -206,9 +208,10 @@ absl::Status ThreadedExecutionManager::ReleaseSession(SessionId session_id) {
   // have a clean state for the next usage.
   if (session_lookup_.at(session_id)->session_config.AudioModalityEnabled() &&
       session_lookup_.size() == 1) {
-    ABSL_ASSIGN_OR_RETURN(auto audio_executor,
-                          resource_manager_->AcquireAudioExecutor());
-    audio_executor->Reset().IgnoreError();
+    auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
+    if (audio_executor.ok()) {
+      (*audio_executor)->Reset().IgnoreError();
+    }
   }
   absl::erase_if(task_lookup_, [session_id](const auto& kv) {
     return kv.second.session_id == session_id;
@@ -739,8 +742,8 @@ ThreadedExecutionManager::ProcessAndCombineContents(
     } else if (const auto* input_audio_end =
                    std::get_if<InputAudioEnd>(&preprocessed_content)) {
       // We allow audio end token even if the audio executor is not
-      // available.
-      auto audio_executor = resource_manager_->AcquireAudioExecutor();
+      // available or was not loaded for this turn (e.g. precomputed embeddings).
+      auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
       if (audio_executor.ok()) {
         // Flush any remaining buffered spectrogram frames from streaming
         // Encode() calls.
@@ -768,6 +771,22 @@ ThreadedExecutionManager::ProcessAndCombineContents(
   // executor and its working memory until the next image.
   if (!all_image_data.empty()) {
     resource_manager_->ReleaseVisionExecutor();
+  }
+
+  // Agello (P4.2): static audio clips produce self-contained host buffers
+  // (CreateManaged per encode). Release non-streaming audio executors after
+  // encoding so Conformer XNNPACK scratch memory does not stay resident during
+  // LLM generation.
+  if (!all_audio_data.empty()) {
+    bool should_release_audio = false;
+    if (auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
+        audio_executor.ok()) {
+      auto props = (*audio_executor)->GetAudioExecutorProperties();
+      should_release_audio = props.ok() && !props->is_streaming_model;
+    }
+    if (should_release_audio) {
+      resource_manager_->ReleaseAudioExecutor();
+    }
   }
 
   if (combined_token_ids.empty()) {

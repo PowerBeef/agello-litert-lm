@@ -20,8 +20,12 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "runtime/engine/engine_settings.h"
+#include "runtime/executor/audio/audio_executor.h"
+#include "runtime/executor/audio/audio_executor_settings.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/executor_stats.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/executor/llm_executor.h"
@@ -128,6 +132,63 @@ TEST(ResourceManagerTest, SwitchSkipsTheSnapshotOfADeletedSession) {
                        resource_manager->CreateContextHandler(config));
   ASSERT_OK(use(other));
   EXPECT_EQ(num_clones, 2);
+}
+
+class StubAudioExecutor : public AudioExecutor {
+ public:
+  absl::StatusOr<ExecutorAudioData> Encode(
+      const ::litert::TensorBuffer&) override {
+    ExecutorAudioData data;
+    data.SetValidTokens(1);
+    return data;
+  }
+};
+
+// Agello (P4.2): CanLoadAudioExecutor checks availability without compiling,
+// AcquireLoadedAudioExecutor never triggers loading, and ReleaseAudioExecutor
+// preserves test-injected executors.
+TEST(ResourceManagerTest, LazyAudioExecutorLifecycle) {
+  ASSERT_OK_AND_ASSIGN(
+      auto rm_none,
+      ResourceManager::Create(
+          /*model_resources=*/nullptr,
+          std::make_unique<FakeLlmExecutor>(16, std::vector<std::vector<int>>{},
+                                            std::vector<std::vector<int>>{}),
+          /*vision_executor_settings=*/nullptr,
+          /*audio_executor_settings=*/nullptr, /*litert_env=*/nullptr));
+  EXPECT_FALSE(rm_none->CanLoadAudioExecutor().ok());
+  EXPECT_TRUE(absl::IsNotFound(rm_none->AcquireLoadedAudioExecutor().status()));
+
+  ASSERT_OK_AND_ASSIGN(auto model_assets, ModelAssets::Create("nonexistent"));
+  ASSERT_OK_AND_ASSIGN(
+      auto audio_settings,
+      AudioExecutorSettings::CreateDefault(model_assets, 128, Backend::CPU,
+                                           Backend::CPU));
+  ASSERT_OK_AND_ASSIGN(
+      auto rm_lazy,
+      ResourceManager::Create(
+          /*model_resources=*/nullptr,
+          std::make_unique<FakeLlmExecutor>(16, std::vector<std::vector<int>>{},
+                                            std::vector<std::vector<int>>{}),
+          /*vision_executor_settings=*/nullptr,
+          std::make_unique<AudioExecutorSettings>(std::move(audio_settings)),
+          /*litert_env=*/nullptr));
+  EXPECT_OK(rm_lazy->CanLoadAudioExecutor());
+  EXPECT_TRUE(absl::IsNotFound(rm_lazy->AcquireLoadedAudioExecutor().status()));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto rm_injected,
+      ResourceManager::Create(
+          /*model_resources=*/nullptr,
+          std::make_unique<FakeLlmExecutor>(16, std::vector<std::vector<int>>{},
+                                            std::vector<std::vector<int>>{}),
+          /*vision_executor_settings=*/nullptr,
+          /*audio_executor_settings=*/nullptr, /*litert_env=*/nullptr,
+          std::make_unique<StubAudioExecutor>()));
+  EXPECT_OK(rm_injected->CanLoadAudioExecutor());
+  EXPECT_OK(rm_injected->AcquireLoadedAudioExecutor().status());
+  rm_injected->ReleaseAudioExecutor();
+  EXPECT_OK(rm_injected->AcquireLoadedAudioExecutor().status());
 }
 
 }  // namespace

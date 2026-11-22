@@ -44,6 +44,7 @@
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/audio/audio_executor.h"
 #include "runtime/executor/audio/audio_executor_settings.h"
+#include "runtime/executor/audio/audio_executor_utils.h"
 #include "runtime/executor/audio_litert_compiled_model_executor.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/executor_stats.h"
@@ -547,7 +548,9 @@ ResourceManager::ResourceManager(
       llm_executor_(std::move(llm_executor)),
       vision_executor_settings_(std::move(vision_executor_settings)),
       audio_executor_(std::move(audio_executor)),
+      audio_executor_injected_(audio_executor_ != nullptr),
       audio_executor_settings_(std::move(audio_executor_settings)),
+      model_resources_(model_resources),
       litert_env_(litert_env),
       llm_executor_settings_(std::move(llm_executor_settings)) {
 }
@@ -673,12 +676,14 @@ ResourceManager::CreateContextHandler(const SessionConfig& session_config) {
   }
   std::unique_ptr<AudioContext> audio_context;
   if (session_config.AudioModalityEnabled()) {
-    ABSL_RETURN_IF_ERROR(TryLoadingAudioExecutor());
-    ABSL_ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
-    auto audio_executor_properties =
-        audio_executor->GetAudioExecutorProperties();
+    // Agello (P4.2): check audio metadata without compiling static audio
+    // encoders (~94 MB Conformer). Streaming models still load and create a
+    // per-session AudioContext here.
+    ABSL_RETURN_IF_ERROR(CanLoadAudioExecutor());
+    auto audio_executor_properties = GetAudioExecutorProperties();
     if (audio_executor_properties.ok()) {
       if (audio_executor_properties->is_streaming_model) {
+        ABSL_ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
         ABSL_ASSIGN_OR_RETURN(audio_context,
                               audio_executor->CreateNewContext());
       }
@@ -915,28 +920,34 @@ ResourceManager::AcquireVisionExecutor() {
                                                 std::move(lock));
 }
 
-absl::Status ResourceManager::TryLoadingAudioExecutor() {
-  bool is_llm_gpu_artisan = false;
-  if (audio_executor_settings_ && audio_executor_settings_->GetBackend() ==
-                                      litert::lm::Backend::GPU_ARTISAN) {
-    RET_CHECK(llm_executor_settings_.has_value());
-    is_llm_gpu_artisan =
-        (llm_executor_settings_->GetBackend() == Backend::GPU_ARTISAN);
-  }
-
-  absl::MutexLock lock(audio_executor_mutex_);
+absl::Status ResourceManager::CreateAudioExecutorLocked() {
   if (audio_executor_ != nullptr) {
     return absl::OkStatus();
   }
   if (!audio_executor_settings_) {
     return absl::InvalidArgumentError("Audio options should not be null.");
   }
-  {
-    ABSL_RETURN_IF_ERROR(MaybeCreateLitertEnv());
-    RET_CHECK_NE(litert_env_, nullptr);
-    ABSL_ASSIGN_OR_RETURN(audio_executor_,
-                          litert::lm::AudioLiteRtCompiledModelExecutor::Create(
-                              *audio_executor_settings_, *litert_env_));
+  if (audio_executor_settings_->GetBackend() ==
+      litert::lm::Backend::GPU_ARTISAN) {
+    RET_CHECK(llm_executor_settings_.has_value());
+  }
+  ABSL_RETURN_IF_ERROR(MaybeCreateLitertEnv());
+  RET_CHECK_NE(litert_env_, nullptr);
+  ABSL_ASSIGN_OR_RETURN(audio_executor_,
+                        litert::lm::AudioLiteRtCompiledModelExecutor::Create(
+                            *audio_executor_settings_, *litert_env_));
+  return absl::OkStatus();
+}
+
+absl::Status ResourceManager::TryLoadingAudioExecutor() {
+  absl::MutexLock lock(audio_executor_mutex_);
+  return CreateAudioExecutorLocked();
+}
+
+absl::Status ResourceManager::CanLoadAudioExecutor() {
+  absl::MutexLock lock(audio_executor_mutex_);
+  if (audio_executor_ == nullptr && !audio_executor_settings_) {
+    return absl::InvalidArgumentError("Audio options should not be null.");
   }
   return absl::OkStatus();
 }
@@ -944,13 +955,27 @@ absl::Status ResourceManager::TryLoadingAudioExecutor() {
 absl::StatusOr<std::unique_ptr<AudioExecutor>>
 ResourceManager::AcquireAudioExecutor() {
   MovableMutexLock lock(&audio_executor_mutex_);
+  // Agello (P4.2): created lazily on first audio use, not when a session opens.
+  ABSL_RETURN_IF_ERROR(CreateAudioExecutorLocked());
+  return std::make_unique<LockedAudioExecutor>(audio_executor_,
+                                               std::move(lock));
+}
+
+absl::StatusOr<std::unique_ptr<AudioExecutor>>
+ResourceManager::AcquireLoadedAudioExecutor() {
+  MovableMutexLock lock(&audio_executor_mutex_);
   if (audio_executor_ == nullptr) {
-    return absl::InvalidArgumentError(
-        "Audio executor should not be null, please TryLoadingAudioExecutor() "
-        "first.");
+    return absl::NotFoundError("Audio executor is not currently loaded.");
   }
   return std::make_unique<LockedAudioExecutor>(audio_executor_,
                                                std::move(lock));
+}
+
+void ResourceManager::ReleaseAudioExecutor() {
+  absl::MutexLock lock(audio_executor_mutex_);
+  if (!audio_executor_injected_) {
+    audio_executor_.reset();
+  }
 }
 
 absl::StatusOr<std::unique_ptr<ResourceManager>> ResourceManager::Create(
@@ -976,6 +1001,22 @@ absl::StatusOr<std::unique_ptr<ResourceManager>> ResourceManager::Create(
 
 absl::StatusOr<AudioExecutorProperties>
 ResourceManager::GetAudioExecutorProperties() {
+  {
+    absl::MutexLock lock(audio_executor_mutex_);
+    if (audio_executor_ != nullptr) {
+      return audio_executor_->GetAudioExecutorProperties();
+    }
+    if (!audio_executor_settings_) {
+      return absl::InvalidArgumentError("Audio options should not be null.");
+    }
+  }
+  if (model_resources_ != nullptr) {
+    auto props =
+        GetAudioExecutorPropertiesFromModelResources(*model_resources_);
+    if (props.ok()) {
+      return props;
+    }
+  }
   ABSL_RETURN_IF_ERROR(TryLoadingAudioExecutor());
   MovableMutexLock lock(&audio_executor_mutex_);
   return audio_executor_->GetAudioExecutorProperties();
