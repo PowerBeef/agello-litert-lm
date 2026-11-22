@@ -245,70 +245,7 @@ uint32_t expand_int4_to_int8(uint32_t val) {
 MAIN_FUNCTION($0) {
   int slice_tile_id = ucl::GetGroupId<0>();
   int spatial_tile_id = ucl::GetGroupId<1>();
-)";
-  if (!params_.runtime_check.packed_groups.has_value()) {
-    c += R"(  {
-    int gx = slice_tile_id;
-    int gy = spatial_tile_id;
-    int GX = (args.dst.Slices() + N_TILE_SLICES - 1) / N_TILE_SLICES;
-    int GY = (SPATIAL_SIZE + M_TILE - 1) / M_TILE;
-    if (GX > 1 && GY > 1) {
-      int linear = gy * GX + gx;
-      int band_size = 4 * GX;
-      int full_bands = GY >> 2;
-      int full_count = full_bands * band_size;
-      if (linear < full_count) {
-        int band_id = linear / band_size;
-        int in_band = linear - band_id * band_size;
-        int full_x = GX & ~3;
-        int full_band_tiles = full_x << 2;
-        if (in_band < full_band_tiles) {
-          int blk_x = in_band >> 4;
-          int idx = in_band & 15;
-          int lx = (idx & 1) | ((idx >> 1) & 2);
-          int ly = ((idx >> 1) & 1) | ((idx >> 2) & 2);
-          slice_tile_id = (blk_x << 2) + lx;
-          spatial_tile_id = (band_id << 2) + ly;
-        } else {
-          int rem = in_band - full_band_tiles;
-          int tail_w = GX - full_x;
-          slice_tile_id = full_x + (rem % tail_w);
-          spatial_tile_id = (band_id << 2) + (rem / tail_w);
-        }
-      } else {
-        int rem = linear - full_count;
-        int y0 = full_bands << 2;
-        int rem_h = GY - y0;
-        if (rem_h >= 2) {
-          int band2_size = 2 * GX;
-          if (rem < band2_size) {
-            int full_x2 = GX & ~1;
-            int full_b2 = full_x2 << 1;
-            if (rem < full_b2) {
-              int blk_x = rem >> 2;
-              int idx = rem & 3;
-              slice_tile_id = (blk_x << 1) + (idx & 1);
-              spatial_tile_id = y0 + (idx >> 1);
-            } else {
-              int t = rem - full_b2;
-              slice_tile_id = full_x2;
-              spatial_tile_id = y0 + t;
-            }
-          } else {
-            int t = rem - band2_size;
-            slice_tile_id = t;
-            spatial_tile_id = y0 + 2;
-          }
-        } else {
-          slice_tile_id = rem;
-          spatial_tile_id = y0;
-        }
-      }
-    }
-  }
-)";
-  }
-  c += R"(  int sub_spatial_id = ucl::GetLocalId<0>() % M_TILE;
+  int sub_spatial_id = ucl::GetLocalId<0>() % M_TILE;
   int sub_slice_id = ucl::GetLocalId<0>() / M_TILE;
   int slices_per_wg = WG_SIZE / M_TILE;
   int spatial_id = spatial_tile_id * M_TILE + sub_spatial_id;
@@ -623,115 +560,13 @@ MAIN_FUNCTION($0) {
     c += "  }\n";
   }
   const int strip_m = std::min(m_tile_, 32);
-  if (params_.has_dequant && (m_tile_ % strip_m == 0) && (n_tile_ % 16 == 0)) {
-    // Param-cached 32-row half strip epilogue: shrinks threadgroup memory from
-    // 32,768 B (int32[128*64], 1 TG/core cap) to 9,728-10,496 B (3 TG/core),
-    // with zero global loads or div/mod inside the c_tile register loop and
-    // fully coalesced vec4 writes for all linked elementwise ops.
-    c += "  {\n";
-    c += "    threadgroup float tg_s_scale[M_TILE];\n";
-    c += "    threadgroup float tg_s_zp[M_TILE];\n";
-    if (params_.dequant_has_zero_point) {
-      c += "    threadgroup float tg_s_zp_term[M_TILE];\n";
-    }
-    c += "    threadgroup float4 tg_w_scale4[N_TILE_SLICES];\n";
-    c += "    threadgroup float4 tg_w_ssum4[N_TILE_SLICES];\n";
-    if (params_.dequant_has_zero_point) {
-      c += "    threadgroup float4 tg_w_zp4[N_TILE_SLICES];\n";
-    }
-    c += "    threadgroup float* tg_w_scale = (threadgroup float*)(tg_w_scale4);\n";
-    c += "    threadgroup float* tg_w_ssum = (threadgroup float*)(tg_w_ssum4);\n";
-    if (params_.dequant_has_zero_point) {
-      c += "    threadgroup float* tg_w_zp = (threadgroup float*)(tg_w_zp4);\n";
-    }
-    c += "    int ep_tid = ucl::GetLocalId<0>();\n";
-    c += "    if (ep_tid < M_TILE) {\n";
-    c += "      int p_row = spatial_tile_id * M_TILE + ep_tid;\n";
-    c += EmitRowCoords(params_, dst_has_batch, "p_row", "pr", "      ");
-    c += "      if (pr_ok) {\n";
-    std::string pr_coords = "pr_w, pr_h, 0";
-    if (params_.dequant_params_has_batch) {
-      pr_coords += ", pr_b";
-    }
-    c += "        float4 sp = args.params_tensor.Read<float>(" + pr_coords + ");\n";
-    c += "        tg_s_scale[ep_tid] = sp.x;\n";
-    c += "        tg_s_zp[ep_tid] = sp.y;\n";
-    if (params_.dequant_has_zero_point) {
-      c += "        tg_s_zp_term[ep_tid] = sp.x * sp.z + sp.y * args.in_channels;\n";
-    }
-    c += "      } else {\n";
-    c += "        tg_s_scale[ep_tid] = 0.0f;\n";
-    c += "        tg_s_zp[ep_tid] = 0.0f;\n";
-    if (params_.dequant_has_zero_point) {
-      c += "        tg_s_zp_term[ep_tid] = 0.0f;\n";
-    }
-    c += "      }\n";
-    c += "    }\n";
-    c += "    if (ep_tid < N_TILE_SLICES) {\n";
-    c += "      int w_sl = slice_tile_id * N_TILE_SLICES + ep_tid;\n";
-    c += "      if (w_sl < args.dst.Slices()) {\n";
-    c += "        float4 ws = args.weights_scale.Read<float>(w_sl);\n";
-    c += "        float4 wm = ucl::Convert<float4>(args.weights_sum.Read(w_sl));\n";
-    c += "        tg_w_scale4[ep_tid] = ws;\n";
-    c += "        tg_w_ssum4[ep_tid] = ws * wm;\n";
-    if (params_.dequant_has_zero_point) {
-      c += "        tg_w_zp4[ep_tid] = args.weights_zero_point.Read<float>(w_sl);\n";
-    }
-    c += "      } else {\n";
-    c += "        tg_w_scale4[ep_tid] = float4(0.0f);\n";
-    c += "        tg_w_ssum4[ep_tid] = float4(0.0f);\n";
-    if (params_.dequant_has_zero_point) {
-      c += "        tg_w_zp4[ep_tid] = float4(0.0f);\n";
-    }
-    c += "      }\n";
-    c += "    }\n";
-    c += "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-    c += "    threadgroup OUT_SCALAR tmp_h[N_TILE * STRIP_M];\n";
-    c += "    threadgroup OUT_VEC4* tmp_h_x4 = (threadgroup OUT_VEC4*)(tmp_h);\n";
-    c += "    int ep_sub_m = ep_tid % STRIP_M;\n";
-    c += "    int ep_sub_s = ep_tid / STRIP_M;\n";
-    c += "    int ep_spw = WG_SIZE / STRIP_M;\n";
-    c += "    #pragma unroll_full\n";
-    c += "    for (int m_base = 0; m_base < M_TILE; m_base += STRIP_M) {\n";
-    c += "      if (m_base > 0) threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-    c += "      #pragma unroll_full\n";
-    c += "      for (uint16_t i = 0; i < c_tile.get_capacity(); ++i) {\n";
-    c += "        if (c_tile.is_valid_element(i)) {\n";
-    c += "          auto coord = c_tile.get_multidimensional_index(i);\n";
-    c += "          int lm = coord[1] - m_base;\n";
-    c += "          if (lm >= 0 && lm < STRIP_M) {\n";
-    c += "            int n = coord[0];\n";
-    c += "            int m = coord[1];\n";
-    c += "            float res = float(c_tile[i]) * (tg_w_scale[n] * tg_s_scale[m]) + tg_s_zp[m] * tg_w_ssum[n];\n";
-    if (params_.dequant_has_zero_point) {
-      c += "            res += tg_s_zp_term[m] * tg_w_zp[n];\n";
-    }
-    c += "            tmp_h[lm * N_TILE + n] = ucl::Convert<OUT_SCALAR>(res);\n";
-    c += "          }\n";
-    c += "        }\n";
-    c += "      }\n";
-    c += "      threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-    c += "      int ep_row = spatial_tile_id * M_TILE + m_base + ep_sub_m;\n";
-    c += EmitRowCoords(params_, dst_has_batch, "ep_row", "ep", "      ");
-    c += "      if (ep_ok) {\n";
-    c += "        for (int i = 0; i < N_TILE_SLICES / ep_spw; ++i) {\n";
-    c += "          int tile_n_id = i * ep_spw + ep_sub_s;\n";
-    c += "          int slice_id = slice_tile_id * N_TILE_SLICES + tile_n_id;\n";
-    c += "          if (slice_id < args.dst.Slices()) {\n";
-    c += "            OUT_VEC4 res_value = tmp_h_x4[ep_sub_m * N_TILE_SLICES + tile_n_id];\n";
-    std::string ep_coords = "ep_w, ep_h, slice_id";
-    if (dst_has_batch) {
-      ep_coords += ", ep_b";
-    }
-    c += "            args.dst.Write(res_value, " + ep_coords + ");\n";
-    c += "          }\n";
-    c += "        }\n";
-    c += "      }\n";
-    c += "    }\n";
-    c += "  }\n";
-  } else if (manual_src_reading && !params_.has_dequant &&
-             (m_tile_ % strip_m == 0) && (m_tile_ > strip_m) &&
-             (n_tile_ % 16 == 0)) {
+  // Use the 32-row half strip epilogue only for manual_src_reading PV attention
+  // (where FP32 c_tile + a_loc would otherwise exceed Apple's 32 KiB TG limit).
+  // For dequantized INT8 GEMMs, direct c_tile.store(c_local) + vectorized
+  // float4 dequant beats the two-pass scalar strip by ~93 ms/chunk on A19 Pro.
+  if (manual_src_reading && !params_.has_dequant &&
+      (m_tile_ % strip_m == 0) && (m_tile_ > strip_m) &&
+      (n_tile_ % 16 == 0)) {
     // PV attention (a_loc 4 KiB + tmp 8 KiB = 12 KiB -> 2 TG/core instead of
     // 20 KiB -> 1 TG/core cap).
     c += "  {\n";
