@@ -274,12 +274,19 @@ absl::StatusOr<std::unique_ptr<Bitmap>> ThinkingBudgetConstraint::ComputeBitmap(
 
 bool ThinkingBudgetConstraint::AllowsAnyTokens(const Constraint::State& state,
                                                int steps) const {
-  if (user_constraint_ != nullptr || steps < 0) return false;
+  if (steps < 0) return false;
   const auto& s = static_cast<const ThinkingState&>(state);
   if (s.matching_start_index > 0) return false;
+  if (!s.in_thinking && s.matching_start_index == -1) {
+    // Content phase: if a wrapped user constraint (e.g. first-token-only
+    // SuppressTokensConstraint) allows any token from here on, skip masking.
+    if (user_constraint_ == nullptr) return true;
+    return s.user_state != nullptr &&
+           user_constraint_->AllowsAnyTokens(*s.user_state, steps);
+  }
+  if (user_constraint_ != nullptr) return false;
   // Step 0 allows any token, but the next state may force the start sequence's second token.
   if (s.matching_start_index == 0) return steps == 0;
-  if (!s.in_thinking) return true;
   if (s.forced_end_token_index >= 0) return false;
   // The state after k more tokens has counted thinking_token_count + k (unless thinking ended
   // naturally, which only allows more), and forces the end from the budget on.

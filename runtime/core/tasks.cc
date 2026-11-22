@@ -702,6 +702,8 @@ absl::StatusOr<Responses> Decode(
   };
 
   std::unique_ptr<Constraint> thinking_budget_constraint;
+  std::unique_ptr<Constraint> inner_suppress_constraint;
+  std::unique_ptr<CompositeConstraint> inner_user_constraint;
   // Agello (T2): the same count without building every token's string (262,144
   // strings for Gemma) on every decode.
   int vocab_size = tokenizer.GetVocabSize();
@@ -715,9 +717,30 @@ absl::StatusOr<Responses> Decode(
           << "Thinking budget is set but thinking_end_token_ids is empty. "
              "Ignoring thinking budget constraint.";
     } else {
+      // Agello: wrap SuppressTokensConstraint *inside* ThinkingBudgetConstraint
+      // so first_token_only bans (e.g. post-tool-response stop markers) apply
+      // to the first visible post-thought answer token instead of being spent
+      // on the opening `<|channel>` thinking token.
+      Constraint* wrapped_user_constraint = constraint;
+      if (suppress_tokens_config.enabled()) {
+        inner_suppress_constraint = std::make_unique<SuppressTokensConstraint>(
+            vocab_size, std::move(suppress_tokens_config));
+        suppress_tokens_config = SuppressTokensConfig::Default();
+        if (wrapped_user_constraint != nullptr) {
+          ABSL_ASSIGN_OR_RETURN(inner_user_constraint,
+                                CompositeConstraint::Create());
+          ABSL_RETURN_IF_ERROR(inner_user_constraint->AddUnownedConstraint(
+              inner_suppress_constraint.get()));
+          ABSL_RETURN_IF_ERROR(inner_user_constraint->AddUnownedConstraint(
+              wrapped_user_constraint));
+          wrapped_user_constraint = inner_user_constraint.get();
+        } else {
+          wrapped_user_constraint = inner_suppress_constraint.get();
+        }
+      }
       thinking_budget_constraint = std::make_unique<ThinkingBudgetConstraint>(
-          constraint, *thinking_token_budget, thinking_start_token_ids,
-          thinking_end_token_ids, vocab_size);
+          wrapped_user_constraint, *thinking_token_budget,
+          thinking_start_token_ids, thinking_end_token_ids, vocab_size);
       constraint = thinking_budget_constraint.get();
     }
   }

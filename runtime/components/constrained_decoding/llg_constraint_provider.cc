@@ -39,6 +39,56 @@
 namespace litert::lm {
 namespace {
 
+constexpr absl::string_view kSentencePieceSpace = "\xE2\x96\x81";
+
+bool StartsWith(absl::string_view s, absl::string_view prefix) {
+  return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
+}
+
+bool EndsWith(absl::string_view s, absl::string_view suffix) {
+  return s.size() >= suffix.size() &&
+         s.substr(s.size() - suffix.size()) == suffix;
+}
+
+bool ParseByteToken(absl::string_view token, uint8_t* out_byte) {
+  if (token.size() != 6 || token[0] != '<' || token[1] != '0' ||
+      token[2] != 'x' || token[5] != '>') {
+    return false;
+  }
+  auto hex = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  int hi = hex(token[3]);
+  int lo = hex(token[4]);
+  if (hi < 0 || lo < 0) return false;
+  *out_byte = static_cast<uint8_t>((hi << 4) | lo);
+  return true;
+}
+
+// Agello: Gemma 4 / SentencePiece control tokens that must be prefixed with
+// 0xFF (TokTrie::SPECIAL_TOKEN_MARKER) so llguidance never emits them as
+// literal text inside constrained outputs while still allowing grammars to
+// match them as special tokens. HTML tags like `<table>` stay normal text.
+bool IsSpecialControlToken(absl::string_view token) {
+  if (token.size() >= 4 &&
+      ((StartsWith(token, "<|") && EndsWith(token, ">")) ||
+       (StartsWith(token, "<") && EndsWith(token, "|>")))) {
+    return true;
+  }
+  if (StartsWith(token, "<unused") && EndsWith(token, ">")) {
+    return true;
+  }
+  return token == "<pad>" || token == "<eos>" || token == "<bos>" ||
+         token == "<unk>" || token == "<mask>" || token == "[multimodal]" ||
+         token == "<s>" || token == "</s>" ||
+         token == "<start_of_turn>" || token == "<end_of_turn>" ||
+         token == "<start_of_image>" || token == "<end_of_image>" ||
+         token == "<start_of_audio>" || token == "<end_of_audio>";
+}
+
 ::LlgConstraint* CreateLlgConstraint(LlgConstraintInit* llg_constraint_init,
                                      absl::string_view constraint_string,
                                      LlgConstraintType constraint_type) {
@@ -74,24 +124,48 @@ LlgConstraintProvider::Create(const Tokenizer& tokenizer,
 
   std::vector<uint32_t> token_lens;
   std::vector<uint8_t> token_bytes;
-  size_t total_size = 0;
-
   token_lens.reserve(tokens.size());
+  size_t estimated_size = 0;
   for (const auto& token : tokens) {
-    bool is_special = special_tokens_set.contains(token);
-    token_lens.push_back(token.size() + (is_special ? 1 : 0));
-    total_size += token.size() + (is_special ? 1 : 0);
+    estimated_size += token.size() + 1;
   }
+  token_bytes.reserve(estimated_size);
 
-  token_bytes.reserve(total_size);
-  for (const auto& token : tokens) {
-    bool is_special = special_tokens_set.contains(token);
+  for (size_t i = 0; i < tokens.size(); ++i) {
+    const std::string& token = tokens[i];
+    const bool is_special =
+        static_cast<int>(i) == *llg_config.eos_id ||
+        special_tokens_set.contains(token) || IsSpecialControlToken(token);
     if (is_special) {
       // Special tokens need to be prefixed with 0xFF.
       // https://github.com/guidance-ai/llguidance/blob/main/docs/special_tokens.md
+      token_lens.push_back(static_cast<uint32_t>(token.size() + 1));
       token_bytes.push_back(0xFF);
+      token_bytes.insert(token_bytes.end(), token.begin(), token.end());
+      continue;
     }
-    token_bytes.insert(token_bytes.end(), token.begin(), token.end());
+    uint8_t byte_val = 0;
+    if (ParseByteToken(token, &byte_val)) {
+      token_lens.push_back(1);
+      token_bytes.push_back(byte_val);
+      continue;
+    }
+    // Decode SentencePiece's word-start marker `▁` (U+2581) to ASCII space
+    // (0x20) per llguidance's TokTrie byte contract.
+    const size_t start = token_bytes.size();
+    size_t pos = 0;
+    while (pos < token.size()) {
+      const size_t found = token.find(kSentencePieceSpace, pos);
+      if (found == std::string::npos) {
+        token_bytes.insert(token_bytes.end(), token.begin() + pos, token.end());
+        break;
+      }
+      token_bytes.insert(token_bytes.end(), token.begin() + pos,
+                         token.begin() + found);
+      token_bytes.push_back(static_cast<uint8_t>(' '));
+      pos = found + kSentencePieceSpace.size();
+    }
+    token_lens.push_back(static_cast<uint32_t>(token_bytes.size() - start));
   }
 
   auto tokenize_fn = [](const void* user_data, const uint8_t* bytes,

@@ -32,6 +32,8 @@
 #include "runtime/components/constrained_decoding/llg_constraint_config.h"
 #include "runtime/components/constrained_decoding/llg_constraint_provider.h"
 #include "runtime/components/constrained_decoding/logit_mask.h"
+#include "runtime/components/constrained_decoding/suppress_tokens_config.h"
+#include "runtime/components/constrained_decoding/suppress_tokens_constraint.h"
 #include "runtime/util/test_utils.h"  // IWYU pragma: keep
 #include "support/tokenizer/tokenizer.h"
 
@@ -509,6 +511,53 @@ TEST(ThinkingBudgetConstraintTest, AllowsAnyTokensIsFalseWithAUserConstraint) {
   FakeConstraint user({1, 2}, 32);
   ThinkingBudgetConstraint constraint(&user, /*budget=*/100, {}, {20, 21}, 32);
   EXPECT_FALSE(constraint.AllowsAnyTokens(*constraint.Start(), 0));
+}
+
+TEST(ThinkingBudgetConstraintTest,
+     SuppressTokensInsideThinkingEnforcesFirstVisibleContentToken) {
+  constexpr int kVocab = 32;
+  // Ban tokens 9 and 10 on the first visible answer token (like post-tool stop markers).
+  SuppressTokensConstraint suppress(
+      kVocab, SuppressTokensConfig(/*suppress_tokens=*/{9, 10},
+                                   /*first_token_only=*/true));
+  ThinkingBudgetConstraint constraint(&suppress, /*budget=*/5,
+                                      /*start_token_ids=*/{20},
+                                      /*end_token_ids=*/{21}, kVocab);
+
+  auto is_allowed = [&](const Constraint::State& st, int tok) -> bool {
+    auto mask = constraint.ComputeMask(st);
+    EXPECT_OK(mask);
+    auto* bm = static_cast<const BitmapLogitMask*>(mask->get());
+    return bm->IsAllowed(tok);
+  };
+
+  // Step 0: thinking start (20) is allowed, suppressed stops (9, 10) are banned.
+  auto state = constraint.Start();
+  EXPECT_TRUE(is_allowed(*state, 20));
+  EXPECT_TRUE(is_allowed(*state, 5));
+  EXPECT_FALSE(is_allowed(*state, 9));
+  EXPECT_FALSE(is_allowed(*state, 10));
+
+  // Enter thinking: suppression is suspended while thinking.
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 20));
+  EXPECT_TRUE(is_allowed(*state, 9));
+  EXPECT_TRUE(is_allowed(*state, 10));
+
+  // Emit one thought token, then end thinking naturally (21).
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 5));
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 21));
+
+  // First visible content token: suppressed tokens (9, 10) MUST be banned.
+  EXPECT_FALSE(constraint.AllowsAnyTokens(*state, 0));
+  EXPECT_FALSE(is_allowed(*state, 9));
+  EXPECT_FALSE(is_allowed(*state, 10));
+  EXPECT_TRUE(is_allowed(*state, 5));
+
+  // Second visible content token onward: AllowsAnyTokens is true and all tokens allowed.
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 5));
+  EXPECT_TRUE(constraint.AllowsAnyTokens(*state, 4));
+  EXPECT_TRUE(is_allowed(*state, 9));
+  EXPECT_TRUE(is_allowed(*state, 10));
 }
 
 }  // namespace

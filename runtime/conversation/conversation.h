@@ -736,6 +736,9 @@ class Conversation {
   // duplicate start tokens.
   // Agello: a tool response gets a reply that can't open with the tool-response marker.
   static bool IsToolResponse(const Message& message);
+  // Agello: whether a model message emitted one or more tool calls (so intermediate
+  // thought traces stay in KV until the turn's final user-visible answer completes).
+  static bool HasToolCalls(const Message& message);
   absl::flat_hash_set<int> ToolAnswerFirstTokenBans() const;
 
   absl::StatusOr<DecodeConfig> CreateDecodeConfig(
@@ -850,6 +853,11 @@ class Conversation {
   // Whether the saved channel content checkpoint was taken after prefilling the
   // user turn (including the generation prompt).
   bool checkpoint_after_user_prefill_ ABSL_GUARDED_BY(history_mutex_) = false;
+
+  // Agello: true when an earlier intermediate tool-call step in the current
+  // turn kept channel content (e.g. `<|channel>thought`) in the KV cache so
+  // the turn-start checkpoint must be preserved until the final answer lands.
+  bool pending_thought_in_kv_ ABSL_GUARDED_BY(history_mutex_) = false;
 
   // Set by CancelProcess() so deferred post-decode channel rewinds don't launch
   // a fresh GPU prefill after cancellation.

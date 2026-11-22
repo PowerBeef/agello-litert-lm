@@ -252,3 +252,30 @@ cc_test(
         "//runtime/util:test_utils",
     ],
 )
+
+cc_test(
+    name = "agello_conversation_test",
+    srcs = ["agello_conversation_test.cc"],
+    data = ["agello_testdata/gemma4_e4b_file_template.jinja"],
+    deps = [
+        ":agello_gemma4_template",
+        ":conversation",
+        ":io_types",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@nlohmann_json//:json",
+        "//runtime/components:prompt_template",
+        "//runtime/conversation/model_data_processor:gemma4_data_processor_config",
+        "//runtime/engine:engine_interface",
+        "//runtime/engine:engine_settings",
+        "//runtime/engine:io_types",
+        "//runtime/proto:llm_metadata_cc_proto",
+        "//runtime/util:test_utils",
+        "//support/tokenizer",
+    ],
+)

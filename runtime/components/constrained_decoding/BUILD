@@ -637,6 +637,8 @@ cc_test(
         ":llg_constraint_config",
         ":llg_constraint_provider",
         ":logit_mask",
+        ":suppress_tokens_config",
+        ":suppress_tokens_constraint",
         ":thinking_budget_constraint",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status:statusor",

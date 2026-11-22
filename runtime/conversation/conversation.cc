@@ -573,6 +573,12 @@ bool Conversation::IsToolResponse(const Message& message) {
   return is_tool(message);
 }
 
+// Agello: whether a model message emitted one or more tool calls.
+bool Conversation::HasToolCalls(const Message& message) {
+  return message.is_object() && message.contains("tool_calls") &&
+         message["tool_calls"].is_array() && !message["tool_calls"].empty();
+}
+
 // Agello: what the answer to a Gemma 4 tool response can't open with: the file's single-token
 // stop sequences (`<eos>`, `<turn|>`, and `<|tool_response>`, which ends a tool call). Each
 // ended the reply empty right after the date tool's response (probe 36).
@@ -615,9 +621,18 @@ absl::Status Conversation::SendMessageAsync(
   size_t num_messages_added = 0;
   bool was_history_empty = false;
   bool is_appending_message = false;
+  bool preserve_turn_checkpoint = false;
+  const bool is_tool_response_message = IsToolResponse(message);
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     was_history_empty = history_.empty();
+    if (!is_tool_response_message) {
+      // A fresh user turn always starts a new channel-filter checkpoint.
+      pending_thought_in_kv_ = false;
+    }
+    preserve_turn_checkpoint =
+        is_tool_response_message && pending_thought_in_kv_ &&
+        checkpoint_message_index_.has_value();
     if (message.is_array()) {
       for (const auto& message : message) {
         history_.push_back(message);
@@ -639,6 +654,7 @@ absl::Status Conversation::SendMessageAsync(
     is_appending_message_ = prev_is_appending_message;
     checkpoint_message_index_ = std::nullopt;
     checkpoint_after_user_prefill_ = false;
+    pending_thought_in_kv_ = false;
   };
 
   // If the prompt template itself opens a channel at the end of the user
@@ -647,7 +663,7 @@ absl::Status Conversation::SendMessageAsync(
   // Otherwise, the checkpoint is saved after prefilling the user message
   // (PostUserPrefill) right before decoding starts.
   if (config_.filter_channel_content_from_kv_cache() && !is_appending_message &&
-      open_channel_name.has_value()) {
+      !preserve_turn_checkpoint && open_channel_name.has_value()) {
     if (config_.enable_rewinding()) {
       ABSL_RETURN_IF_ERROR(session_->SaveCheckpoint(kChannelContentCheckpoint));
     } else {
@@ -781,8 +797,29 @@ absl::Status Conversation::SendMessageAsync(
         {
           absl::MutexLock lock(history_mutex_);
           history_.push_back(complete_message);
-          if (!config_.filter_channel_content_from_kv_cache() ||
-              !complete_message.contains(kChannelsKey)) {
+          const bool has_channels = complete_message.contains(kChannelsKey);
+          if (!config_.filter_channel_content_from_kv_cache()) {
+            checkpoint_message_index_ = std::nullopt;
+            checkpoint_after_user_prefill_ = false;
+            pending_thought_in_kv_ = false;
+            return;
+          }
+
+          // Agello: preserve `<thought>` traces in KV across intermediate
+          // tool-call steps within the same turn, stripping them only once the
+          // turn's final user-visible answer completes.
+          if (HasToolCalls(complete_message)) {
+            if (has_channels) {
+              pending_thought_in_kv_ = true;
+            }
+            if (!pending_thought_in_kv_) {
+              checkpoint_message_index_ = std::nullopt;
+              checkpoint_after_user_prefill_ = false;
+            }
+            return;
+          }
+
+          if (!has_channels && !pending_thought_in_kv_) {
             checkpoint_message_index_ = std::nullopt;
             checkpoint_after_user_prefill_ = false;
             return;
@@ -791,14 +828,16 @@ absl::Status Conversation::SendMessageAsync(
           if (process_cancelled_.load(std::memory_order_acquire)) {
             checkpoint_message_index_ = std::nullopt;
             checkpoint_after_user_prefill_ = false;
+            pending_thought_in_kv_ = false;
             *defer_completion = true;
             (*shared_user_callback)(absl::CancelledError("Task cancelled"));
             return;
           }
 
-          // Eagerly rewind to the checkpoint and refill the model response
+          // Eagerly rewind to the checkpoint and refill the model response(s)
           // without channel content before signaling completion to the caller.
           *defer_completion = true;
+          pending_thought_in_kv_ = false;
           refill_session_inputs = RewindAndGetInputDataVector(optional_args);
         }
         if (process_cancelled_.load(std::memory_order_acquire)) {
@@ -862,6 +901,7 @@ absl::Status Conversation::SendMessageAsync(
           session_inputs,
           [this, callback = internal_callback, decode_config,
            open_channel_name = std::move(open_channel_name),
+           preserve_turn_checkpoint,
            task_group_id](absl::StatusOr<Responses> responses) mutable {
             // First, check if prefill returned an error. Ignore errors
             // caused by empty input, as this is a valid case for triggering
@@ -883,6 +923,7 @@ absl::Status Conversation::SendMessageAsync(
               // prefill completed successfully. In either case, we can now
               // start the decode process.
               if (config_.filter_channel_content_from_kv_cache() &&
+                  !preserve_turn_checkpoint &&
                   !open_channel_name.has_value()) {
                 auto save_status =
                     config_.enable_rewinding()
