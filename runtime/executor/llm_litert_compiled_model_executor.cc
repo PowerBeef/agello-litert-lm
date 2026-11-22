@@ -1774,6 +1774,32 @@ LlmLiteRtCompiledModelExecutorBase::CloneState() const {
   return active_state->DeepCopy();
 }
 
+absl::StatusOr<std::unique_ptr<StateInterface>>
+LlmLiteRtCompiledModelExecutorBase::DetachState() {
+  int output_heads = 1;
+  if (llm_context_->runtime_config().output_heads.has_value()) {
+    output_heads = llm_context_->runtime_config().output_heads.value();
+  }
+  StateInterface* active_state =
+      (output_heads > 1) ? decode_state_.get() : state_.get();
+  if (active_state == nullptr) {
+    return nullptr;
+  }
+  if (auto* litert_state = dynamic_cast<LitertState*>(active_state);
+      litert_state != nullptr && output_heads == 1) {
+    AGELLO_SPAN(kKvClone);
+    AGELLO_COUNT(kKvCopies);
+    constexpr int kSnapshotMarginPositions = 16;
+    ABSL_ASSIGN_OR_RETURN(
+        auto copy, litert_state->DetachSnapshot(
+                       llm_context_->runtime_state().current_step +
+                       kSnapshotMarginPositions));
+    AGELLO_COUNT(kKvCopyBytes, static_cast<const LitertState&>(*copy).CopiedBytes());
+    return copy;
+  }
+  return CloneState();
+}
+
 absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreState(
     std::unique_ptr<StateInterface> state) {
   mtp_primed_ = false;
@@ -1797,12 +1823,19 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreState(
   // paying this penalty.
   auto* current = dynamic_cast<LitertState*>(target.get());
   auto* restored = dynamic_cast<LitertState*>(state.get());
-  if (current != nullptr && restored != nullptr && !current->IsHostMemory() &&
-      restored->IsHostMemory()) {
-    AGELLO_SPAN(kKvClone, 1);
-    AGELLO_COUNT(kKvCopies);
-    AGELLO_COUNT(kKvCopyBytes, restored->CopiedBytes());
-    return current->CopyContentsFrom(*restored);
+  if (current != nullptr && restored != nullptr && !current->IsHostMemory()) {
+    if (restored->IsSparseSnapshot()) {
+      AGELLO_SPAN(kKvClone, 1);
+      AGELLO_COUNT(kKvCopies);
+      AGELLO_COUNT(kKvCopyBytes, restored->CopiedBytes());
+      return current->RestoreSparseSnapshot(*restored);
+    }
+    if (restored->IsHostMemory()) {
+      AGELLO_SPAN(kKvClone, 1);
+      AGELLO_COUNT(kKvCopies);
+      AGELLO_COUNT(kKvCopyBytes, restored->CopiedBytes());
+      return current->CopyContentsFrom(*restored);
+    }
   }
 
   target = std::move(state);
@@ -1833,6 +1866,23 @@ absl::StatusOr<std::unique_ptr<LlmContext>>
 LlmLiteRtCompiledModelExecutorBase::CloneContext() const {
   std::optional<uint32_t> lora_id;
   ABSL_ASSIGN_OR_RETURN(auto state, CloneState());
+  ProcessedTokens new_processed_tokens =
+      llm_context_->processed_context().processed_tokens();
+  auto new_processed_context = std::make_unique<LlmProcessedContext>(
+      std::move(lora_id), std::move(state), std::move(new_processed_tokens));
+  auto new_runtime_config =
+      std::make_unique<RuntimeConfig>(llm_context_->runtime_config());
+  auto new_runtime_state =
+      std::make_unique<RuntimeState>(llm_context_->runtime_state());
+  return std::make_unique<LlmContext>(std::move(new_processed_context),
+                                      std::move(new_runtime_config),
+                                      std::move(new_runtime_state));
+}
+
+absl::StatusOr<std::unique_ptr<LlmContext>>
+LlmLiteRtCompiledModelExecutorBase::DetachContext() {
+  std::optional<uint32_t> lora_id;
+  ABSL_ASSIGN_OR_RETURN(auto state, DetachState());
   ProcessedTokens new_processed_tokens =
       llm_context_->processed_context().processed_tokens();
   auto new_processed_context = std::make_unique<LlmProcessedContext>(
@@ -2099,6 +2149,10 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
   }
   ABSL_RETURN_IF_ERROR(RewindRings(max_step, new_step));
   llm_context_->runtime_state().current_step = new_step;
+  // Agello (P3.3): unmap sparse KV steps past the rewound step immediately.
+  if (auto* state = dynamic_cast<LitertState*>(state_.get())) {
+    ABSL_RETURN_IF_ERROR(state->TrimKvMapping(new_step));
+  }
 
   return absl::OkStatus();
 }
@@ -2241,6 +2295,10 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::Reset() {
   mtp_primed_ = false;
   ClearMtpDeferral();
   rewind_point_.reset();
+  // Agello (P3.3): reclaim sparse KV steps past step 0 immediately on reset.
+  if (auto* state = dynamic_cast<LitertState*>(state_.get())) {
+    ABSL_RETURN_IF_ERROR(state->TrimKvMapping(/*last_position=*/0));
+  }
   return absl::OkStatus();
 }
 

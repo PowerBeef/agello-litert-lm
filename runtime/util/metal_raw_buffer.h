@@ -86,6 +86,26 @@ struct SparseRange {
   size_t length = 0;
 };
 
+// Holds placement-sparse page-table mappings detached from a live SparseKvMapper via Metal 4
+// MTL4CommandQueue.copyBufferMappingsFromBuffer: (zero bytes copied, zero duplicate KV heaps).
+class SparseKvMappingSnapshot {
+ public:
+  SparseKvMappingSnapshot();
+  ~SparseKvMappingSnapshot();
+  SparseKvMappingSnapshot(SparseKvMappingSnapshot&&) noexcept;
+  SparseKvMappingSnapshot& operator=(SparseKvMappingSnapshot&&) noexcept;
+  SparseKvMappingSnapshot(const SparseKvMappingSnapshot&) = delete;
+  SparseKvMappingSnapshot& operator=(const SparseKvMappingSnapshot&) = delete;
+
+  size_t mapped_bytes() const;
+  bool empty() const;
+
+ private:
+  friend class SparseKvMapper;
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
 // Maps tiles of placement sparse buffers from placement heaps, one heap per step, through a
 // Metal 4 queue of its own, and waits for each update. Steps unmap last in, first out.
 class SparseKvMapper {
@@ -102,10 +122,17 @@ class SparseKvMapper {
   bool MapStep(const std::vector<SparseRange>& ranges);
   // Unmaps the last step's ranges, once the queue's work is done, and frees its heap.
   bool UnmapLastStep();
+  // Detaches all current tile mappings into shadow sparse buffers via copyBufferMappingsFromBuffer
+  // and unmaps the live buffers so another session (e.g. a helper) can map fresh heaps without
+  // copying or duplicating global KV memory. Returns nullopt on failure.
+  std::optional<SparseKvMappingSnapshot> DetachMappings();
+  // Unmaps any active steps and restores a detached snapshot back onto the live sparse buffers.
+  bool RestoreMappings(SparseKvMappingSnapshot&& snapshot);
   int steps() const;
   size_t mapped_bytes() const;
 
  private:
+  friend class SparseKvMappingSnapshot;
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

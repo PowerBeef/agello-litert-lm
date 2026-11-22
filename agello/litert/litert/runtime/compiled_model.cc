@@ -1209,51 +1209,78 @@ Expected<void> LiteRtCompiledModelT::InitializeActiveSubgraphs(
          ++subgraph_index) {
       active_subgraph_indices_.push_back(subgraph_index);
     }
-    return {};
-  }
-
-  const std::vector<std::string>& selected_keys =
-      options->selected_signature_keys;
-  if (selected_keys.empty()) {
-    return Unexpected(kLiteRtStatusErrorInvalidArgument,
-                      "Selected signature keys must not be empty.");
-  }
-
-  selected_signature_keys_.reserve(selected_keys.size());
-  absl::flat_hash_set<int> root_subgraph_indices;
-  root_subgraph_indices.reserve(selected_keys.size());
-
-  const bool has_signature_defs = !interp_->signature_keys().empty();
-  for (const std::string& signature_key : selected_keys) {
-    int subgraph_index = -1;
-    if (!has_signature_defs && signature_key == litert::kDefaultSignatureKey) {
-      subgraph_index = 0;
-    } else {
-      subgraph_index =
-          interp_->GetSubgraphIndexFromSignature(signature_key.c_str());
-    }
-    if (subgraph_index < 0) {
-      return Unexpected(
-          kLiteRtStatusErrorInvalidArgument,
-          absl::StrCat("Unknown selected signature key: ", signature_key, "."));
-    }
-    if (subgraph_index >= interp_->subgraphs_size()) {
+  } else {
+    const std::vector<std::string>& selected_keys =
+        options->selected_signature_keys;
+    if (selected_keys.empty()) {
       return Unexpected(kLiteRtStatusErrorInvalidArgument,
-                        absl::StrCat("Selected signature '", signature_key,
-                                     "' references invalid subgraph index ",
-                                     subgraph_index, "."));
+                        "Selected signature keys must not be empty.");
     }
-    selected_signature_keys_.insert(signature_key);
-    root_subgraph_indices.insert(subgraph_index);
+
+    selected_signature_keys_.reserve(selected_keys.size());
+    absl::flat_hash_set<int> root_subgraph_indices;
+    root_subgraph_indices.reserve(selected_keys.size());
+
+    const bool has_signature_defs = !interp_->signature_keys().empty();
+    for (const std::string& signature_key : selected_keys) {
+      int subgraph_index = -1;
+      if (!has_signature_defs && signature_key == litert::kDefaultSignatureKey) {
+        subgraph_index = 0;
+      } else {
+        subgraph_index =
+            interp_->GetSubgraphIndexFromSignature(signature_key.c_str());
+      }
+      if (subgraph_index < 0) {
+        return Unexpected(
+            kLiteRtStatusErrorInvalidArgument,
+            absl::StrCat("Unknown selected signature key: ", signature_key, "."));
+      }
+      if (subgraph_index >= interp_->subgraphs_size()) {
+        return Unexpected(kLiteRtStatusErrorInvalidArgument,
+                          absl::StrCat("Selected signature '", signature_key,
+                                       "' references invalid subgraph index ",
+                                       subgraph_index, "."));
+      }
+      selected_signature_keys_.insert(signature_key);
+      root_subgraph_indices.insert(subgraph_index);
+    }
+
+    // The active set is intentionally equal to the deduplicated root set in the
+    // initial implementation. Transitive callee discovery is a follow-up.
+    active_subgraph_indices_.reserve(root_subgraph_indices.size());
+    for (int subgraph_index = 0; subgraph_index < interp_->subgraphs_size();
+         ++subgraph_index) {
+      if (root_subgraph_indices.contains(subgraph_index)) {
+        active_subgraph_indices_.push_back(subgraph_index);
+      }
+    }
   }
 
-  // The active set is intentionally equal to the deduplicated root set in the
-  // initial implementation. Transitive callee discovery is a follow-up.
-  active_subgraph_indices_.reserve(root_subgraph_indices.size());
-  for (int subgraph_index = 0; subgraph_index < interp_->subgraphs_size();
-       ++subgraph_index) {
-    if (root_subgraph_indices.contains(subgraph_index)) {
-      active_subgraph_indices_.push_back(subgraph_index);
+  // Agello (P3.3): delegate larger shared-pool verify signatures (verify_8) before
+  // verify and decode so ML Drift's MemoryManager allocates one shared buffer pool
+  // sized for verify_8 and reuses it across verify and decode (-25-35 MB).
+  if (!interp_->signature_keys().empty() && active_subgraph_indices_.size() > 1) {
+    absl::flat_hash_map<int, int> priority;
+    for (const std::string* key : interp_->signature_keys()) {
+      if (key == nullptr) continue;
+      int idx = interp_->GetSubgraphIndexFromSignature(key->c_str());
+      if (idx < 0) continue;
+      if (absl::StartsWith(*key, "verify_")) {
+        priority[idx] = 0;
+      } else if (*key == "verify") {
+        priority[idx] = 1;
+      }
+    }
+    if (!priority.empty()) {
+      std::stable_sort(active_subgraph_indices_.begin(),
+                       active_subgraph_indices_.end(),
+                       [&priority](int a, int b) {
+                         auto ia = priority.find(a);
+                         auto ib = priority.find(b);
+                         int pa = ia != priority.end() ? ia->second : 2;
+                         int pb = ib != priority.end() ? ib->second : 2;
+                         return pa < pb;
+                       });
     }
   }
   return {};

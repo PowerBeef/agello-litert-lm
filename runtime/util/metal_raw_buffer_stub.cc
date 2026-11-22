@@ -39,12 +39,23 @@ size_t SparseKvTileBytes() { return 16 * 1024; }
 void* CreateSparseMetalBuffer(void* mtl_device, size_t length) { return nullptr; }
 void ReleaseMetalObject(void* object) {}
 
+struct SparseKvMappingSnapshot::Impl {};
+SparseKvMappingSnapshot::SparseKvMappingSnapshot() = default;
+SparseKvMappingSnapshot::~SparseKvMappingSnapshot() = default;
+SparseKvMappingSnapshot::SparseKvMappingSnapshot(SparseKvMappingSnapshot&&) noexcept = default;
+SparseKvMappingSnapshot& SparseKvMappingSnapshot::operator=(SparseKvMappingSnapshot&&) noexcept =
+    default;
+size_t SparseKvMappingSnapshot::mapped_bytes() const { return 0; }
+bool SparseKvMappingSnapshot::empty() const { return true; }
+
 struct SparseKvMapper::Impl {};
 SparseKvMapper::SparseKvMapper(void* mtl_device, const void* command_queue) {}
 SparseKvMapper::~SparseKvMapper() = default;
 bool SparseKvMapper::ok() const { return false; }
 bool SparseKvMapper::MapStep(const std::vector<SparseRange>& ranges) { return false; }
 bool SparseKvMapper::UnmapLastStep() { return false; }
+std::optional<SparseKvMappingSnapshot> SparseKvMapper::DetachMappings() { return std::nullopt; }
+bool SparseKvMapper::RestoreMappings(SparseKvMappingSnapshot&& snapshot) { return false; }
 int SparseKvMapper::steps() const { return 0; }
 size_t SparseKvMapper::mapped_bytes() const { return 0; }
 

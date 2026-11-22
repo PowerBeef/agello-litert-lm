@@ -169,6 +169,13 @@ struct SparseKvMapper::Impl {
     return tiles.back().second;
   }
 
+  void WaitForCommandQueue() {
+    if (command_queue == nil) return;
+    id<MTLCommandBuffer> fence = [command_queue commandBuffer];
+    [fence commit];
+    [fence waitUntilCompleted];
+  }
+
   // Applies `mode` to the ranges, grouped by buffer, then waits for the mapping queue.
   bool Update(const std::vector<SparseRange>& ranges, id<MTLHeap> heap, bool map)
       API_AVAILABLE(macos(26.0), ios(26.0)) {
@@ -202,6 +209,86 @@ struct SparseKvMapper::Impl {
     return [event waitUntilSignaledValue:event_value timeoutMS:10000];
   }
 };
+
+namespace {
+
+API_AVAILABLE(macos(26.0), ios(26.0))
+void AppendTileRuns(const std::vector<bool>& bits,
+                    std::vector<MTL4CopySparseBufferMappingOperation>* copy_ops,
+                    std::vector<MTL4UpdateSparseBufferMappingOperation>* unmap_ops) {
+  size_t t = 0;
+  const size_t n = bits.size();
+  while (t < n) {
+    while (t < n && !bits[t]) ++t;
+    if (t == n) break;
+    const size_t start = t;
+    while (t < n && bits[t]) ++t;
+    const size_t count = t - start;
+    if (copy_ops != nullptr) {
+      MTL4CopySparseBufferMappingOperation op;
+      op.sourceRange = NSMakeRange(start, count);
+      op.destinationOffset = start;
+      copy_ops->push_back(op);
+    }
+    if (unmap_ops != nullptr) {
+      MTL4UpdateSparseBufferMappingOperation op;
+      op.mode = MTLSparseTextureMappingModeUnmap;
+      op.bufferRange = NSMakeRange(start, count);
+      op.heapOffset = 0;
+      unmap_ops->push_back(op);
+    }
+  }
+}
+
+}  // namespace
+
+struct SparseKvMappingSnapshot::Impl {
+  id<MTL4CommandQueue> mapping_queue = nil;
+  id<MTLSharedEvent> event = nil;
+  struct SavedBuffer {
+    void* live_buffer = nullptr;
+    id<MTLBuffer> shadow_buffer = nil;
+    std::vector<bool> tiles;
+  };
+  std::vector<SavedBuffer> buffers;
+  std::vector<SparseKvMapper::Impl::Step> steps;
+  size_t mapped_bytes = 0;
+
+  ~Impl() {
+    if (buffers.empty()) return;
+    if (@available(macOS 26.0, iOS 26.0, *)) {
+      @autoreleasepool {
+        if (mapping_queue != nil && event != nil) {
+          std::vector<MTL4UpdateSparseBufferMappingOperation> unmap_ops;
+          for (const SavedBuffer& b : buffers) {
+            unmap_ops.clear();
+            AppendTileRuns(b.tiles, nullptr, &unmap_ops);
+            if (!unmap_ops.empty() && b.shadow_buffer != nil) {
+              [mapping_queue updateBufferMappings:b.shadow_buffer
+                                             heap:nil
+                                       operations:unmap_ops.data()
+                                            count:unmap_ops.size()];
+            }
+          }
+          [mapping_queue signalEvent:event value:1];
+          [event waitUntilSignaledValue:1 timeoutMS:10000];
+        }
+        buffers.clear();
+        steps.clear();
+      }
+    }
+  }
+};
+
+SparseKvMappingSnapshot::SparseKvMappingSnapshot() = default;
+SparseKvMappingSnapshot::~SparseKvMappingSnapshot() = default;
+SparseKvMappingSnapshot::SparseKvMappingSnapshot(SparseKvMappingSnapshot&&) noexcept = default;
+SparseKvMappingSnapshot& SparseKvMappingSnapshot::operator=(SparseKvMappingSnapshot&&) noexcept =
+    default;
+size_t SparseKvMappingSnapshot::mapped_bytes() const {
+  return impl_ ? impl_->mapped_bytes : 0;
+}
+bool SparseKvMappingSnapshot::empty() const { return !impl_ || impl_->steps.empty(); }
 
 SparseKvMapper::SparseKvMapper(void* mtl_device, const void* command_queue)
     : impl_(std::make_unique<Impl>()) {
@@ -275,11 +362,7 @@ bool SparseKvMapper::UnmapLastStep() {
     @autoreleasepool {
       // Nothing in flight may still use the tiles: the queue runs in order, so an empty command
       // buffer committed after its work completes after it.
-      if (impl_->command_queue != nil) {
-        id<MTLCommandBuffer> fence = [impl_->command_queue commandBuffer];
-        [fence commit];
-        [fence waitUntilCompleted];
-      }
+      impl_->WaitForCommandQueue();
       Impl::Step& step = impl_->steps.back();
       if (!step.ranges.empty() && !impl_->Update(step.ranges, nil, /*map=*/false)) return false;
       const size_t tile = SparseKvTileBytes();
@@ -291,6 +374,149 @@ bool SparseKvMapper::UnmapLastStep() {
       }
       impl_->mapped_bytes -= step.bytes;
       impl_->steps.pop_back();
+      return true;
+    }
+  }
+  return false;
+}
+
+std::optional<SparseKvMappingSnapshot> SparseKvMapper::DetachMappings() {
+  if (!ok()) return std::nullopt;
+  if (@available(macOS 26.0, iOS 26.0, *)) {
+    @autoreleasepool {
+      impl_->WaitForCommandQueue();
+      SparseKvMappingSnapshot snapshot;
+      if (impl_->steps.empty()) return snapshot;
+      auto snap_impl = std::make_unique<SparseKvMappingSnapshot::Impl>();
+      snap_impl->mapping_queue = impl_->mapping_queue;
+      snap_impl->event = [impl_->device newSharedEvent];
+      if (snap_impl->event == nil) return std::nullopt;
+
+      // Allocate every virtual shadow sparse buffer (0 physical bytes) before mutating any live
+      // mapping so a failure leaves the live mapper untouched.
+      for (const auto& [live_ptr, bits] : impl_->tiles) {
+        bool any = false;
+        for (bool b : bits) {
+          if (b) {
+            any = true;
+            break;
+          }
+        }
+        if (!any) continue;
+        id<MTLBuffer> live_buf = (__bridge id<MTLBuffer>)live_ptr;
+        id<MTLBuffer> shadow =
+            [impl_->device newBufferWithLength:live_buf.length
+                                       options:MTLResourceStorageModePrivate |
+                                               MTLResourceHazardTrackingModeTracked
+                       placementSparsePageSize:MTLSparsePageSize16];
+        if (shadow == nil || shadow.sparseBufferTier != MTLBufferSparseTier1) {
+          return std::nullopt;
+        }
+        shadow.label = @"Agello sparse KV snapshot";
+        snap_impl->buffers.push_back({live_ptr, shadow, bits});
+      }
+
+      std::vector<MTL4CopySparseBufferMappingOperation> copy_ops;
+      std::vector<MTL4UpdateSparseBufferMappingOperation> unmap_ops;
+      for (const auto& saved : snap_impl->buffers) {
+        copy_ops.clear();
+        unmap_ops.clear();
+        AppendTileRuns(saved.tiles, &copy_ops, &unmap_ops);
+        if (copy_ops.empty()) continue;
+        id<MTLBuffer> live_buf = (__bridge id<MTLBuffer>)saved.live_buffer;
+        [impl_->mapping_queue copyBufferMappingsFromBuffer:live_buf
+                                                  toBuffer:saved.shadow_buffer
+                                                operations:copy_ops.data()
+                                                     count:copy_ops.size()];
+        [impl_->mapping_queue updateBufferMappings:live_buf
+                                              heap:nil
+                                        operations:unmap_ops.data()
+                                             count:unmap_ops.size()];
+      }
+      ++impl_->event_value;
+      [impl_->mapping_queue signalEvent:impl_->event value:impl_->event_value];
+      if (![impl_->event waitUntilSignaledValue:impl_->event_value timeoutMS:10000]) {
+        return std::nullopt;
+      }
+
+      snap_impl->steps = std::move(impl_->steps);
+      impl_->steps.clear();
+      snap_impl->mapped_bytes = impl_->mapped_bytes;
+      impl_->mapped_bytes = 0;
+      for (auto& [_, bits] : impl_->tiles) {
+        std::fill(bits.begin(), bits.end(), false);
+      }
+      snapshot.impl_ = std::move(snap_impl);
+      return snapshot;
+    }
+  }
+  return std::nullopt;
+}
+
+bool SparseKvMapper::RestoreMappings(SparseKvMappingSnapshot&& snapshot) {
+  if (!ok()) return false;
+  if (@available(macOS 26.0, iOS 26.0, *)) {
+    @autoreleasepool {
+      impl_->WaitForCommandQueue();
+      // Keep any currently mapped heaps (e.g. a helper's step) alive until the unmap completes.
+      std::vector<Impl::Step> old_steps = std::move(impl_->steps);
+      impl_->steps.clear();
+      impl_->mapped_bytes = 0;
+
+      std::vector<MTL4CopySparseBufferMappingOperation> copy_ops;
+      std::vector<MTL4UpdateSparseBufferMappingOperation> unmap_ops;
+      bool queued = false;
+      for (auto& [live_ptr, bits] : impl_->tiles) {
+        unmap_ops.clear();
+        AppendTileRuns(bits, nullptr, &unmap_ops);
+        if (!unmap_ops.empty()) {
+          [impl_->mapping_queue updateBufferMappings:(__bridge id<MTLBuffer>)live_ptr
+                                                heap:nil
+                                          operations:unmap_ops.data()
+                                               count:unmap_ops.size()];
+          std::fill(bits.begin(), bits.end(), false);
+          queued = true;
+        }
+      }
+
+      if (snapshot.impl_ != nullptr) {
+        for (const auto& saved : snapshot.impl_->buffers) {
+          copy_ops.clear();
+          unmap_ops.clear();
+          AppendTileRuns(saved.tiles, &copy_ops, &unmap_ops);
+          if (copy_ops.empty()) continue;
+          id<MTLBuffer> live_buf = (__bridge id<MTLBuffer>)saved.live_buffer;
+          [impl_->mapping_queue copyBufferMappingsFromBuffer:saved.shadow_buffer
+                                                    toBuffer:live_buf
+                                                  operations:copy_ops.data()
+                                                       count:copy_ops.size()];
+          [impl_->mapping_queue updateBufferMappings:saved.shadow_buffer
+                                                heap:nil
+                                          operations:unmap_ops.data()
+                                               count:unmap_ops.size()];
+          queued = true;
+        }
+      }
+
+      if (queued) {
+        ++impl_->event_value;
+        [impl_->mapping_queue signalEvent:impl_->event value:impl_->event_value];
+        if (![impl_->event waitUntilSignaledValue:impl_->event_value timeoutMS:10000]) {
+          return false;
+        }
+      }
+
+      if (snapshot.impl_ != nullptr) {
+        for (const auto& saved : snapshot.impl_->buffers) {
+          impl_->TilesOf(saved.live_buffer) = saved.tiles;
+        }
+        impl_->steps = std::move(snapshot.impl_->steps);
+        impl_->mapped_bytes = snapshot.impl_->mapped_bytes;
+        snapshot.impl_->buffers.clear();
+        snapshot.impl_->steps.clear();
+        snapshot.impl_->mapped_bytes = 0;
+      }
+      // `old_steps` drops here, after the mapping queue finished unmapping them.
       return true;
     }
   }

@@ -628,6 +628,15 @@ bool KvBlitsEnabled() {
   return enabled;
 }
 
+// AGELLO_SPARSE_MAPPING_SNAPSHOT=0 falls back to host blit snapshots for sparse KV.
+bool SparseMappingSnapshotEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("AGELLO_SPARSE_MAPPING_SNAPSHOT");
+    return value == nullptr || value[0] != '0';
+  }();
+  return enabled;
+}
+
 // A buffer's filled runs (FilledRuns, or the whole buffer) packed back to back in host memory.
 struct CompactCopy {
   std::vector<MetalBlitRange> ranges;
@@ -714,6 +723,124 @@ absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopy() const {
 absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopyFilled(
     int positions) const {
   return DeepCopyImpl(positions);
+}
+
+absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DetachSnapshot(int positions) {
+  if (sparse_kv_ == nullptr || !sparse_kv_->mapper || !sparse_kv_->mapper->ok() ||
+      bank_2_state_buffers_.has_value() || !KvBlitsEnabled() ||
+      !SparseMappingSnapshotEnabled()) {
+    return DeepCopyFilled(positions);
+  }
+  const void* command_queue = MetalCommandQueueOf(env_);
+  if (command_queue == nullptr) return DeepCopyFilled(positions);
+
+  auto is_sparse_name = [&](absl::string_view name) {
+    for (const SparseKv::Buffer& b : sparse_kv_->buffers) {
+      if (b.name == name) return true;
+    }
+    return false;
+  };
+  for (const auto& [name, state_buffer] : bank_1_state_buffers_) {
+    if (!is_sparse_name(name) && !state_buffer.buffer.IsMetalMemory()) {
+      return DeepCopyFilled(positions);
+    }
+  }
+
+  // Snapshot any non-sparse buffers (e.g. local ring caches) first so a failure leaves the live
+  // sparse mappings intact.
+  int64_t copied_bytes = 0;
+  absl::flat_hash_map<std::string, StateBuffer> non_sparse_bank;
+  for (const auto& [name, state_buffer] : bank_1_state_buffers_) {
+    if (is_sparse_name(name)) continue;
+    LITERT_ASSIGN_OR_RETURN(void* mtl_buffer, state_buffer.buffer.GetMetalBuffer());
+    LITERT_ASSIGN_OR_RETURN(size_t length, state_buffer.buffer.PackedSize());
+    const CompactCopy copy = CompactRanges(name, state_buffer.buffer, length, positions);
+    const size_t bytes = std::max<size_t>(copy.bytes, 1);
+    void* memory = AllocateSnapshotMemory(bytes);
+    RET_CHECK(memory != nullptr) << "No memory for a KV snapshot of " << bytes << " bytes";
+    if (!BlitMetalRanges(command_queue, mtl_buffer, memory, copy.bytes, copy.ranges,
+                         /*to_host=*/true)) {
+      FreeSnapshotMemory(memory);
+      return absl::InternalError(absl::StrCat("KV snapshot blit failed: ", name));
+    }
+    copied_bytes += static_cast<int64_t>(copy.bytes);
+    const int32_t held[] = {static_cast<int32_t>(bytes)};
+    auto litert_type = static_cast<LiteRtRankedTensorType>(
+        RankedTensorType(ElementType::UInt8, Layout(Dimensions(held, held + 1))));
+    auto holder = env_.GetHolder();
+    LiteRtTensorBuffer handle;
+    if (holder.runtime->CreateTensorBufferFromHostMemory(&litert_type, memory, bytes,
+                                                         FreeSnapshotMemory,
+                                                         &handle) != kLiteRtStatusOk) {
+      FreeSnapshotMemory(memory);
+      return absl::InternalError("Failed to wrap a KV snapshot's host memory");
+    }
+    non_sparse_bank[name] = StateBuffer{
+        .buffer = TensorBuffer::WrapCObject(holder, handle, OwnHandle::kYes),
+        .type = state_buffer.type,
+        .dynamic_dim = state_buffer.dynamic_dim,
+    };
+  }
+
+  std::optional<SparseKvMappingSnapshot> detached = sparse_kv_->mapper->DetachMappings();
+  if (!detached.has_value()) return DeepCopyFilled(positions);
+  if (LogSparseKv()) {
+    fprintf(stderr, "Agello sparse KV: detached %.1f MB mappings (blitted %.1f MB non-sparse)\n",
+            detached->mapped_bytes() / 1048576.0, copied_bytes / 1048576.0);
+  }
+  auto copy = absl::WrapUnique(new LitertState(batch_size_, num_entries_, env_,
+                                               std::move(non_sparse_bank), std::nullopt,
+                                               allocation_policy_));
+  copy->bank_1_is_input_ = bank_1_is_input_;
+  copy->sparse_snapshot_ = true;
+  copy->sparse_mapping_snapshot_ =
+      std::make_shared<SparseKvMappingSnapshot>(std::move(*detached));
+  copy->snapshot_positions_ = positions;
+  copy->copied_bytes_ = copied_bytes;
+  return copy;
+}
+
+absl::Status LitertState::RestoreSparseSnapshot(LitertState& other) {
+  RET_CHECK(other.sparse_snapshot_);
+  RET_CHECK(allocation_policy_ == other.allocation_policy_) << "Allocation policy mismatch.";
+  RET_CHECK_EQ(batch_size_, other.batch_size_);
+  RET_CHECK_EQ(num_entries_, other.num_entries_);
+  RET_CHECK(sparse_kv_ != nullptr && sparse_kv_->mapper && sparse_kv_->mapper->ok())
+      << "No sparse KV mapper to restore sparse mapping snapshot";
+  RET_CHECK(other.sparse_mapping_snapshot_ != nullptr);
+
+  const size_t restored_sparse_bytes = other.sparse_mapping_snapshot_->mapped_bytes();
+  RET_CHECK(sparse_kv_->mapper->RestoreMappings(std::move(*other.sparse_mapping_snapshot_)))
+      << "Sparse KV: restoring detached mappings failed";
+
+  if (!other.bank_1_state_buffers_.empty()) {
+    const void* command_queue = MetalCommandQueueOf(env_);
+    RET_CHECK(command_queue != nullptr) << "No Metal command queue to restore non-sparse KV";
+    RET_CHECK(other.snapshot_positions_.has_value());
+    const int positions = *other.snapshot_positions_;
+    for (auto& [name, src_state] : other.bank_1_state_buffers_) {
+      auto it = bank_1_state_buffers_.find(name);
+      RET_CHECK(it != bank_1_state_buffers_.end()) << "Missing state buffer: " << name;
+      LITERT_ASSIGN_OR_RETURN(void* mtl_buffer, it->second.buffer.GetMetalBuffer());
+      LITERT_ASSIGN_OR_RETURN(size_t length, it->second.buffer.PackedSize());
+      const CompactCopy copy = CompactRanges(name, it->second.buffer, length, positions);
+      LITERT_ASSIGN_OR_RETURN(size_t held, src_state.buffer.PackedSize());
+      RET_CHECK_GE(held, copy.bytes) << name;
+      LITERT_ASSIGN_OR_RETURN(auto src_lock_and_addr,
+                              TensorBufferScopedLock::Create(src_state.buffer,
+                                                             TensorBuffer::LockMode::kRead));
+      RET_CHECK(BlitMetalRanges(command_queue, mtl_buffer,
+                                const_cast<void*>(src_lock_and_addr.second),
+                                copy.bytes, copy.ranges, /*to_host=*/false))
+          << "KV restore blit failed: " << name;
+    }
+  }
+  if (LogSparseKv()) {
+    fprintf(stderr, "Agello sparse KV: restored %.1f MB mappings (blitted %.1f MB non-sparse)\n",
+            restored_sparse_bytes / 1048576.0, other.CopiedBytes() / 1048576.0);
+  }
+  bank_1_is_input_ = other.bank_1_is_input_;
+  return absl::OkStatus();
 }
 
 int64_t LitertState::CopiedBytes() const {

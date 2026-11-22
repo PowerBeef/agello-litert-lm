@@ -216,6 +216,12 @@ class LlmExecutorBase {
         "GetContext not implemented for backend: ", ExecutorBackendName()));
   };
 
+  // Detaches the current llm context when switching away to another session exclusively
+  // (allowing zero-blit sparse KV page-table swaps). Defaults to CloneContext().
+  virtual absl::StatusOr<std::unique_ptr<LlmContext>> DetachContext() {
+    return CloneContext();
+  };
+
   // Sets the llm_context and performs necessary operations to make sure the
   // model is restored with the provided llm context.
   virtual absl::Status RestoreContext(

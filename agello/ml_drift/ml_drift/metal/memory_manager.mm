@@ -113,7 +113,9 @@ const Buffer* TakeAvailableBuffer(std::vector<const Buffer*>& available_buffers,
   if (it == available_buffers.end()) {
     return nullptr;
   }
-  constexpr uint64_t kMaxWasteBytes = 16ull << 20;
+  // Allow decode/verify to share verify_8's ~40-50 MB buffer while still blocking
+  // multi-hundred-MB prefill score buffers if private pools are disabled.
+  constexpr uint64_t kMaxWasteBytes = 64ull << 20;
   const uint64_t found = (*it)->GetMemorySizeInBytes();
   if (found > 2 * static_cast<uint64_t>(size) && found - size > kMaxWasteBytes) {
     return nullptr;

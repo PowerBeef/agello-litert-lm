@@ -419,7 +419,11 @@ TfLiteStatus Interpreter::ModifyGraphWithDelegateImpl(
     return kTfLiteApplicationError;
   }
 
+  // Agello (P3.3): preserve the caller's delegation order (deduplicated) so larger shared-pool
+  // signatures such as verify_8 delegate before verify/decode and share intermediate buffers.
   std::vector<bool> active_subgraphs(subgraphs_.size(), false);
+  std::vector<int> ordered_subgraphs;
+  ordered_subgraphs.reserve(active_subgraph_indices.size());
   for (int subgraph_index : active_subgraph_indices) {
     if (subgraph_index < 0 || subgraph_index >= subgraphs_.size()) {
       TF_LITE_REPORT_ERROR(error_reporter_,
@@ -427,15 +431,14 @@ TfLiteStatus Interpreter::ModifyGraphWithDelegateImpl(
                            subgraph_index);
       return kTfLiteApplicationError;
     }
-    active_subgraphs[subgraph_index] = true;
+    if (!active_subgraphs[subgraph_index]) {
+      active_subgraphs[subgraph_index] = true;
+      ordered_subgraphs.push_back(subgraph_index);
+    }
   }
 
   TfLiteStatus status = kTfLiteOk;
-  for (int subgraph_index = 0; subgraph_index < subgraphs_.size();
-       ++subgraph_index) {
-    if (!active_subgraphs[subgraph_index]) {
-      continue;
-    }
+  for (int subgraph_index : ordered_subgraphs) {
     auto& subgraph = subgraphs_[subgraph_index];
     if (IsValidationSubgraph(subgraph->GetName().c_str()) ||
         subgraph->IsDelegationSkippable()) {

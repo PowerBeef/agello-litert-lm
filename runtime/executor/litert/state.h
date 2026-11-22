@@ -34,6 +34,8 @@
 
 namespace litert::lm {
 
+class SparseKvMappingSnapshot;
+
 class LitertState : public StateInterface {
  public:
   enum class AllocationPolicy {
@@ -82,6 +84,14 @@ class LitertState : public StateInterface {
   // conversation's step are written before they're read, so the executor's snapshots for a
   // helper need no more, and their pages past the filled slots are never touched.
   absl::StatusOr<std::unique_ptr<StateInterface>> DeepCopyFilled(int positions) const;
+
+  // Agello (P3.3): detaches placement-sparse global KV mappings via Metal 4
+  // copyBufferMappingsFromBuffer (zero bytes copied, zero duplicate global KV heaps) and
+  // blit-snapshots any non-sparse caches (e.g. local ring buffers). Falls back to
+  // DeepCopyFilled when sparse KV is inactive.
+  absl::StatusOr<std::unique_ptr<StateInterface>> DetachSnapshot(int positions);
+  bool IsSparseSnapshot() const { return sparse_snapshot_; }
+  absl::Status RestoreSparseSnapshot(LitertState& other);
 
   bool Contains(absl::string_view tensor_name) const override;
 
@@ -241,6 +251,10 @@ class LitertState : public StateInterface {
       int positions, const void* command_queue) const;
   // Agello (sparse KV, step 1): this state is such a snapshot.
   bool blit_snapshot_ = false;
+  // Agello (P3.3): this state holds detached Metal 4 sparse KV page-table mappings
+  // (plus optional host blit snapshots of non-sparse ring caches).
+  bool sparse_snapshot_ = false;
+  std::shared_ptr<SparseKvMappingSnapshot> sparse_mapping_snapshot_;
 
   AllocationPolicy allocation_policy_;
 

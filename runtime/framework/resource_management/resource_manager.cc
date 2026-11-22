@@ -808,9 +808,14 @@ ResourceManager::AcquireExecutorWithContextHandler(
     const bool current_is_orphan =
         current_handler_ != nullptr && current_handler_.use_count() == 1 &&
         current_handler_->shared_processed_context()->HandlerCount() <= 1;
+    const bool current_is_exclusive =
+        current_handler_ != nullptr &&
+        current_handler_->shared_processed_context()->HandlerCount() <= 1;
     if (current_handler_ != nullptr && !current_is_orphan) {
-      ABSL_ASSIGN_OR_RETURN(auto current_llm_context,
-                            llm_executor_->CloneContext());
+      ABSL_ASSIGN_OR_RETURN(
+          auto current_llm_context,
+          current_is_exclusive ? llm_executor_->DetachContext()
+                               : llm_executor_->CloneContext());
       ABSL_ASSIGN_OR_RETURN(auto current_runtime_config,
                             current_llm_context->RetrieveRuntimeConfig());
       ABSL_ASSIGN_OR_RETURN(auto current_runtime_state,

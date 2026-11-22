@@ -737,7 +737,8 @@ LlmLiteRtMtpDrafter::Create(
     drafter->verify8_probe_ =
         probe != nullptr && (probe[0] == '1' || probe[0] == '2') ? probe[0] : '0';
     const char* rounds = std::getenv("AGELLO_VERIFY8_ROUNDS");
-    drafter->verify8_rounds_ = rounds != nullptr && rounds[0] == '1' && drafter->verify8_positions_ > 1;
+    drafter->verify8_rounds_ =
+        (rounds == nullptr || rounds[0] != '0') && drafter->verify8_positions_ > 1;
     if (drafter->verify8_rounds_ && drafter->context_drafts_ == nullptr) {
       drafter->context_drafts_ = std::make_unique<ContextDrafts>(/*min_ngram=*/3, ContextRealigns());
     }

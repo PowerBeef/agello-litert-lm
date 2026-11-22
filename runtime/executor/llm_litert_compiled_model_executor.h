@@ -103,6 +103,8 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
 
   absl::StatusOr<std::unique_ptr<LlmContext>> CloneContext() const override;
 
+  absl::StatusOr<std::unique_ptr<LlmContext>> DetachContext() override;
+
   absl::Status RestoreContext(
       std::unique_ptr<LlmContext> context_data) override;
 
@@ -419,6 +421,9 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
 
   // Clones the KV cache state.
   absl::StatusOr<std::unique_ptr<StateInterface>> CloneState() const;
+
+  // Detaches sparse KV page-table mappings for exclusive session switches.
+  absl::StatusOr<std::unique_ptr<StateInterface>> DetachState();
 
   absl::Status RestoreState(std::unique_ptr<StateInterface> state);
 
