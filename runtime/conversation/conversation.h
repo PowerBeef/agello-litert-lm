@@ -859,6 +859,14 @@ class Conversation {
   // the turn-start checkpoint must be preserved until the final answer lands.
   bool pending_thought_in_kv_ ABSL_GUARDED_BY(history_mutex_) = false;
 
+  // Effective thinking config & extra context saved with the active rewind
+  // checkpoint so post-tool-round rewinds always render with matching template
+  // parameters (R-08).
+  std::optional<ThinkingConfig> checkpoint_thinking_config_
+      ABSL_GUARDED_BY(history_mutex_) = std::nullopt;
+  std::optional<nlohmann::ordered_json> checkpoint_extra_context_
+      ABSL_GUARDED_BY(history_mutex_) = std::nullopt;
+
   // Set by CancelProcess() so deferred post-decode channel rewinds don't launch
   // a fresh GPU prefill after cancellation.
   std::atomic<bool> process_cancelled_{false};

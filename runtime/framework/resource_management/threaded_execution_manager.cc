@@ -646,6 +646,30 @@ ThreadedExecutionManager::ProcessAndCombineContents(
   std::vector<int> combined_token_ids;
   std::vector<ExecutorVisionData> all_image_data;
   std::vector<ExecutorAudioData> all_audio_data;
+  bool used_vision_executor = false;
+  bool used_audio_executor = false;
+  auto release_multimodal = [&]() {
+    if (used_vision_executor) {
+      used_vision_executor = false;
+      resource_manager_->ReleaseVisionExecutor();
+    }
+    if (used_audio_executor) {
+      used_audio_executor = false;
+      bool should_release_audio = false;
+      if (auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
+          audio_executor.ok()) {
+        auto props = (*audio_executor)->GetAudioExecutorProperties();
+        should_release_audio = props.ok() && !props->is_streaming_model;
+      }
+      if (should_release_audio) {
+        resource_manager_->ReleaseAudioExecutor();
+      }
+    }
+  };
+  struct MultimodalGuard {
+    decltype(release_multimodal)& fn;
+    ~MultimodalGuard() { fn(); }
+  } multimodal_guard{release_multimodal};
   for (const auto& preprocessed_content : preprocessed_contents) {
     if (const auto* input_text =
             std::get_if<InputText>(&preprocessed_content)) {
@@ -661,6 +685,7 @@ ThreadedExecutionManager::ProcessAndCombineContents(
                                 ids_buffer_span.begin(), ids_buffer_span.end());
     } else if (const auto* input_image =
                    std::get_if<InputImage>(&preprocessed_content)) {
+      used_vision_executor = true;
       if (benchmark_info.has_value()) {
         ABSL_RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("vision_executor"));
       }
@@ -722,6 +747,7 @@ ThreadedExecutionManager::ProcessAndCombineContents(
         }
         ABSL_ASSIGN_OR_RETURN(const auto* spectrogram_tensor,
                               input_audio->GetPreprocessedAudioTensor());
+        used_audio_executor = true;
         if (benchmark_info.has_value()) {
           ABSL_RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("audio_executor"));
         }
@@ -766,28 +792,9 @@ ThreadedExecutionManager::ProcessAndCombineContents(
     }
   }
 
-  // Agello (E1): this message's images are encoded, and their embeddings are
-  // buffers of their own (CreateOutputBuffers per encode): release the vision
-  // executor and its working memory until the next image.
-  if (!all_image_data.empty()) {
-    resource_manager_->ReleaseVisionExecutor();
-  }
-
-  // Agello (P4.2): static audio clips produce self-contained host buffers
-  // (CreateManaged per encode). Release non-streaming audio executors after
-  // encoding so Conformer XNNPACK scratch memory does not stay resident during
-  // LLM generation.
-  if (!all_audio_data.empty()) {
-    bool should_release_audio = false;
-    if (auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
-        audio_executor.ok()) {
-      auto props = (*audio_executor)->GetAudioExecutorProperties();
-      should_release_audio = props.ok() && !props->is_streaming_model;
-    }
-    if (should_release_audio) {
-      resource_manager_->ReleaseAudioExecutor();
-    }
-  }
+  // Release lazy Vision/Audio executors on normal completion (RAII guard below
+  // also covers early error returns).
+  release_multimodal();
 
   if (combined_token_ids.empty()) {
     return absl::InvalidArgumentError(
@@ -861,7 +868,7 @@ absl::Status ThreadedExecutionManager::WaitUntilSessionDone(
     SessionId session_id, absl::Duration timeout) {
   auto session_done = [this, session_id]() {
     session_and_task_lookup_mutex_.AssertReaderHeld();
-    return session_lookup_.contains(session_id) &&
+    return !session_lookup_.contains(session_id) ||
            session_lookup_.at(session_id)->active_tasks.empty();
   };
   const uint64_t wait_start = ::agello::telemetry::NowTicks();
@@ -1012,12 +1019,14 @@ absl::Status ThreadedExecutionManager::AddPrefillTask(
       // Keep track of the last_prefill_token_id after prefill is done.
       auto processed_tokens = llm_executor.value()->GetProcessedTokens();
       if (!processed_tokens.ok()) {
+        llm_executor.value().reset();
         FinishTaskAndLogErrors(task_id, processed_tokens.status(),
                                std::move(callback));
         return;
       }
       auto current_step = llm_executor.value()->GetCurrentStep();
       if (!current_step.ok()) {
+        llm_executor.value().reset();
         FinishTaskAndLogErrors(task_id, current_step.status(),
                                std::move(callback));
         return;
@@ -1286,7 +1295,13 @@ absl::Status ThreadedExecutionManager::AddTextScoringTask(
     callback = [](absl::StatusOr<Responses> responses) {};
   }
 
-  auto task = [this, task_id, target_text,
+  std::vector<std::string> owned_target_text;
+  owned_target_text.reserve(target_text.size());
+  for (absl::string_view text : target_text) {
+    owned_target_text.emplace_back(text);
+  }
+
+  auto task = [this, task_id, target_text_str = std::move(owned_target_text),
                store_token_lengths]() mutable -> void {
     auto task_info = StartTask(task_id);
     if (!task_info.ok()) {
@@ -1336,12 +1351,18 @@ absl::Status ThreadedExecutionManager::AddTextScoringTask(
       return;
     }
 
+    std::vector<absl::string_view> target_text_views;
+    target_text_views.reserve(target_text_str.size());
+    for (const std::string& text : target_text_str) {
+      target_text_views.push_back(text);
+    }
+
     // TODO(b/435040163): Handle the temperature. Should it be calculated from
     // the sampler or the sampler parameters? For now, hardcode it to 1.0f for
     // testing.
     auto temperature = 1.0f;
     auto responses = Tasks::Score(
-        *llm_executor.value(), *tokenizer_, target_text, temperature,
+        *llm_executor.value(), *tokenizer_, target_text_views, temperature,
         std::move(decoded_ids_buffer.Value()), store_token_lengths);
 
     if (cancelled != nullptr && cancelled->load()) {

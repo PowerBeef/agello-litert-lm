@@ -280,11 +280,11 @@ inline std::unique_ptr<ml_drift::SharedMemoryManager> MakeSharedMemoryManagerMet
 
         // Fallback to default creation if no mmap or not buffer.
         absl::Status status = metal_tensor->CreateFromDescriptor(tensor_desc, mtl_device);
-        if (!status.ok()) {
-          return status;
-        }
         if (release_data_callback) {
           (*release_data_callback)();
+        }
+        if (!status.ok()) {
+          return status;
         }
         // Transfer ownership to the output tensor.
         tensor = std::move(metal_tensor);

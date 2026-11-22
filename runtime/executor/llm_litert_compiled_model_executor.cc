@@ -1472,8 +1472,6 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
     if (drafter_is_primed) {
       ABSL_ASSIGN_OR_RETURN(auto step_and_token,
                             GetTokenToDecode(ExecutorInputs()));
-      ABSL_RETURN_IF_ERROR(
-          ConsumePendingOrAddProcessedToken(step_and_token.token));
       // Output: [Batch, drafted and verified tokens]
       LITERT_ASSIGN_OR_RETURN(output_tokens_vector,
                               mtp_drafter_->Draft(step_and_token.step,
@@ -1482,6 +1480,8 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
                                                   *active_state, constraint,
                                                   llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
                                                   decode_params.GetCancelled()));
+      ABSL_RETURN_IF_ERROR(
+          ConsumePendingOrAddProcessedToken(step_and_token.token));
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
@@ -1503,14 +1503,14 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       // the constraint between the two calls.
       ABSL_ASSIGN_OR_RETURN(auto step_and_token,
                             GetTokenToDecode(ExecutorInputs()));
-      ABSL_RETURN_IF_ERROR(
-          ConsumePendingOrAddProcessedToken(step_and_token.token));
       LITERT_ASSIGN_OR_RETURN(
           output_tokens_vector,
           mtp_drafter_->Draft(deferred_step, deferred_token,
                               std::move(*deferred_activations), *active_state,
                               constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
                               decode_params.GetCancelled()));
+      ABSL_RETURN_IF_ERROR(
+          ConsumePendingOrAddProcessedToken(step_and_token.token));
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
@@ -1555,7 +1555,10 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
         mtp_deferred_token_ = token_id;
         mtp_deferred_activations_ = std::move(activations);
         deferred_round = true;
-      } else {
+      } else if (MtpRoundFitsCache(llm_context_->runtime_state().current_step - 1,
+                                   /*drafter_is_primed=*/true,
+                                   mtp_drafter_->num_draft_steps(),
+                                   state_->GetNumEntries())) {
       // Note: Position remains the same as the prefill step. However,
       // current_step is incremented in DecodeLogits and as such needs to be
       // decremented.
@@ -1568,6 +1571,11 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
       output_tokens_vector[0].insert(output_tokens_vector[0].begin(), token_id);
+      } else {
+        // Fallback priming advanced current_step by 1 and no longer fits an MTP
+        // round inside the KV cache; return the single primed token cleanly.
+        deferred_round = true;
+        AGELLO_COUNT(kMtpSkippedAtCacheEnd);
       }
     }
     if (!deferred_round) {
@@ -2164,7 +2172,14 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
 // do it: every position before the step is written by then (the prompt's last token is only
 // written by the first decode), and a run spans at most 1,024 positions, so the one that reaches
 // that far starts after the step.
-static constexpr int kRingWindowPositions = 512;  // Gemma 4's local window
+static constexpr int kDefaultRingWindowPositions = 512;  // Gemma 4's local window
+
+static int RingWindowPositions(const proto::ExecutorMetadata* metadata) {
+  const auto params = GetAttentionMaskParams(metadata);
+  return (params.sliding_window_size.has_value() && *params.sliding_window_size > 0)
+             ? *params.sliding_window_size
+             : kDefaultRingWindowPositions;
+}
 
 static bool VerifyRingRewind() {
   static const bool verify = std::getenv("AGELLO_VERIFY_RING_REWIND") != nullptr;
@@ -2191,6 +2206,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::KeepRewindWindow(int last_posit
   if (auto* state = dynamic_cast<LitertState*>(state_.get())) {
     ABSL_RETURN_IF_ERROR(state->EnsureKvMapped(last_position));
   }
+  const int ring_window = RingWindowPositions(executor_metadata_);
   // AGELLO_VERIFY_RING_REWIND: the first run after the point that changes its window's slots
   // before its last position (which the first decode writes).
   if (VerifyRingRewind() && rewind_point_.has_value() && rewind_point_->at_point.has_value() &&
@@ -2199,7 +2215,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::KeepRewindWindow(int last_posit
     auto* state = dynamic_cast<LitertState*>(state_.get());
     const int ring = rewind_point_->ring_slots, q = rewind_point_->step;
     std::vector<int> before_last;
-    for (int p = std::max(0, q - kRingWindowPositions); p < q - 1; ++p) before_last.push_back(p % ring);
+    for (int p = std::max(0, q - ring_window); p < q - 1; ++p) before_last.push_back(p % ring);
     ABSL_ASSIGN_OR_RETURN(LitertState::RingCopy live, state->CopyRings());
     std::vector<std::pair<int, int64_t>> per_slot;
     const int64_t changed = LitertState::DifferentWindowBytes(*rewind_point_->at_point, live,
@@ -2217,7 +2233,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::KeepRewindWindow(int last_posit
   }
   if (!rewind_point_.has_value() || rewind_point_->rings.has_value() ||
       rewind_point_->context != llm_context_.get() ||
-      last_position < rewind_point_->step + rewind_point_->ring_slots - kRingWindowPositions) {
+      last_position < rewind_point_->step + rewind_point_->ring_slots - ring_window) {
     return absl::OkStatus();
   }
   auto* litert_state = dynamic_cast<LitertState*>(state_.get());
@@ -2235,13 +2251,14 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RewindRings(int furthest_step, 
   auto* litert_state = dynamic_cast<LitertState*>(state_.get());
   const int ring = litert_state != nullptr ? litert_state->RingSlots() : 0;
   if (ring == 0 || new_step >= furthest_step) return absl::OkStatus();
+  const int ring_window = RingWindowPositions(executor_metadata_);
   if (rewind_point_.has_value() && rewind_point_->context == llm_context_.get() &&
       rewind_point_->step == new_step) {
     RewindPoint point = std::move(*rewind_point_);
     rewind_point_.reset();
     if (VerifyRingRewind()) {
       std::vector<int> window, window_before_last;
-      for (int p = std::max(0, new_step - kRingWindowPositions); p < new_step; ++p) {
+      for (int p = std::max(0, new_step - ring_window); p < new_step; ++p) {
         window.push_back(p % ring);
         if (p < new_step - 1) window_before_last.push_back(p % ring);
       }
@@ -2257,7 +2274,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RewindRings(int furthest_step, 
               : -1;
       std::string slots;
       for (const auto& [slot, count] : per_slot) {
-        // The window's positions run from new_step - 512 to new_step - 1.
+        // The window's positions run from new_step - ring_window to new_step - 1.
         int position = slot;
         while (position + ring < new_step) position += ring;
         absl::StrAppend(&slots, " ", position, ":", count);
@@ -2280,7 +2297,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RewindRings(int furthest_step, 
     }
     return absl::OkStatus();
   }
-  if (furthest_step - new_step > ring - kRingWindowPositions) {
+  if (furthest_step - new_step > ring - ring_window) {
     fprintf(stderr, "Agello ring rewind: refused, %d positions without a rewind point\n",
             furthest_step - new_step);
     return absl::FailedPreconditionError(absl::StrCat(
@@ -2394,6 +2411,11 @@ absl::Status LlmLiteRtCompiledModelExecutorStatic::Prefill(
   if (embedding_lookup_ != nullptr) {
     ABSL_RETURN_IF_ERROR(embedding_lookup_->UpdateMultiModalEmbeddings(inputs));
   }
+  auto cleanup_mm = absl::MakeCleanup([this]() {
+    if (embedding_lookup_ != nullptr) {
+      embedding_lookup_->CleanupMultiModalEmbeddings().IgnoreError();
+    }
+  });
 
   LITERT_ASSIGN_OR_RETURN(auto ids,
                           ReferTensorBufferAsSpan<int32_t>(*token_ids_buffer));
@@ -2451,6 +2473,7 @@ absl::Status LlmLiteRtCompiledModelExecutorStatic::Prefill(
   RET_CHECK_EQ(ids.size(), 0).SetCode(absl::StatusCode::kInternal)
       << "Work groups not covering the entire prefill input.";
 
+  std::move(cleanup_mm).Cancel();
   if (embedding_lookup_ != nullptr) {
     ABSL_RETURN_IF_ERROR(embedding_lookup_->CleanupMultiModalEmbeddings());
   }

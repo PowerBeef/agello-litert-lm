@@ -157,6 +157,12 @@ class GpuBackendMetal : public GpuBackend {
   id<MTLResidencySet> residency_set() const { return residency_set_; }
   // Agello: whether residency is enabled, so tensors are only added to the set then (the set
   // exists whatever the setting, and an added buffer was never removed).
+  // Agello (Wave 2, M-11): synchronized external residency updates removing
+  // displaced allocations before adding new ones.
+  void ReplaceResidencyAllocations(id<MTLBuffer> old_buffer,
+                                   id<MTLTexture> old_texture,
+                                   id<MTLBuffer> new_buffer,
+                                   id<MTLTexture> new_texture);
   bool ResidencyEnabled() {
     absl::MutexLock lock(&residency_mutex_);
     return residency_runtime_enabled_;
@@ -217,7 +223,7 @@ class GpuInferenceContextMetal : public GpuInferenceContext {
   explicit GpuInferenceContextMetal(
       GpuBackendMetal* backend,
       ::ml_drift::metal::MemoryManager* memory_manager = nullptr);
-  ~GpuInferenceContextMetal() override = default;
+  ~GpuInferenceContextMetal() override;
 
   // Implementation of GpuInferenceContext.
   absl::StatusOr<::ml_drift::GpuSpatialTensor*> GetSpatialTensor(
@@ -268,6 +274,8 @@ class GpuInferenceContextMetal : public GpuInferenceContext {
  private:
   GpuBackendMetal* const backend_;
   std::unique_ptr<::ml_drift::metal::InferenceContext> ctx_;
+  absl::flat_hash_map<::ml_drift::ValueId, std::pair<id<MTLBuffer>, id<MTLTexture>>>
+      bound_external_residency_;
 };
 
 class GpuTensorWrapperMetal : public GpuTensorWrapper {

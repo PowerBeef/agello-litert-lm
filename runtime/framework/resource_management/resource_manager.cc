@@ -592,6 +592,7 @@ std::optional<uint32_t> ResourceManager::AssignLoraIdLocked(
 }
 
 absl::Status ResourceManager::MaybeCreateLitertEnv() {
+  absl::MutexLock lock(litert_env_mutex_);
   if (litert_env_ != nullptr) {
     return absl::OkStatus();
   }
@@ -773,19 +774,25 @@ ResourceManager::AcquireExecutorWithContextHandler(
                                                current_handler_);
   }
 
+  // Clear current_handler_ before mutating llm_executor_ so any failure
+  // mid-switch never leaves current_handler_ pointing at a detached/unmapped
+  // context that would bypass restore on the next acquire (R-03).
+  auto prev_handler = std::move(current_handler_);
+  current_handler_ = nullptr;
+
   // If both handler are sharing the same processed context, save the
   // runtime config and runtime state back to the current handler. Then
   // update the executor with the new handler.
-  if (current_handler_ != nullptr &&
+  if (prev_handler != nullptr &&
       new_context_handler->shared_processed_context() ==
-          current_handler_->shared_processed_context()) {
+          prev_handler->shared_processed_context()) {
     ABSL_ASSIGN_OR_RETURN(auto current_runtime_config,
                           llm_executor_->GetRuntimeConfig());
     ABSL_ASSIGN_OR_RETURN(auto current_runtime_state,
                           llm_executor_->GetRuntimeState());
-    ABSL_RETURN_IF_ERROR(current_handler_->SetRuntimeConfig(
+    ABSL_RETURN_IF_ERROR(prev_handler->SetRuntimeConfig(
         std::make_unique<RuntimeConfig>(current_runtime_config)));
-    ABSL_RETURN_IF_ERROR(current_handler_->SetRuntimeState(
+    ABSL_RETURN_IF_ERROR(prev_handler->SetRuntimeState(
         std::make_unique<RuntimeState>(current_runtime_state)));
 
     ABSL_ASSIGN_OR_RETURN(auto new_runtime_config,
@@ -802,7 +809,7 @@ ResourceManager::AcquireExecutorWithContextHandler(
     // Agello: a full KV snapshot and restore (through host memory on Metal).
     AGELLO_SPAN(kContextSwitch);
     AGELLO_COUNT(kContextSwitches);
-    if (current_handler_ != nullptr) {
+    if (prev_handler != nullptr) {
       ::agello::telemetry::ReportAnomaly(
           ::agello::telemetry::kKvContextSwitch, ::agello::telemetry::kInfo, 0,
           0, "executor switched sessions: KV snapshot and restore");
@@ -811,12 +818,12 @@ ResourceManager::AcquireExecutorWithContextHandler(
     // with no other handler, is never restored: skip its snapshot (a full KV copy, and twice the
     // KV in memory while the next session's snapshot is restored).
     const bool current_is_orphan =
-        current_handler_ != nullptr && current_handler_.use_count() == 1 &&
-        current_handler_->shared_processed_context()->HandlerCount() <= 1;
+        prev_handler != nullptr && prev_handler.use_count() == 1 &&
+        prev_handler->shared_processed_context()->HandlerCount() <= 1;
     const bool current_is_exclusive =
-        current_handler_ != nullptr &&
-        current_handler_->shared_processed_context()->HandlerCount() <= 1;
-    if (current_handler_ != nullptr && !current_is_orphan) {
+        prev_handler != nullptr &&
+        prev_handler->shared_processed_context()->HandlerCount() <= 1;
+    if (prev_handler != nullptr && !current_is_orphan) {
       ABSL_ASSIGN_OR_RETURN(
           auto current_llm_context,
           current_is_exclusive ? llm_executor_->DetachContext()
@@ -828,12 +835,12 @@ ResourceManager::AcquireExecutorWithContextHandler(
       ABSL_ASSIGN_OR_RETURN(auto current_processed_context,
                             current_llm_context->RetrieveProcessedContext());
 
-      ABSL_RETURN_IF_ERROR(current_handler_->SetRuntimeConfig(
+      ABSL_RETURN_IF_ERROR(prev_handler->SetRuntimeConfig(
           std::move(current_runtime_config)));
       ABSL_RETURN_IF_ERROR(
-          current_handler_->SetRuntimeState(std::move(current_runtime_state)));
+          prev_handler->SetRuntimeState(std::move(current_runtime_state)));
       ABSL_RETURN_IF_ERROR(
-          current_handler_->shared_processed_context()->SetProcessedContext(
+          prev_handler->shared_processed_context()->SetProcessedContext(
               std::move(current_processed_context)));
     }
 
@@ -852,12 +859,12 @@ ResourceManager::AcquireExecutorWithContextHandler(
 
   // If the current handler has an audio context, update it from audio
   // executor and save it back to the current handler.
-  if (current_handler_ != nullptr && current_handler_->HasAudioContext()) {
+  if (prev_handler != nullptr && prev_handler->HasAudioContext()) {
     ABSL_ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
     ABSL_ASSIGN_OR_RETURN(auto current_audio_context,
                           audio_executor->CloneContext());
     ABSL_RETURN_IF_ERROR(
-        current_handler_->SetAudioContext(std::move(current_audio_context)));
+        prev_handler->SetAudioContext(std::move(current_audio_context)));
   }
 
   // If the new handler has an audio context, audio executor will restore
@@ -972,9 +979,18 @@ ResourceManager::AcquireLoadedAudioExecutor() {
 }
 
 void ResourceManager::ReleaseAudioExecutor() {
-  absl::MutexLock lock(audio_executor_mutex_);
-  if (!audio_executor_injected_) {
+  {
+    absl::MutexLock lock(audio_executor_mutex_);
+    if (audio_executor_injected_) return;
     audio_executor_.reset();
+  }
+  absl::MutexLock lora_lock(lora_mutex_);
+  for (auto it = lora_hash_to_id_.begin(); it != lora_hash_to_id_.end();) {
+    if (it->first.rfind("scoped_audio_lora:", 0) == 0) {
+      lora_hash_to_id_.erase(it++);
+    } else {
+      ++it;
+    }
   }
 }
 
@@ -1017,15 +1033,17 @@ ResourceManager::GetAudioExecutorProperties() {
       return props;
     }
   }
-  ABSL_RETURN_IF_ERROR(TryLoadingAudioExecutor());
-  MovableMutexLock lock(&audio_executor_mutex_);
+  absl::MutexLock lock(audio_executor_mutex_);
+  ABSL_RETURN_IF_ERROR(CreateAudioExecutorLocked());
+  RET_CHECK_NE(audio_executor_, nullptr);
   return audio_executor_->GetAudioExecutorProperties();
 }
 
 absl::StatusOr<VisionExecutorProperties>
 ResourceManager::GetVisionExecutorProperties() {
-  ABSL_RETURN_IF_ERROR(TryLoadingVisionExecutor());
   absl::MutexLock lock(vision_executor_mutex_);
+  ABSL_RETURN_IF_ERROR(CreateVisionExecutorLocked());
+  RET_CHECK_NE(vision_executor_, nullptr);
   return vision_executor_->GetVisionExecutorProperties();
 }
 

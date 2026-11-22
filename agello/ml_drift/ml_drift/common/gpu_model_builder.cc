@@ -2505,16 +2505,16 @@ GpuModelBuilder::TensorHandle GpuModelBuilder::SoftmaxReduce(
     const GpuModelBuilder::TensorHandle* runtime_check_tensor) {
   GpuModelBuilder::TensorHandle reduced_exp_tensor;
   const BHWC src_shape = src.tensor_desc.GetBHWCShape();
+  // Agello (Wave 2, M-13): store reduced softmax (inv_sum, max) in FP32 so
+  // 1/sum never flushes to 0 as an FP16 subnormal at >16K context lengths.
   if (src.tensor_desc.HasAxis(Axis::kDepth)) {
     BHWDC reduced_exp_shape = src.tensor_desc.GetBHWDCShape();
     reduced_exp_shape.c = 4;
-    reduced_exp_tensor =
-        AddTensor(reduced_exp_shape, src.tensor_desc.GetDataType());
+    reduced_exp_tensor = AddTensor(reduced_exp_shape, DataType::kFloat32);
   } else {
     BHWC reduced_exp_shape = src.tensor_desc.GetBHWCShape();
     reduced_exp_shape.c = 4;
-    reduced_exp_tensor =
-        AddTensor(reduced_exp_shape, src.tensor_desc.GetDataType());
+    reduced_exp_tensor = AddTensor(reduced_exp_shape, DataType::kFloat32);
   }
 
   gpu_model_.nodes.reserve(gpu_model_.nodes.size() + 3);
@@ -3457,6 +3457,7 @@ absl::StatusOr<GpuModelBuilder::TensorHandle> GpuModelBuilder::BatchedMatMul(
       src_exp == nullptr &&
       !runtime_check.HasValues() &&
       left_shape.b == 1 && right_shape.b == 1 &&
+      left_shape.h == right_shape.h && mat_left_5d.d == 1 &&
       spatial_size >= 64;
   if (use_apple_mpp) {
     mat_left = ToDHWBCC4(mat_left);

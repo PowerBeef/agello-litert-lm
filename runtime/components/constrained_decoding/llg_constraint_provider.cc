@@ -131,6 +131,9 @@ LlgConstraintProvider::Create(const Tokenizer& tokenizer,
   }
   token_bytes.reserve(estimated_size);
 
+  const bool decode_sentencepiece_space =
+      tokenizer.GetTokenizerType() !=
+      ::litert::support::TokenizerType::kHuggingFace;
   for (size_t i = 0; i < tokens.size(); ++i) {
     const std::string& token = tokens[i];
     const bool is_special =
@@ -145,9 +148,14 @@ LlgConstraintProvider::Create(const Tokenizer& tokenizer,
       continue;
     }
     uint8_t byte_val = 0;
-    if (ParseByteToken(token, &byte_val)) {
+    if (decode_sentencepiece_space && ParseByteToken(token, &byte_val)) {
       token_lens.push_back(1);
       token_bytes.push_back(byte_val);
+      continue;
+    }
+    if (!decode_sentencepiece_space) {
+      token_lens.push_back(static_cast<uint32_t>(token.size()));
+      token_bytes.insert(token_bytes.end(), token.begin(), token.end());
       continue;
     }
     // Decode SentencePiece's word-start marker `▁` (U+2581) to ASCII space

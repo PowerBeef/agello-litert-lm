@@ -379,7 +379,7 @@ std::string GenerateConvolutionGeneric(
     }
   }
   if (conv_params.softmax_input_activation) {
-    c += "  SType2 exp_val = args.src_exp.Read(coord_x, coord_y, 0).xy;\n";
+    c += "  float2 exp_val = args.src_exp.Read<float>(coord_x, coord_y, 0).xy;\n";
   }
   const std::string oob_multiplier =
       oob_check.empty() ? "" : " * ucl::Convert<SType>(" + oob_check + ")";
@@ -455,8 +455,9 @@ std::string GenerateConvolutionGeneric(
         c += "        coord_s++;\n";
       }
       if (conv_params.softmax_input_activation) {
-        c += "  " + val + " = ucl::Exp<Type>(" + val +
-             " - exp_val.y) * exp_val.x;\n";
+        c += "  " + val +
+             " = ucl::Convert<Type>(ucl::Exp<float4>(ucl::Convert<float4>(" +
+             val + ") - exp_val.y) * exp_val.x);\n";
       }
     }
     if (kernel_params.img_wave_dot && conv_params.Is8Bit() &&

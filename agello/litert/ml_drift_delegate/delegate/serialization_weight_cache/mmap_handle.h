@@ -48,6 +48,7 @@ class ScopeGuard {
       callback_ = std::move(other.callback_);
       other.Deactivate();
     }
+    return *this;
   }
 
   ~ScopeGuard() {

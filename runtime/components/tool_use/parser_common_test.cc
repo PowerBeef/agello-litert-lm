@@ -125,5 +125,21 @@ TEST(ConvertJsonValueTest, PreservesNumericRepresentation) {
   }
 }
 
+TEST(IsValidUtf8Test, ValidatesRfc3629Sequences) {
+  EXPECT_TRUE(IsValidUtf8(""));
+  EXPECT_TRUE(IsValidUtf8("hello world 123"));
+  EXPECT_TRUE(IsValidUtf8("caf\xC3\xA9 \xE2\x82\xAC \xF0\x9F\x9A\x80"));
+  // Stray continuation, invalid lead, truncated multi-byte, overlong, surrogate, >U+10FFFF.
+  EXPECT_FALSE(IsValidUtf8(std::string("\x80")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xFF")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xC2")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xE2\x82")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xF0\x9F\x9A")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xC0\xAF")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xE0\x80\xAF")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xED\xA0\x80")));
+  EXPECT_FALSE(IsValidUtf8(std::string("\xF4\x90\x80\x80")));
+}
+
 }  // namespace
 }  // namespace litert::lm

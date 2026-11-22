@@ -516,7 +516,7 @@ absl::Status MetalArguments::AllocateObjects(const Arguments& args,
 absl::Status MetalArguments::AddObjectArgs(const GpuInfo& gpu_info,
                                            const Arguments& args) {
   for (const auto& t : args.GetObjects()) {
-    immutable_object_prefixes_.insert(t.first + "_");
+    immutable_object_names_.insert(t.first);
     AddGPUResources(t.first, t.second->GetGPUResources(gpu_info));
   }
   for (const auto& t : args.GetObjectRefs()) {
@@ -526,7 +526,7 @@ absl::Status MetalArguments::AddObjectArgs(const GpuInfo& gpu_info,
 }
 
 void MetalArguments::MarkObjectRefImmutable(const std::string& name) {
-  immutable_object_prefixes_.insert(name + "_");
+  immutable_object_names_.insert(name);
 }
 
 uint64_t MetalArguments::GetImmutableBufferMask() const {
@@ -536,14 +536,9 @@ uint64_t MetalArguments::GetImmutableBufferMask() const {
   for (const auto& b : buffers_) {
     if (index < kMaxBufferBindings) {
       bool immutable = (b.second.desc.memory_type == MemoryType::kConstant);
-      if (!immutable && b.second.desc.access_type == AccessType::kRead) {
-        for (const auto& prefix : immutable_object_prefixes_) {
-          if (b.first.size() >= prefix.size() &&
-              b.first.compare(0, prefix.size(), prefix) == 0) {
-            immutable = true;
-            break;
-          }
-        }
+      if (!immutable && b.second.desc.access_type == AccessType::kRead &&
+          !b.second.owner_name.empty()) {
+        immutable = immutable_object_names_.count(b.second.owner_name) > 0;
       }
       if (immutable) {
         mask |= (1ULL << index);
@@ -660,8 +655,10 @@ absl::Status MetalArguments::SetGPUResources(
 }
 
 void MetalArguments::AddBuffer(const std::string& name,
-                               const GPUBufferDescriptor& desc) {
+                               const GPUBufferDescriptor& desc,
+                               const std::string& owner_name) {
   buffers_[name].desc = desc;
+  buffers_[name].owner_name = owner_name;
 }
 
 void MetalArguments::AddImage2D(const std::string& name,
@@ -687,7 +684,7 @@ void MetalArguments::AddImageBuffer(const std::string& name,
 void MetalArguments::AddGPUResources(const std::string& name,
                                      const GPUResources& resources) {
   for (const auto& r : resources.buffers) {
-    AddBuffer(absl::StrCat(name, "_", r.first), r.second);
+    AddBuffer(absl::StrCat(name, "_", r.first), r.second, name);
   }
   for (const auto& r : resources.images2d) {
     AddImage2D(absl::StrCat(name, "_", r.first), r.second);

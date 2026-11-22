@@ -74,7 +74,9 @@ CreateConversationCallback(LiteRtLmStreamCallback callback, void* user_data) {
       chunk.error_msg = nullptr;
       callback(user_data, &chunk);
     } else {
-      std::string json_str = message->dump();
+      std::string json_str = message->dump(
+          /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+          nlohmann::json::error_handler_t::replace);
       LiteRtLmStreamChunk chunk;
       chunk.text = json_str.c_str();
       chunk.is_final = false;
@@ -637,7 +639,9 @@ LiteRtLmStatusCode litert_lm_conversation_send_message(
     return litert::lm::c::ToCStatus(response.status());
   }
   auto c_response = std::make_unique<LiteRtLmJsonResponse>();
-  c_response->json_string = response->dump();
+  c_response->json_string = response->dump(
+      /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+      nlohmann::json::error_handler_t::replace);
   *out_response = c_response.release();
   return kLiteRtLmStatusOk;
 }
@@ -715,8 +719,11 @@ LiteRtLmStatusCode litert_lm_conversation_render_message_to_string(
     ABSL_LOG(ERROR) << "Failed to render message: " << rendered.status();
     return litert::lm::c::ToCStatus(rendered.status());
   }
-  conversation->last_rendered_message = std::move(*rendered);
-  *out_text = conversation->last_rendered_message.c_str();
+  // Use a thread-local buffer so concurrent calls on a shared Conversation
+  // never overwrite another thread's returned C string (R-19).
+  thread_local std::string last_rendered_message;
+  last_rendered_message = std::move(*rendered);
+  *out_text = last_rendered_message.c_str();
   return kLiteRtLmStatusOk;
 }
 
@@ -734,8 +741,9 @@ LiteRtLmStatusCode litert_lm_conversation_render_preface_to_string(
     ABSL_LOG(ERROR) << "Failed to render preface: " << rendered.status();
     return litert::lm::c::ToCStatus(rendered.status());
   }
-  conversation->last_rendered_preface = std::move(*rendered);
-  *out_text = conversation->last_rendered_preface.c_str();
+  thread_local std::string last_rendered_preface;
+  last_rendered_preface = std::move(*rendered);
+  *out_text = last_rendered_preface.c_str();
   return kLiteRtLmStatusOk;
 }
 

@@ -450,8 +450,13 @@ MAIN_FUNCTION($0) {
   } else {
     c += "  int src_x = min(dst_w, args.src.Width() - 1);\n";
   }
+  const bool scale_softmax_accum =
+      params_.softmax_input_activation && accum_type == DataType::kFloat32;
   if (params_.softmax_input_activation) {
-    c += "  half2 exp_val = args.src_exp.Read(src_x, src_y, 0).xy;\n";
+    c += "  float2 exp_val = args.src_exp.Read<float>(src_x, src_y, 0).xy;\n";
+    if (scale_softmax_accum) {
+      c += "  exp_val.x *= 256.0f;\n";
+    }
   }
   if (manual_k_tiling) {
     std::string k_start = "0";
@@ -515,7 +520,9 @@ MAIN_FUNCTION($0) {
     #pragma unroll_full
     for (uint16_t i = 0; i < K_TILE_SLICES / slices_per_wg; ++i) {
       int tile_k_id = i * slices_per_wg + sub_slice_id;
-      int slice_id = min(k + tile_k_id, args.src.Slices() - 1);
+      int raw_slice_id = k + tile_k_id;
+      bool in_k = raw_slice_id < args.src.Slices();
+      int slice_id = min(raw_slice_id, args.src.Slices() - 1);
       half4 src = args.src.Read(src_x, src_y, slice_id);
 )";
       std::string check;
@@ -532,8 +539,9 @@ MAIN_FUNCTION($0) {
         c += "      src *= ucl::Convert<half>((" + check + "));\n";
       }
       if (params_.softmax_input_activation) {
-        c += "      src = exp(src - exp_val.y) * exp_val.x;\n";
+        c += "      src = half4(exp(float4(src) - exp_val.y) * exp_val.x);\n";
       }
+      c += "      if (!in_k) src = half4(0.0h);\n";
       c += R"(
       a_loc_x4[sub_spatial_id * K_TILE_SLICES + tile_k_id] = src;
     }
@@ -585,7 +593,7 @@ MAIN_FUNCTION($0) {
     c += "          auto coord = c_tile.get_multidimensional_index(i);\n";
     c += "          int lm = coord[1] - m_base;\n";
     c += "          if (lm >= 0 && lm < STRIP_M) {\n";
-    c += "            tmp_h[lm * N_TILE + coord[0]] = ucl::Convert<OUT_SCALAR>(c_tile[i]);\n";
+    c += "            tmp_h[lm * N_TILE + coord[0]] = ucl::Convert<OUT_SCALAR>(c_tile[i] * SOFTMAX_UNSCALE);\n";
     c += "          }\n";
     c += "        }\n";
     c += "      }\n";
@@ -664,8 +672,13 @@ MAIN_FUNCTION($0) {
       }
       c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(resf32);\n";
     } else {
-      c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(tmp_x4[sub_spatial_id * N_TILE_SLICES + "
-           "tile_n_id]);\n";
+      if (scale_softmax_accum) {
+        c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(tmp_x4[sub_spatial_id * N_TILE_SLICES + "
+             "tile_n_id] * 0.00390625f);\n";
+      } else {
+        c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(tmp_x4[sub_spatial_id * N_TILE_SLICES + "
+             "tile_n_id]);\n";
+      }
       if (params_.has_bias) {
         c += "      res_value += args.biases.Read(slice_id);\n";
       }
@@ -712,6 +725,7 @@ MAIN_FUNCTION($0) {
           {"WG_SIZE", std::to_string(32 * simdgroups_)},
           {"ACCUM_SCALAR", ToUclDataType(accum_type, 1)},
           {"ACCUM_VEC4", ToUclDataType(accum_type, 4)},
+          {"SOFTMAX_UNSCALE", scale_softmax_accum ? "0.00390625f" : "1.0f"},
           {"OUT_SCALAR", ToUclDataType(out_type, 1)},
           {"OUT_VEC4", ToUclDataType(out_type, 4)},
           {"Type", ToUclDataType(DataType::kFloat16, 4)},
@@ -768,7 +782,8 @@ bool SupportsConvAppleMPP(const GpuInfo& gpu_info,
                               weights.desc.type == DataType::kUint2;
   const int dst_slices = DivideRoundUp(weights.shape.o, 4);
   if (weights.desc.layout != WeightsLayout::kOSpatialIOGroupI4O4 ||
-      weights.desc.output_group_size != dst_slices || !supported_type) {
+      weights.desc.output_group_size != dst_slices || !supported_type ||
+      (weights.shape.i % 32) != 0) {
     return false;
   }
   return true;

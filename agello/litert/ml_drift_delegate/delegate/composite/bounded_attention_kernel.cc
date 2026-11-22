@@ -399,7 +399,8 @@ std::string GenerateFlashAttentionD256Code(const FlashAttentionAttributes& attr,
   absl::StrAppend(&c, "  device ", scalar, "* q_ptr = reinterpret_cast<device ", scalar,
                   "*>(args.q.GetHandle()) + kv_head * args.q_rows * 256;\n");
   c += "  auto q_tensor = metal::tensor(q_ptr, metal::dextents<int, 2>(256, args.q_rows));\n";
-  c += "  auto q_sg_tile = q_tensor.slice(0, q_base + sg_r0);\n";
+  c += "  int q_sg_row = (q_base + sg_r0 < args.q_rows) ? (q_base + sg_r0) : 0;\n";
+  c += "  auto q_sg_tile = q_tensor.slice(0, q_sg_row);\n";
   c += "  auto k_tile = metal::tensor(kv_loc, metal::dextents<int, 2>(256, 64));\n";
   c += "  auto v_tensor = metal::tensor(kv_loc, metal::dextents<int, 2>(256, 64));\n";
   c += "  auto p_tensor = metal::tensor(p_tg, metal::dextents<int, 2>(64, BQ));\n";
@@ -764,8 +765,9 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   absl::StrAppend(&c, "  device ", scalar, "* q_ptr = reinterpret_cast<device ", scalar,
                   "*>(args.q.GetHandle()) + kv_head * args.q_rows * 512;\n");
   c += "  auto q_tensor = metal::tensor(q_ptr, metal::dextents<int, 2>(512, args.q_rows));\n";
-  c += "  auto q_lo = q_tensor.slice(0, q_base + sg_r0);\n";
-  c += "  auto q_hi = q_tensor.slice(256, q_base + sg_r0);\n";
+  c += "  int q_sg_row = (q_base + sg_r0 < args.q_rows) ? (q_base + sg_r0) : 0;\n";
+  c += "  auto q_lo = q_tensor.slice(0, q_sg_row);\n";
+  c += "  auto q_hi = q_tensor.slice(256, q_sg_row);\n";
   c += "  auto kv_tensor = metal::tensor(kv_loc, metal::dextents<int, 2>(256, 64));\n";
   c += "  auto p_tensor = metal::tensor(p_tg, metal::dextents<int, 2>(64, BQ));\n";
   c += "  auto p_sg_tile = p_tensor.slice(0, sg_r0);\n";
@@ -954,10 +956,12 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   c += "        }\n";
   c += "      }\n";
   c += "      mpp::tensor_ops::reduce_rows(ctS, ctTileMax, mpp::tensor_ops::reduction_operation::max, -1e38f);\n";
+  c += "      uint had_prev_mask = 0u;\n";
   c += "      #pragma clang loop unroll(full)\n";
   c += "      for (uint16_t i = 0; i < ctM.get_capacity(); ++i) {\n";
   c += "        if (ctM.is_valid_element(i)) {\n";
   c += "          float m_old = ctM[i];\n";
+  c += "          if (m_old > -1e30f) had_prev_mask |= (1u << i);\n";
   c += "          float m_new = max(m_old, ctTileMax[i]);\n";
   c += "          float alpha = (m_old > -1e30f && m_new > m_old) ? exp(m_old - m_new) : 1.0f;\n";
   c += "          ctM[i] = m_new;\n";
@@ -987,7 +991,8 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   c += "          ctL[i] = l_new;\n";
   c += "          float inv_l = (l_new > 0.0f) ? (1.0f / l_new) : 0.0f;\n";
   c += "          float os = l_old_s * inv_l;\n";
-  c += "          has_prev = has_prev || (l_old_s > 0.0f && os < 1.0f);\n";
+  c += "          bool had_prev = (had_prev_mask & (1u << i)) != 0u;\n";
+  c += "          has_prev = has_prev || (had_prev && os < 1.0f);\n";
   c += "          tg_o_scale[sg_r0 + rc[0]] = os;\n";
   c += "          tg_m[sg_r0 + rc[0]] = 16.0f * inv_l;\n";
   c += "        }\n";

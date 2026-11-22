@@ -178,22 +178,28 @@ std::string Softmax1x1::GetSoftmaxKernelCode(const OperationDef& op_def,
   c += "  int tid = ucl::GetLocalId<0>();\n";
 
   std::string coords_s0 = coords + ", 0";
+  std::string coords_s_start = coords + ", start_slice * 4";
   std::string coords_s = coords + ", s";
   std::string coords_dst_s = coords + ", dst_s";
   if (op_def.dst_tensors[0].HasAxis(Axis::kBatch)) {
     coords_s0 += ", B";
+    coords_s_start += ", B";
     coords_s += ", B";
     coords_dst_s += ", B";
   }
 
   c += "  int end_channel = END_CHANNEL;\n";
   c += "  int end_slice = (end_channel + 3) / 4;\n";
+  c += "  int start_slice = START_SLICE;\n";
   c += "  float sum = 0.0f;\n";
   c += "  bool need_per_channels_check = end_channel "
        "% 4 != 0;\n";
-  c += "  float maximum;\n";
-  c += "  args.src_tensor.ReadPerChannel<float>(maximum, " + coords_s0 + ");\n";
-  c += "  for (int s = START_SLICE + tid; s < end_slice; s += "
+  c += "  float maximum = -3.402823466e+38f;\n";
+  c += "  if (start_slice < end_slice) {\n";
+  c += "    args.src_tensor.ReadPerChannel<float>(maximum, " + coords_s_start +
+       ");\n";
+  c += "  }\n";
+  c += "  for (int s = start_slice + tid; s < end_slice; s += "
        "GROUP_REDUCTION_SIZE) {\n";
   c += "    float4 mask_dot = ucl::Init<float4>(1.0f);\n";
   c += "    float4 src = args.src_tensor.Read<float>(" + coords_s + ");\n";

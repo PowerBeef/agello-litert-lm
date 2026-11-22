@@ -229,12 +229,8 @@ MetalSpatialTensor& MetalSpatialTensor::operator=(MetalSpatialTensor&& tensor) {
 }
 
 void MetalSpatialTensor::Release() {
-  if (memory_owner_ && memory_) {
-    memory_ = nullptr;
-  }
-  if (texture_mem_owner_ && texture_mem_) {
-    texture_mem_ = nullptr;
-  }
+  memory_ = nullptr;
+  texture_mem_ = nullptr;
 }
 
 absl::Status MetalSpatialTensor::GetGPUResources(

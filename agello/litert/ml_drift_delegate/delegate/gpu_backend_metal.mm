@@ -518,30 +518,33 @@ absl::StatusOr<::ml_drift::GpuSpatialTensor*> GpuInferenceContextMetal::GetSpati
   return tensor;
 }
 
+GpuInferenceContextMetal::~GpuInferenceContextMetal() {
+  for (const auto& [id, allocs] : bound_external_residency_) {
+    backend_->ReplaceResidencyAllocations(allocs.first, allocs.second, nil, nil);
+  }
+  bound_external_residency_.clear();
+}
+
 absl::Status GpuInferenceContextMetal::BindSpatialTensor(::ml_drift::ValueId tensor_id,
                                                          ::ml_drift::GpuSpatialTensor* tensor) {
   ABSL_RETURN_IF_ERROR(
       ctx_->SetTensor(tensor_id, static_cast<::ml_drift::metal::MetalSpatialTensor*>(tensor)));
-  if (@available(macOS 15.0, iOS 18.0, *)) {
-    id<MTLResidencySet> res_set = backend_->residency_set();
-    if (res_set != nil && backend_->ResidencyEnabled()) {
-      @autoreleasepool {
-        auto* metal_tensor = static_cast<::ml_drift::metal::MetalSpatialTensor*>(tensor);
-        if (metal_tensor != nullptr) {
-          bool added = false;
-          if (metal_tensor->GetBufferHandle() != nil) {
-            [res_set addAllocation:metal_tensor->GetBufferHandle()];
-            added = true;
-          }
-          if (metal_tensor->GetTextureHandle() != nil) {
-            [res_set addAllocation:metal_tensor->GetTextureHandle()];
-            added = true;
-          }
-          if (added) {
-            [res_set commit];
-          }
-        }
-      }
+  auto* metal_tensor = static_cast<::ml_drift::metal::MetalSpatialTensor*>(tensor);
+  id<MTLBuffer> new_buf = metal_tensor != nullptr ? metal_tensor->GetBufferHandle() : nil;
+  id<MTLTexture> new_tex = metal_tensor != nullptr ? metal_tensor->GetTextureHandle() : nil;
+  id<MTLBuffer> old_buf = nil;
+  id<MTLTexture> old_tex = nil;
+  if (auto it = bound_external_residency_.find(tensor_id);
+      it != bound_external_residency_.end()) {
+    old_buf = it->second.first;
+    old_tex = it->second.second;
+  }
+  if (old_buf != new_buf || old_tex != new_tex) {
+    backend_->ReplaceResidencyAllocations(old_buf, old_tex, new_buf, new_tex);
+    if (new_buf != nil || new_tex != nil) {
+      bound_external_residency_[tensor_id] = {new_buf, new_tex};
+    } else {
+      bound_external_residency_.erase(tensor_id);
     }
   }
   return absl::OkStatus();
@@ -734,11 +737,46 @@ absl::Status Buffer2TensorConverterMetal::Convert(GpuIOBuffer& src_buffer,
       static_cast<::ml_drift::metal::MetalSpatialTensor*>(&dst_tensor));
 }
 
-void GpuBackendMetal::PopulateResidencySet(const ::ml_drift::CreateGpuModelInfo& create_info,
-                                           ::ml_drift::metal::InferenceContext& metal_ctx) {
-  if (residency_set_ == nil) return;
+void GpuBackendMetal::ReplaceResidencyAllocations(id<MTLBuffer> old_buffer,
+                                                  id<MTLTexture> old_texture,
+                                                  id<MTLBuffer> new_buffer,
+                                                  id<MTLTexture> new_texture) {
   if (@available(macOS 15.0, iOS 18.0, *)) {
     @autoreleasepool {
+      absl::MutexLock lock(&residency_mutex_);
+      if (residency_set_ == nil) return;
+      bool changed = false;
+      if (old_buffer != nil && old_buffer != new_buffer) {
+        [residency_set_ removeAllocation:old_buffer];
+        changed = true;
+      }
+      if (old_texture != nil && old_texture != new_texture) {
+        [residency_set_ removeAllocation:old_texture];
+        changed = true;
+      }
+      if (residency_runtime_enabled_) {
+        if (new_buffer != nil && new_buffer != old_buffer) {
+          [residency_set_ addAllocation:new_buffer];
+          changed = true;
+        }
+        if (new_texture != nil && new_texture != old_texture) {
+          [residency_set_ addAllocation:new_texture];
+          changed = true;
+        }
+      }
+      if (changed) {
+        [residency_set_ commit];
+      }
+    }
+  }
+}
+
+void GpuBackendMetal::PopulateResidencySet(const ::ml_drift::CreateGpuModelInfo& create_info,
+                                           ::ml_drift::metal::InferenceContext& metal_ctx) {
+  if (@available(macOS 15.0, iOS 18.0, *)) {
+    @autoreleasepool {
+      absl::MutexLock lock(&residency_mutex_);
+      if (residency_set_ == nil) return;
       metal_ctx.AddConstantsToResidencySet(residency_set_);
       for (const auto& [id, tensor] : create_info.external_immutable_tensors) {
         auto* metal_tensor = static_cast<::ml_drift::metal::MetalSpatialTensor*>(tensor);
@@ -752,12 +790,7 @@ void GpuBackendMetal::PopulateResidencySet(const ::ml_drift::CreateGpuModelInfo&
         }
       }
       [residency_set_ commit];
-      bool req_residency = false;
-      {
-        absl::MutexLock lock(&residency_mutex_);
-        req_residency = residency_runtime_enabled_ && residency_active_;
-      }
-      if (req_residency) {
+      if (residency_runtime_enabled_ && residency_active_) {
         [residency_set_ requestResidency];
       }
     }

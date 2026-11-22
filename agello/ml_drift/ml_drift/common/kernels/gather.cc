@@ -50,7 +50,8 @@ std::string GetGatherCode(const OperationDef& op_def, Axis gather_axis) {
     src_array[i] = args.src_tensor::scalar_zero_value;
     int ch_index = S * 4 + i;
     if (ch_index < args.dst_tensor.Channels()) {
-      args.src_tensor.ReadPerChannel(src_array[i], X, Y, gather_indexes_array[i], B);
+      int clamped_idx = max(0, min(gather_indexes_array[i], args.src_tensor.Channels() - 1));
+      args.src_tensor.ReadPerChannel(src_array[i], X, Y, clamped_idx, B);
     }
   }
   args.src_tensor::type result;
@@ -68,6 +69,7 @@ std::string GetGatherCode(const OperationDef& op_def, Axis gather_axis) {
     };
     std::string src_coords;
     std::string gather_coord;
+    std::string gather_limit;
     for (const auto& [axis, name] : coords) {
       if (!src_coords.empty()) {
         src_coords += ", ";
@@ -75,6 +77,15 @@ std::string GetGatherCode(const OperationDef& op_def, Axis gather_axis) {
       if (axis == gather_axis) {
         gather_coord = name;
         src_coords += "gather_index";
+        if (axis == Axis::kWidth) {
+          gather_limit = "args.src_tensor.Width() - 1";
+        } else if (axis == Axis::kHeight) {
+          gather_limit = "args.src_tensor.Height() - 1";
+        } else if (axis == Axis::kBatch) {
+          gather_limit = "args.src_tensor.Batch() - 1";
+        } else {
+          gather_limit = "args.src_tensor.Slices() - 1";
+        }
       } else {
         src_coords += name;
       }
@@ -82,6 +93,7 @@ std::string GetGatherCode(const OperationDef& op_def, Axis gather_axis) {
     c += "  int gather_index;\n";
     c += "  args.indices.ReadPerChannel<int>(gather_index, 0, 0, " +
          gather_coord + ");\n";
+    c += "  gather_index = max(0, min(gather_index, " + gather_limit + "));\n";
     c += "  args.src_tensor::type result = args.src_tensor.Read(" + src_coords +
          ");\n";
   }

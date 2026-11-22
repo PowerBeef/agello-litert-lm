@@ -97,7 +97,8 @@ class MetalArguments : public ArgumentsBinder {
   absl::Status SetGPUResources(const std::string& name,
                                const GPUResourcesWithValue& resources);
 
-  void AddBuffer(const std::string& name, const GPUBufferDescriptor& desc);
+  void AddBuffer(const std::string& name, const GPUBufferDescriptor& desc,
+                 const std::string& owner_name = "");
   void AddImage2D(const std::string& name, const GPUImage2DDescriptor& desc);
   void AddImage2DArray(const std::string& name,
                        const GPUImage2DArrayDescriptor& desc);
@@ -156,6 +157,9 @@ class MetalArguments : public ArgumentsBinder {
     GPUBufferDescriptor desc;
     id<MTLBuffer> handle;
     uint64_t offset;
+    // Exact parent object/ref name (e.g. "src_tensor", "src_tensor_1") so
+    // GetImmutableBufferMask never suffers prefix collisions.
+    std::string owner_name;
   };
   struct MetalImage2DDescriptor {
     GPUImage2DDescriptor desc;
@@ -182,8 +186,8 @@ class MetalArguments : public ArgumentsBinder {
 
   std::map<std::string, GPUObjectDescriptorPtr, std::less<>> object_refs_;
   std::vector<GPUObjectPtr> objects_;
-  // Agello (P1.3): object/ref name prefixes known immutable for MTLMutabilityImmutable.
-  std::set<std::string> immutable_object_prefixes_;
+  // Agello (P1.3/Wave 2): exact object/ref names known immutable for MTLMutabilityImmutable.
+  std::set<std::string> immutable_object_names_;
 };
 
 }  // namespace metal

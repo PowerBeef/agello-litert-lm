@@ -245,6 +245,10 @@ class ResourceManager {
   // Non-owning pointer to model resources (outlives ResourceManager when set).
   ModelResources* absl_nullable model_resources_ = nullptr;
 
+  // Protects lazy creation of backup_litert_env_ / litert_env_ across
+  // concurrent Vision and Audio initialization.
+  absl::Mutex litert_env_mutex_;
+
   // The potential litert compiled model environment for the vision and audio
   // executor.
   ::litert::Environment* absl_nullable litert_env_;

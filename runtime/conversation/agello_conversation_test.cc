@@ -294,5 +294,73 @@ TEST(AgelloConversationTest,
       R"({"role":"tool","content":[{"name":"get_time","response":{"time":"12:00"}}]})")));
 }
 
+TEST(AgelloConversationTest, CancelDuringPrefillSkipsSaveCheckpointAndDecode) {
+  const std::string raw_template = LoadGemma4Template();
+  ASSERT_FALSE(raw_template.empty());
+  const std::string fixed_template = FixGemma4ToolTemplate(raw_template);
+
+  ASSERT_OK_AND_ASSIGN(
+      auto model_assets, ModelAssets::Create("unused.litertlm"));
+  ASSERT_OK_AND_ASSIGN(
+      auto engine_settings,
+      EngineSettings::CreateDefault(model_assets, Backend::CPU));
+  proto::LlmMetadata metadata;
+  metadata.mutable_llm_model_type()->mutable_gemma4();
+  metadata.set_jinja_prompt_template(raw_template);
+  auto* stop = metadata.add_stop_tokens();
+  stop->mutable_token_ids()->add_ids(106);
+  engine_settings.GetMutableLlmMetadata() = metadata;
+
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  ASSERT_OK(session_config.MaybeUpdateAndValidate(engine_settings));
+
+  FakeTokenizer tokenizer;
+  auto mock_session = std::make_unique<MockSession>();
+  auto* session_ptr = mock_session.get();
+  ON_CALL(*session_ptr, GetSessionConfig())
+      .WillByDefault(ReturnRef(session_config));
+  ON_CALL(*session_ptr, WaitUntilDone()).WillByDefault(Return(absl::OkStatus()));
+
+  MockEngine engine;
+  ON_CALL(engine, GetEngineSettings()).WillByDefault(ReturnRef(engine_settings));
+  ON_CALL(engine, GetTokenizer()).WillByDefault(ReturnRef(tokenizer));
+  EXPECT_CALL(engine, CreateSession(testing::_))
+      .WillOnce(Return(testing::ByMove(std::move(mock_session))));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config)
+          .SetEnableConstrainedDecoding(false)
+          .SetOverwritePromptTemplate(PromptTemplate(fixed_template))
+          .SetPrefillPrefaceOnInit(false)
+          .SetFilterChannelContentFromKvCache(true)
+          .SetOverwriteProcessorConfig(Gemma4DataProcessorConfig())
+          .SetChannels({litert::lm::Channel{
+              .channel_name = "thought",
+              .start = "<|channel>thought\n",
+              .end = "<channel|>",
+          }})
+          .Build(engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation, Conversation::Create(engine, config));
+
+  EXPECT_CALL(*session_ptr, CancelProcess()).Times(testing::AtLeast(1));
+  EXPECT_CALL(*session_ptr, SaveCheckpoint(testing::_)).Times(0);
+  EXPECT_CALL(*session_ptr, RunDecodeAsync(testing::_, testing::_)).Times(0);
+  EXPECT_CALL(*session_ptr, RunPrefillAsync(testing::_, testing::_))
+      .WillOnce([&conversation](
+                    const std::vector<InputData>&,
+                    absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+        // Simulate CancelProcess racing right as prefill finishes with kDone.
+        conversation->CancelProcess();
+        cb(Responses(TaskState::kDone));
+        return nullptr;
+      });
+
+  absl::StatusOr<Message> result =
+      conversation->SendMessage(Message{{"role", "user"}, {"content", "Hi"}});
+  EXPECT_TRUE(absl::IsCancelled(result.status())) << result.status();
+}
+
 }  // namespace
 }  // namespace litert::lm

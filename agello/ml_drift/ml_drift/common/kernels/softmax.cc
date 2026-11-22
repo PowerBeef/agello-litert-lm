@@ -68,25 +68,44 @@ std::string GetSoftmaxReducedExp(const OperationDef& op_def,
     }
   }
 
-  std::string coords_s0 = coords + ", 0";
-  std::string coords_s = coords + ", d";
+  std::string src_coords = "X, Y";
+  if (use_wg_reduction) {
+    c += "  int src_x = min(X, args.src_tensor.Width() - 1);\n";
+    c += "  int src_y = min(Y, args.src_tensor.Height() - 1);\n";
+    src_coords = "src_x, src_y";
+  }
+  if (op_def.dst_tensors[0].HasAxis(Axis::kDepth)) {
+    if (use_wg_reduction) {
+      c += "  int src_z = min(Z, args.src_tensor.Depth() - 1);\n";
+      src_coords += ", src_z";
+    } else {
+      src_coords += ", Z";
+    }
+  }
+
+  std::string coords_s_start = src_coords + ", start_slice * 4";
+  std::string coords_s = src_coords + ", d";
   if (op_def.dst_tensors[0].HasAxis(Axis::kBatch)) {
-    coords_s0 += ", B";
+    coords_s_start += ", B";
     coords_s += ", B";
   }
 
   c += "  float sum = 0.0f;\n";
   c += "  int end_channel = END_CHANNEL;\n";
   c += "  int end_slice = (end_channel + 3) / 4;\n";
+  c += "  int start_slice = START_SLICE;\n";
   c += "  bool need_per_channels_check = end_channel % 4 != 0;\n";
-  c += "  float maximum;\n";
-  c += "  args.src_tensor.ReadPerChannel<float>(maximum, " + coords_s0 + ");\n";
+  c += "  float maximum = -3.402823466e+38f;\n";
+  c += "  if (start_slice < end_slice) {\n";
+  c += "    args.src_tensor.ReadPerChannel<float>(maximum, " + coords_s_start +
+       ");\n";
+  c += "  }\n";
   if (use_wg_reduction) {
-    c += "  for (int d = START_SLICE + ucl::GetLocalId<2>(); d < end_slice; d "
+    c += "  for (int d = start_slice + ucl::GetLocalId<2>(); d < end_slice; d "
          "+= WG_SIZE_Z) "
          "{\n";
   } else {
-    c += "  for (int d = START_SLICE; d < end_slice; d += 1) {\n";
+    c += "  for (int d = start_slice; d < end_slice; d += 1) {\n";
   }
   c += "    float4 mask_dot = ucl::Init<float4>(1.0f);\n";
   c += "    float4 src = args.src_tensor.Read<float>(" + coords_s + ");\n";
@@ -375,23 +394,27 @@ GPUOperation CreateSoftmaxFinal(const OperationDef& definition, int channels) {
   if (definition.src_tensors[1].HasAxis(Axis::kBatch)) {
     coords += ", B_COORD";
   }
-  op_desc.code = "  args.src_tensor_1::type exp_val = args.src_tensor_1.Read(" +
+  const std::string out_type =
+      ToUclDataType(definition.dst_tensors[0].GetDataType(), 4);
+  op_desc.code = "  float4 exp_val = args.src_tensor_1.Read<float>(" +
                  coords + ");\n";
+  op_desc.code += "  float4 in_f = ucl::Convert<float4>(in_value);\n";
   if (channels > 0 && channels % 4 != 0) {
     op_desc.args.AddInt("ch_count", channels);
     op_desc.code += R"(
   if (S_COORD * 4 + 1 >= args.ch_count) {
-    in_value.y = exp_val.y;
+    in_f.y = exp_val.y;
   }
   if (S_COORD * 4 + 2 >= args.ch_count) {
-    in_value.z = exp_val.y;
+    in_f.z = exp_val.y;
   }
   if (S_COORD * 4 + 3 >= args.ch_count) {
-    in_value.w = exp_val.y;
+    in_f.w = exp_val.y;
   }
 )";
   }
-  op_desc.code += "  out_value = exp(in_value - exp_val.y) * exp_val.x;\n";
+  op_desc.code += "  out_value = ucl::Convert<" + out_type +
+                  ">(exp(in_f - exp_val.y) * exp_val.x);\n";
   return CreateGpuOperation(definition, std::move(op_desc));
 }
 

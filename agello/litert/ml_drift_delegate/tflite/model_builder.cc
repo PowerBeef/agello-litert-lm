@@ -4077,6 +4077,22 @@ class OneHotOperationParser : public TFLiteOperationParser {
     const TfLiteTensor* indices_tensor = nullptr;
     ABSL_RETURN_IF_ERROR(
         PreGetInputTensor(context, tflite_node, 0, &indices_tensor));
+    if (indices_tensor->type != kTfLiteInt32) {
+      return absl::InvalidArgumentError(
+          "OneHot indices tensor must be kTfLiteInt32.");
+    }
+    for (int value_idx : {2, 3}) {
+      const TfLiteTensor* val_tensor = nullptr;
+      ABSL_RETURN_IF_ERROR(
+          PreGetInputTensor(context, tflite_node, value_idx, &val_tensor));
+      if (!tflite::IsConstantTensor(val_tensor) ||
+          val_tensor->type != kTfLiteFloat32 ||
+          tflite::NumElements(val_tensor) != 1 ||
+          tflite::GetTensorData<float>(val_tensor) == nullptr) {
+        return absl::InvalidArgumentError(
+            "OneHot on_value and off_value must be constant scalar float32 tensors.");
+      }
+    }
     const auto* one_hot_options =
         static_cast<const TfLiteOneHotParams*>(tflite_node->builtin_data);
     if (one_hot_options) {

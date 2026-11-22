@@ -22,6 +22,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -205,7 +206,7 @@ struct PipelineCacheKeyHash {
 struct PipelineCacheState {
   std::mutex mutex;
   std::unordered_map<PipelineCacheKey, id<MTLComputePipelineState>, PipelineCacheKeyHash> psos;
-  std::mutex archive_mutex;
+  std::shared_mutex archive_mutex;
   id<MTLBinaryArchive> archive = nil;
   uint64_t archive_device_id = 0;
   std::string archive_path;
@@ -228,6 +229,25 @@ uint64_t DeviceCacheKey(id<MTLDevice> device) {
 }
 }  // namespace
 
+void FlushPipelineArchiveLocked(PipelineCacheState& cache) {
+  if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
+    if (cache.archive == nil || !cache.archive_dirty || cache.archive_path.empty()) return;
+    const std::string tmp_path = cache.archive_path + ".tmp";
+    NSURL* tmp_url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:tmp_path.c_str()]];
+    NSError* err = nil;
+    if ([cache.archive serializeToURL:tmp_url error:&err]) {
+      if (std::rename(tmp_path.c_str(), cache.archive_path.c_str()) == 0) {
+        cache.archive_dirty = false;
+        cache.archive_loaded_from_disk = true;
+      } else {
+        std::remove(tmp_path.c_str());
+      }
+    } else {
+      std::remove(tmp_path.c_str());
+    }
+  }
+}
+
 void SetPipelineArchiveDirectory(id<MTLDevice> device, const std::string& dir) {
   if (device == nil || dir.empty() || dir == ":memory") return;
   if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
@@ -235,11 +255,13 @@ void SetPipelineArchiveDirectory(id<MTLDevice> device, const std::string& dir) {
       const uint64_t dev_id = DeviceCacheKey(device);
       const std::string path = dir + "/agello_pipelines.mtlarc";
       auto& cache = GetPipelineCache();
-      std::lock_guard<std::mutex> lock(cache.archive_mutex);
+      std::unique_lock<std::shared_mutex> lock(cache.archive_mutex);
       if (cache.archive != nil && cache.archive_device_id == dev_id &&
           cache.archive_path == path) {
         return;
       }
+      // Flush any dirty archive before switching to a new directory.
+      FlushPipelineArchiveLocked(cache);
       NSString* ns_path = [NSString stringWithUTF8String:path.c_str()];
       NSURL* url = [NSURL fileURLWithPath:ns_path];
       MTLBinaryArchiveDescriptor* desc = [[MTLBinaryArchiveDescriptor alloc] init];
@@ -270,21 +292,8 @@ void FlushPipelineArchive() {
   if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
     @autoreleasepool {
       auto& cache = GetPipelineCache();
-      std::lock_guard<std::mutex> lock(cache.archive_mutex);
-      if (cache.archive == nil || !cache.archive_dirty || cache.archive_path.empty()) return;
-      const std::string tmp_path = cache.archive_path + ".tmp";
-      NSURL* tmp_url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:tmp_path.c_str()]];
-      NSError* err = nil;
-      if ([cache.archive serializeToURL:tmp_url error:&err]) {
-        if (std::rename(tmp_path.c_str(), cache.archive_path.c_str()) == 0) {
-          cache.archive_dirty = false;
-          cache.archive_loaded_from_disk = true;
-        } else {
-          std::remove(tmp_path.c_str());
-        }
-      } else {
-        std::remove(tmp_path.c_str());
-      }
+      std::unique_lock<std::shared_mutex> lock(cache.archive_mutex);
+      FlushPipelineArchiveLocked(cache);
     }
   }
 }
@@ -451,37 +460,34 @@ absl::Status CreateComputeProgram(id<MTLDevice> device, const std::string& code,
   NSError* error = nil;
   if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
     id<MTLBinaryArchive> archive = nil;
-    bool try_archive_hit = false;
     {
-      std::lock_guard<std::mutex> lock(cache.archive_mutex);
+      std::shared_lock<std::shared_mutex> read_lock(cache.archive_mutex);
       if (cache.archive != nil && cache.archive_device_id == dev_id) {
         archive = cache.archive;
-        try_archive_hit = cache.archive_loaded_from_disk;
+        if (cache.archive_loaded_from_disk) {
+          pipeline_desc.binaryArchives = @[ archive ];
+          NSError* miss_error = nil;
+          compiled =
+              [device newComputePipelineStateWithDescriptor:pipeline_desc
+                                                    options:MTLPipelineOptionFailOnBinaryArchiveMiss
+                                                 reflection:nullptr
+                                                      error:&miss_error];
+          pipeline_desc.binaryArchives = nil;
+        }
       }
     }
-    if (archive != nil) {
-      pipeline_desc.binaryArchives = @[ archive ];
-      if (try_archive_hit) {
-        NSError* miss_error = nil;
-        compiled =
-            [device newComputePipelineStateWithDescriptor:pipeline_desc
-                                                  options:MTLPipelineOptionFailOnBinaryArchiveMiss
-                                               reflection:nullptr
-                                                    error:&miss_error];
-      }
-      if (compiled == nil) {
-        compiled = [device newComputePipelineStateWithDescriptor:pipeline_desc
-                                                         options:MTLPipelineOptionNone
-                                                      reflection:nullptr
-                                                           error:&error];
-        if (compiled != nil) {
-          std::lock_guard<std::mutex> lock(cache.archive_mutex);
-          if (cache.archive == archive) {
-            NSError* add_error = nil;
-            if ([archive addComputePipelineFunctionsWithDescriptor:pipeline_desc
-                                                             error:&add_error]) {
-              cache.archive_dirty = true;
-            }
+    if (archive != nil && compiled == nil) {
+      compiled = [device newComputePipelineStateWithDescriptor:pipeline_desc
+                                                       options:MTLPipelineOptionNone
+                                                    reflection:nullptr
+                                                         error:&error];
+      if (compiled != nil) {
+        std::unique_lock<std::shared_mutex> write_lock(cache.archive_mutex);
+        if (cache.archive == archive) {
+          NSError* add_error = nil;
+          if ([archive addComputePipelineFunctionsWithDescriptor:pipeline_desc
+                                                           error:&add_error]) {
+            cache.archive_dirty = true;
           }
         }
       }

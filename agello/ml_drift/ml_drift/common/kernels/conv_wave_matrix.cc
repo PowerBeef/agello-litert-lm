@@ -500,8 +500,7 @@ std::string GenerateConvolution(
     c += "  int src_x = min(DST_X, args.src_tensor.Width() - 1);\n";
   }
   if (conv_params.softmax_input_activation) {
-    c += "  " + ToUclDataType(src_def.GetDataType(), 2) +
-         " exp_val = args.src_exp.Read(src_x, src_y, 0).xy;\n";
+    c += "  float2 exp_val = args.src_exp.Read<float>(src_x, src_y, 0).xy;\n";
   }
   if (src_def.IsLinear()) {
     c += "  int src_address = args.src_tensor.GetAddress(src_x, src_y, "
@@ -693,7 +692,8 @@ std::string GenerateConvolution(
   }
   c += "    Type src_val = " + src_read_func + ";\n";
   if (conv_params.softmax_input_activation) {
-    c += "    src_val = exp(src_val - exp_val.y) * exp_val.x;\n";
+    c += "    src_val = ucl::Convert<Type>(exp(ucl::Convert<float4>(src_val) - "
+         "exp_val.y) * exp_val.x);\n";
   }
   if (supports_x4_reinterpret) {
     c += "    " + std::string(src_cache_x4_name) + "[tid2] = src_val;\n";

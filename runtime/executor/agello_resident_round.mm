@@ -182,9 +182,11 @@ class MetalResidentRound : public ResidentRound {
         ids_(ids),
         shape_(shape) {}
 
+  ~MetalResidentRound() override { DrainLast(); }
+
   void SetFirstId(int token_id) override {
+    DrainLast();
     static_cast<int32_t*>([ids_ contents])[0] = token_id;
-    last_ = nil;
   }
 
   bool EncodeInput(int step, void* activations, void* previous, size_t previous_offset) override {
@@ -193,6 +195,7 @@ class MetalResidentRound : public ResidentRound {
     const size_t half_bytes = static_cast<size_t>(shape_.cols) * sizeof(float);
     if (input == nil || source == nil || input.length < 2 * half_bytes ||
         source.length < previous_offset + half_bytes) {
+      DrainLast();
       return false;
     }
     id<MTLCommandBuffer> command = [queue_ commandBuffer];
@@ -221,7 +224,10 @@ class MetalResidentRound : public ResidentRound {
 
   bool EncodeArgmax(int step, void* logits, int vocab) override {
     id<MTLBuffer> row = (__bridge id<MTLBuffer>)logits;
-    if (row == nil || row.length < static_cast<size_t>(vocab) * 2) return false;
+    if (row == nil || row.length < static_cast<size_t>(vocab) * 2) {
+      DrainLast();
+      return false;
+    }
     id<MTLCommandBuffer> command = [queue_ commandBuffer];
     id<MTLComputeCommandEncoder> compute = [command computeCommandEncoder];
     [compute setComputePipelineState:argmax_];
@@ -229,7 +235,10 @@ class MetalResidentRound : public ResidentRound {
     uint32_t count = static_cast<uint32_t>(vocab);
     [compute setBytes:&count length:sizeof(count) atIndex:1];
     [compute setBuffer:ids_ offset:static_cast<NSUInteger>(step + 1) * sizeof(int32_t) atIndex:2];
-    const NSUInteger lanes = MIN(static_cast<NSUInteger>(1024), argmax_.maxTotalThreadsPerThreadgroup);
+    const NSUInteger max_lanes =
+        MIN(static_cast<NSUInteger>(1024), argmax_.maxTotalThreadsPerThreadgroup);
+    NSUInteger lanes = 1;
+    while ((lanes << 1) <= max_lanes) lanes <<= 1;
     [compute setThreadgroupMemoryLength:lanes * 12 atIndex:0];
     [compute dispatchThreadgroups:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(lanes, 1, 1)];
     [compute endEncoding];
@@ -297,10 +306,16 @@ class MetalResidentRound : public ResidentRound {
   bool EncodeVerifyInputs(int tokens, void* embeddings, void* per_layer) override {
     id<MTLBuffer> outputs[2] = {(__bridge id<MTLBuffer>)embeddings, (__bridge id<MTLBuffer>)per_layer};
     GpuTableSet* sets[2] = {&embedder_, &per_layer_};
-    if (!HasVerifyTables()) return false;
+    if (!HasVerifyTables()) {
+      DrainLast();
+      return false;
+    }
     for (int i = 0; i < 2; ++i) {
       const size_t needed = static_cast<size_t>(tokens) * sets[i]->tables.size() * sets[i]->shape.cols * sizeof(float);
-      if (outputs[i] == nil || outputs[i].length < needed) return false;
+      if (outputs[i] == nil || outputs[i].length < needed) {
+        DrainLast();
+        return false;
+      }
     }
     id<MTLCommandBuffer> command = [queue_ commandBuffer];
     id<MTLComputeCommandEncoder> compute = [command computeCommandEncoder];
@@ -338,6 +353,13 @@ class MetalResidentRound : public ResidentRound {
   }
 
  private:
+  void DrainLast() {
+    if (last_ != nil) {
+      [last_ waitUntilCompleted];
+      last_ = nil;
+    }
+  }
+
   id<MTLCommandQueue> queue_;
   id<MTLComputePipelineState> gather_;
   id<MTLComputePipelineState> argmax_;

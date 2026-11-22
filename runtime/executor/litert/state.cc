@@ -1566,12 +1566,20 @@ absl::StatusOr<LitertState::RingCopy> LitertState::CopyRings() const {
   };
   if (!copy_bank(bank_1_state_buffers_) ||
       (bank_2_state_buffers_.has_value() && !copy_bank(*bank_2_state_buffers_))) {
-    return RingCopy{};
+    return absl::FailedPreconditionError(
+        "Ring KV caches could not be copied from shared Metal storage.");
+  }
+  if (copy.buffers.empty()) {
+    return absl::FailedPreconditionError(
+        "Ring KV cache slots reported non-zero but no ring buffers matched.");
   }
   return copy;
 }
 
 absl::Status LitertState::RestoreRings(const RingCopy& copy) {
+  if (RingSlots() > 0) {
+    RET_CHECK(!copy.buffers.empty()) << "Cannot restore empty ring KV snapshot.";
+  }
   for (const RingBuffer& ring : copy.buffers) {
     auto find = [&](absl::flat_hash_map<std::string, StateBuffer>& bank) -> StateBuffer* {
       auto it = bank.find(ring.name);

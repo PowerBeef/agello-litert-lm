@@ -789,6 +789,13 @@ absl::StatusOr<Responses> Decode(
     absl::StatusOr<bool> all_done =
         run_one_step->Run(std::move(decoded_ids_to_use));
     if (!all_done.ok()) {
+      if (absl::IsCancelled(all_done.status())) {
+        if (auto step = executor.GetCurrentStep(); step.ok()) {
+          const int decoded = std::max(0, *step - executor_step_before_decode);
+          AGELLO_COUNT(kTokensDecoded, decoded * num_output_candidates);
+        }
+        AGELLO_COUNT(kStopCancelled);
+      }
       return all_done.status();
     }
     std::vector<std::string> step_texts;
@@ -878,10 +885,10 @@ absl::StatusOr<Responses> Decode(
     }
   }
 
-  int num_decode_steps =
-      executor.GetCurrentStep().value() - executor_step_before_decode;
+  ABSL_ASSIGN_OR_RETURN(int final_step, executor.GetCurrentStep());
+  int num_decode_steps = final_step - executor_step_before_decode;
   AGELLO_COUNT(kTokensDecoded, num_decode_steps * num_output_candidates);
-  if (executor.GetCurrentStep().value() >= max_num_tokens) {
+  if (final_step >= max_num_tokens) {
     AGELLO_COUNT(kStopKvFull);
     ::agello::telemetry::ReportAnomaly(
         ::agello::telemetry::kKvFull, ::agello::telemetry::kWarning,
@@ -913,10 +920,11 @@ absl::StatusOr<Responses> Decode(
     if (!status.ok()) {
       return status.status();
     }
+    ABSL_ASSIGN_OR_RETURN(final_step, executor.GetCurrentStep());
   }
 
   if (is_streaming) {
-    if (executor.GetCurrentStep().value() >= max_num_tokens) {
+    if (final_step >= max_num_tokens) {
       return Responses(TaskState::kMaxNumTokensReached);
     }
     return Responses(TaskState::kDone);
@@ -932,7 +940,7 @@ absl::StatusOr<Responses> Decode(
       }
     }
   }
-  TaskState task_state = executor.GetCurrentStep().value() >= max_num_tokens
+  TaskState task_state = final_step >= max_num_tokens
                              ? TaskState::kMaxNumTokensReached
                              : TaskState::kDone;
   return Responses(std::move(task_state), std::move(final_texts),

@@ -506,8 +506,8 @@ AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::Initialize() {
                             input_buffers_map_[kPrevMaskName].TensorType());
     LITERT_ASSIGN_OR_RETURN(int prev_mask_size,
                             prev_mask_type.Layout().NumElements());
-    input_buffers_map_[kPrevMaskName].Write<uint8_t>(
-        std::vector<uint8_t>(prev_mask_size, 1));
+    LITERT_RETURN_IF_ERROR(input_buffers_map_[kPrevMaskName].Write<uint8_t>(
+        std::vector<uint8_t>(prev_mask_size, 1)));
   }
 
   return absl::OkStatus();
@@ -930,10 +930,19 @@ absl::StatusOr<int> AudioLiteRtCompiledModelExecutor::EncodeInternal(
       }
     }
 
+    if (chunk_valid_tokens < 0) {
+      return absl::InternalError("Audio encoder produced negative valid token count.");
+    }
+    const size_t valid_tokens = static_cast<size_t>(chunk_valid_tokens);
     if (!audio_embeddings.empty()) {
+      const size_t audio_elems = valid_tokens * audio_embedding_dimensions_;
+      if (audio_elems > audio_embeddings.size()) {
+        return absl::OutOfRangeError(absl::StrCat(
+            "Audio encoder output exceeds audio_embeddings capacity: ",
+            audio_elems, " > ", audio_embeddings.size()));
+      }
       LITERT_RETURN_IF_ERROR(adapter_input.Read<float>(
-          absl::MakeSpan(audio_embeddings.data(),
-                         chunk_valid_tokens * audio_embedding_dimensions_)));
+          absl::MakeSpan(audio_embeddings.data(), audio_elems)));
     }
 
     {
@@ -943,11 +952,27 @@ absl::StatusOr<int> AudioLiteRtCompiledModelExecutor::EncodeInternal(
           audio_adapter_->GetMutableOutputBuffers()));
     }
 
+    const size_t projected_elems =
+        valid_tokens * projected_audio_embedding_dimensions_;
+    if (projected_elems > projected_audio_embeddings.size()) {
+      return absl::OutOfRangeError(absl::StrCat(
+          "Audio adapter output exceeds projected_audio_embeddings capacity: ",
+          projected_elems, " > ", projected_audio_embeddings.size()));
+    }
     LITERT_RETURN_IF_ERROR(
-        audio_adapter_->GetMutableOutputBuffers()[0].Read<float>(absl::MakeSpan(
-            projected_audio_embeddings.data(),
-            chunk_valid_tokens * projected_audio_embedding_dimensions_)));
+        audio_adapter_->GetMutableOutputBuffers()[0].Read<float>(
+            absl::MakeSpan(projected_audio_embeddings.data(), projected_elems)));
   } else {
+    if (chunk_valid_tokens < 0) {
+      return absl::InternalError("Audio encoder produced negative valid token count.");
+    }
+    const size_t total_elements =
+        static_cast<size_t>(chunk_valid_tokens) * projected_audio_embedding_dimensions_;
+    if (total_elements > projected_audio_embeddings.size()) {
+      return absl::OutOfRangeError(absl::StrCat(
+          "Audio encoder output exceeds projected_audio_embeddings capacity: ",
+          total_elements, " > ", projected_audio_embeddings.size()));
+    }
     LITERT_ASSIGN_OR_RETURN(auto encoder_type, encoder_output.TensorType());
     if (encoder_type.ElementType() == litert::ElementType::Float16) {
       LITERT_ASSIGN_OR_RETURN(
@@ -955,15 +980,12 @@ absl::StatusOr<int> AudioLiteRtCompiledModelExecutor::EncodeInternal(
           TensorBufferScopedLock::Create<const tflite::half>(
               encoder_output, TensorBuffer::LockMode::kRead));
       const tflite::half* encoder_data = encoder_lock_and_addr.second;
-      const size_t total_elements =
-          chunk_valid_tokens * projected_audio_embedding_dimensions_;
       for (size_t i = 0; i < total_elements; ++i) {
         projected_audio_embeddings[i] = static_cast<float>(encoder_data[i]);
       }
     } else {
-      LITERT_RETURN_IF_ERROR(encoder_output.Read<float>(absl::MakeSpan(
-          projected_audio_embeddings.data(),
-          chunk_valid_tokens * projected_audio_embedding_dimensions_)));
+      LITERT_RETURN_IF_ERROR(encoder_output.Read<float>(
+          absl::MakeSpan(projected_audio_embeddings.data(), total_elements)));
     }
   }
 

@@ -231,7 +231,7 @@ absl::StatusOr<SessionId> SerialExecutionManager::RegisterNewSession(
     ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadAudioExecutor());
   }
   if (session_info->session_config.VisionModalityEnabled()) {
-    ABSL_RETURN_IF_ERROR(resource_manager_->TryLoadingVisionExecutor());
+    ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadVisionExecutor());
   }
   session_lookup_.insert({session_id, std::move(session_info)});
 #if defined(LITERT_LM_DEBUGGER_ENABLED)
@@ -855,6 +855,7 @@ absl::Status SerialExecutionManager::AddPrefillTask(
       responses = Responses(TaskState::kCancelled);
     }
     if (!responses.ok()) {
+      llm_executor.value().reset();
       FinishTaskAndLogErrors(task_id, responses.status(), std::move(callback));
       return;
     }
@@ -864,12 +865,14 @@ absl::Status SerialExecutionManager::AddPrefillTask(
     } else {
       auto processed_tokens = llm_executor.value()->GetProcessedTokens();
       if (!processed_tokens.ok()) {
+        llm_executor.value().reset();
         FinishTaskAndLogErrors(task_id, processed_tokens.status(),
                                std::move(callback));
         return;
       }
       auto current_step = llm_executor.value()->GetCurrentStep();
       if (!current_step.ok()) {
+        llm_executor.value().reset();
         FinishTaskAndLogErrors(task_id, current_step.status(),
                                std::move(callback));
         return;
@@ -955,6 +958,7 @@ absl::Status SerialExecutionManager::AddDecodeTask(
         auto decoded_ids_buffer_or =
             CopyToTensorBuffer<int>(decoded_ids, {num_output_candidates, 1});
         if (!decoded_ids_buffer_or.HasValue()) {
+          llm_executor.value().reset();
           FinishTaskAndLogErrors(
               task_id,
               absl::InternalError(decoded_ids_buffer_or.Error().Message()),
@@ -1136,6 +1140,7 @@ absl::Status SerialExecutionManager::AddTextScoringTask(
     auto decoded_ids_buffer =
         CopyToTensorBuffer<int>(decoded_ids, {num_output_candidates, 1});
     if (!decoded_ids_buffer.HasValue()) {
+      llm_executor.value().reset();
       FinishTaskAndLogErrors(
           task_id, absl::InternalError(decoded_ids_buffer.Error().Message()),
           std::move(callback));

@@ -674,9 +674,9 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
       if (conv_params_.row_tile > 0) {
         x_coord = "min(dst_w + " + x_coord + ", args.src_exp.Width() - 1)";
       }
-      c += "  SType2 exp_val" + std::to_string(i) + " = args.src_exp.Read(" +
-           x_coord + ", " + y_coord + ", 0, " + std::to_string(bhw.x) +
-           ").xy;\n";
+      c += "  float2 exp_val" + std::to_string(i) +
+           " = args.src_exp.Read<float>(" + x_coord + ", " + y_coord +
+           ", 0, " + std::to_string(bhw.x) + ").xy;\n";
     }
   }
   std::string src_end_slices = "args.src_tensor.Slices()";
@@ -782,8 +782,9 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
     }
     if (conv_params_.softmax_input_activation) {
       const std::string id = std::to_string(i);
-      c += "  " + val_name + " = ucl::Exp<Type>(" + val_name + " - exp_val" +
-           id + ".y) * exp_val" + id + ".x;\n";
+      c += "  " + val_name +
+           " = ucl::Convert<Type>(ucl::Exp<float4>(ucl::Convert<float4>(" +
+           val_name + ") - exp_val" + id + ".y) * exp_val" + id + ".x);\n";
       if (conv_params_.runtime_check.src_end_ch_index.has_value() &&
           conv_params_.runtime_check.softmax_mask_value.has_value()) {
         args_.AddFloat("softmax_mask_value",

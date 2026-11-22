@@ -323,4 +323,14 @@ TEST(FcParserUtilsTest, ParameterNameWithDotsAndDashes) {
               }])json")));
 }
 
+TEST(FcParserUtilsTest, RejectsInvalidUtf8WithoutAbort) {
+  // Invalid lead/continuation bytes, truncated multibyte sequence, and UTF-16 surrogate.
+  EXPECT_THAT(ParseFcExpression(std::string("call:foo{a:\"\xFF\xFE\"}")),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseFcExpression(std::string("call:foo{a:\"\xE2\x82\"}")),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ParseFcExpression(std::string("call:foo{a:\"\xED\xA0\x80\"}")),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
 }  // namespace

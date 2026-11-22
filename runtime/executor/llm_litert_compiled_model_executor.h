@@ -150,6 +150,9 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   // Updates the runtime state.
   absl::Status UpdateRuntimeState(const RuntimeState& runtime_state) override {
     llm_context_->runtime_state() = runtime_state;
+    mtp_primed_ = false;
+    ClearMtpDeferral();
+    rewind_point_.reset();
     return absl::OkStatus();
   }
 

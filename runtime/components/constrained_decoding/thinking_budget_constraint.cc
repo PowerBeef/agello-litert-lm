@@ -104,6 +104,7 @@ std::unique_ptr<Constraint::State> ThinkingBudgetConstraint::Start() const {
   }
   state->natural_end_match_index = 0;
   state->forced_end_token_index = -1;
+  CheckBudget(*state);
   return state;
 }
 
@@ -159,6 +160,9 @@ ThinkingBudgetConstraint::ComputeNext(const Constraint::State& state,
         ABSL_ASSIGN_OR_RETURN(next_s->user_state, user_constraint_->ComputeNext(
                                                       *s.user_state, token));
       }
+    } else if (next_s->in_thinking) {
+      // If budget == 0, force end immediately instead of allowing 1 free token.
+      CheckBudget(*next_s);
     }
   } else if (next_s->in_thinking) {
     // Phase B: Actively thinking
@@ -284,10 +288,16 @@ bool ThinkingBudgetConstraint::AllowsAnyTokens(const Constraint::State& state,
     return s.user_state != nullptr &&
            user_constraint_->AllowsAnyTokens(*s.user_state, steps);
   }
-  if (user_constraint_ != nullptr) return false;
-  // Step 0 allows any token, but the next state may force the start sequence's second token.
-  if (s.matching_start_index == 0) return steps == 0;
+  if (s.matching_start_index == 0) {
+    // Step 0 allows any token only when there is no user constraint, and the
+    // next state may force the start sequence's second token.
+    return user_constraint_ == nullptr && steps == 0;
+  }
   if (s.forced_end_token_index >= 0) return false;
+  // During active thinking with no forced end, user_constraint_ is suspended so
+  // the current step (steps == 0) always allows any token.
+  if (steps == 0) return true;
+  if (user_constraint_ != nullptr) return false;
   // The state after k more tokens has counted thinking_token_count + k (unless thinking ended
   // naturally, which only allows more), and forces the end from the budget on.
   return budget_ < 0 || s.thinking_token_count + steps < budget_;
@@ -331,21 +341,35 @@ bool ThinkingBudgetConstraint::ProcessStartMatching(ThinkingState& state,
 void ThinkingBudgetConstraint::ProcessNaturalEnd(ThinkingState& state,
                                                  int& natural_end_match_index,
                                                  int token) const {
-  // Track if the model naturally generates the end-of-thinking sequence.
+  if (end_token_ids_.empty()) return;
+  // Track if the model naturally generates the end-of-thinking sequence,
+  // preserving the longest matching prefix on partial mismatch (KMP fallback).
   if (token == end_token_ids_[natural_end_match_index]) {
     natural_end_match_index++;
-    if (natural_end_match_index >= end_token_ids_.size()) {
+    if (natural_end_match_index >= static_cast<int>(end_token_ids_.size())) {
       // Naturally reached the end of thinking.
       state.in_thinking = false;
       natural_end_match_index = 0;
     }
-  } else if (token == end_token_ids_[0]) {
-    // Restart matching from the first end token if we got a partial match
-    // reset.
-    natural_end_match_index = 1;
-  } else {
-    natural_end_match_index = 0;
+    return;
   }
+  int fallback = 0;
+  for (int len = natural_end_match_index; len >= 1; --len) {
+    if (end_token_ids_[len - 1] != token) continue;
+    bool prefix_matches = true;
+    for (int i = 0; i < len - 1; ++i) {
+      if (end_token_ids_[i] !=
+          end_token_ids_[natural_end_match_index - (len - 1) + i]) {
+        prefix_matches = false;
+        break;
+      }
+    }
+    if (prefix_matches) {
+      fallback = len;
+      break;
+    }
+  }
+  natural_end_match_index = fallback;
 }
 
 void ThinkingBudgetConstraint::CheckBudget(ThinkingState& state) const {

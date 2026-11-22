@@ -682,25 +682,30 @@ absl::StatusOr<ExecutorVisionData> VisionLiteRtCompiledModelExecutor::Encode(
       return absl::InvalidArgumentError(
           absl::StrCat("FindInputIndex failed for signature: ", key));
     }
-    encoder_input_buffers[input_index].Clear();
+    LITERT_RETURN_IF_ERROR(encoder_input_buffers[input_index].Clear());
     if (tensor_type.ElementType() == ElementType::Float32) {
       LITERT_ASSIGN_OR_RETURN(auto input_data,
                               ReferTensorBufferAsSpan<float>(value));
-      LITERT_RETURN_IF_ERROR(
-          encoder_input_buffers[input_index].Write<float>(input_data));
-
-      // Force clearing padding beyond the written data
-      LITERT_ASSIGN_OR_RETURN(auto lock_and_addr,
-                              litert::TensorBufferScopedLock::Create<float>(
-                                  encoder_input_buffers[input_index],
-                                  litert::TensorBuffer::LockMode::kWrite));
       LITERT_ASSIGN_OR_RETURN(size_t packed_size,
                               encoder_input_buffers[input_index].PackedSize());
       size_t written_size = input_data.size() * sizeof(float);
+      if (written_size > packed_size) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "Vision encoder input exceeds buffer capacity: ", written_size,
+            " > ", packed_size));
+      }
+      // Write payload and zero-pad trailing bytes in a single write lock so
+      // non-in-place shadow buffers never lose the written prefix (R-24).
+      LITERT_ASSIGN_OR_RETURN(auto lock_and_addr,
+                              litert::TensorBufferScopedLock::Create<uint8_t>(
+                                  encoder_input_buffers[input_index],
+                                  litert::TensorBuffer::LockMode::kWrite));
+      if (written_size > 0) {
+        std::memcpy(lock_and_addr.second, input_data.data(), written_size);
+      }
       if (packed_size > written_size) {
-        std::memset(
-            reinterpret_cast<uint8_t*>(lock_and_addr.second) + written_size, 0,
-            packed_size - written_size);
+        std::memset(lock_and_addr.second + written_size, 0,
+                    packed_size - written_size);
       }
     } else if (tensor_type.ElementType() == ElementType::Int32) {
       // Initialize the position buffer to -1 since the input image tensor

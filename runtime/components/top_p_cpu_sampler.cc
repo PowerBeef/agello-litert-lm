@@ -453,7 +453,7 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
     const size_t num_elements = logits_size / sizeof(uint16_t);
     const int rows = batch_size_ * sequence_size_;
     const bool greedy_eligible =
-        k_ == 1 && rows > 0 && num_elements % rows == 0 &&
+        (k_ == 1 || temperature_ <= 0.0f) && rows > 0 && num_elements % rows == 0 &&
         (scores_tensor == nullptr || !compute_exact_log_probs_);
 
     // Agello (P1.2): multi-row Metal FP16 logits (verify [1, 4, vocab] and
@@ -481,7 +481,7 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
           if (GreedyHalfDSHWBC4(dshwbc4_ptr, rows, vocab, ids.data())) {
             ::agello::telemetry::ProbeLogitsHalfDSHWBC4(dshwbc4_ptr, rows,
                                                         vocab);
-            ids_tensor.Write(absl::MakeConstSpan(ids));
+            LITERT_RETURN_IF_ERROR(ids_tensor.Write(absl::MakeConstSpan(ids)));
             if (scores_tensor != nullptr) {
               status = ValidateTensor(*scores_tensor, /*max_num_dims=*/2,
                                       batch_size_, "output scores");
@@ -489,7 +489,8 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
                 return status;
               }
               std::vector<float> scores(rows, 0.0f);
-              scores_tensor->Write(absl::MakeConstSpan(scores));
+              LITERT_RETURN_IF_ERROR(
+                  scores_tensor->Write(absl::MakeConstSpan(scores)));
             }
             return absl::OkStatus();
           }
@@ -524,7 +525,7 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
       }
       if (greedy) {
         ::agello::telemetry::ProbeLogitsHalf(fp16_ptr, rows, vocab);
-        ids_tensor.Write(absl::MakeConstSpan(ids));
+        LITERT_RETURN_IF_ERROR(ids_tensor.Write(absl::MakeConstSpan(ids)));
         if (scores_tensor != nullptr) {
           status = ValidateTensor(*scores_tensor, /*max_num_dims=*/2,
                                   batch_size_, "output scores");
@@ -533,7 +534,8 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
           }
           // A greedy pick's probability is 1, as in TopKTopPSampling.
           std::vector<float> scores(rows, 0.0f);
-          scores_tensor->Write(absl::MakeConstSpan(scores));
+          LITERT_RETURN_IF_ERROR(
+              scores_tensor->Write(absl::MakeConstSpan(scores)));
         }
         return absl::OkStatus();
       }
@@ -565,7 +567,8 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
       flat_sampled_ids[i * sequence_size_ + j] = (*sampled_ids)[i][j];
     }
   }
-  ids_tensor.Write(absl::MakeConstSpan(flat_sampled_ids));
+  LITERT_RETURN_IF_ERROR(
+      ids_tensor.Write(absl::MakeConstSpan(flat_sampled_ids)));
   if (scores_tensor != nullptr) {
     status = ValidateTensor(*scores_tensor, /*max_num_dims=*/2, batch_size_,
                             "output scores");
@@ -585,7 +588,7 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
           logits_data_span, absl::MakeConstSpan(flat_sampled_ids),
           sampled_scores, batch_size_, sequence_size_, temperature_);
     }
-    scores_tensor->Write(absl::MakeConstSpan(scores));
+    LITERT_RETURN_IF_ERROR(scores_tensor->Write(absl::MakeConstSpan(scores)));
   }
   return absl::OkStatus();
 }

@@ -662,10 +662,19 @@ def write(path, out_path, n):
             copy = clone_subgraph(mt, graph, source, sub_name, lambda t: d_dims.get(t), n, d_edits)
         elif source in solved:
             c = solved[source]
+            def _to_dim(x):
+                return ((0, 1),) if x == (0, 1) else ((x,) if x[0] else const_dim(x[1]))
+            d_edits = [("reshape_option", k, [_to_dim(x) for x in line])
+                       for k, line in c["options"].items()]
             copy = clone_subgraph(mt, graph, source, sub_name,
-                                  lambda t: [((0, 1),) if x == (0, 1) else ((x,) if x[0] else const_dim(x[1]))
-                                             for x in c["shapes"][t]] if t in c["shapes"] else None,
-                                  n, [], c["consts"])
+                                  lambda t: [_to_dim(x) for x in c["shapes"][t]] if t in c["shapes"] else None,
+                                  n, d_edits, c["consts"])
+            if c["attrs"] and op.builtinOptions2.compositeAttributes is not None:
+                attrs = dict(flexbuffers.Loads(bytes(op.builtinOptions2.compositeAttributes)))
+                for key, (a_coef, b_coef) in c["attrs"].items():
+                    attrs[key] = int(a_coef * n + b_coef)
+                op.builtinOptions2.compositeAttributes = np.frombuffer(
+                    flexbuffers.Dumps(attrs), dtype=np.uint8)
         else:
             raise Stop(f"decomposition {source} was neither traced nor solved")
         mt.subgraphs.append(copy)

@@ -628,6 +628,31 @@ TEST(TopPSamplerTest, SampleToIdAndScoreBuffer_ExactLogProbsViaCreate) {
   EXPECT_THAT(*scores, ElementsAre(FloatNear(-0.44018677f, 1e-5)));
 }
 
+TEST(TopPSamplerTest, ZeroTemperatureWithKGreaterThanOneUsesFp16GreedyFastPath) {
+  auto sampler_or = TopPSampler::Create(/*k=*/40, /*p=*/0.95, /*temperature=*/0.0,
+                                        /*batch_size=*/2, /*sequence_size=*/1,
+                                        /*seed=*/42);
+  ASSERT_TRUE(sampler_or.ok());
+  auto sampler = *std::move(sampler_or);
+
+  const std::vector<float> logits = {-1.0f, 5.5f, 2.0f, 0.0f,
+                                     0.5f, -2.0f, 1.0f, 9.25f};
+  auto logits_tensor = CopyFp16ToTensorBuffer(logits, {2, 4});
+  ASSERT_TRUE(logits_tensor.HasValue());
+  std::vector<int> ids_vector(2);
+  auto ids_tensor =
+      CopyToTensorBuffer<int>(absl::MakeConstSpan(ids_vector), {2});
+  ASSERT_TRUE(ids_tensor.HasValue());
+
+  EXPECT_TRUE(sampler
+                  ->SampleToIdAndScoreBuffer(*logits_tensor, *ids_tensor,
+                                             /*scores_tensor=*/nullptr)
+                  .ok());
+  auto ids = CopyFromTensorBuffer<int>(*ids_tensor);
+  ASSERT_TRUE(ids.HasValue());
+  EXPECT_THAT(*ids, ElementsAre(1, 3));
+}
+
 }  // namespace
 }  // namespace litert::lm
 

@@ -88,7 +88,8 @@ ComputeTask::ComputeTask(ComputeTask&& task)
       arg_buffer_(task.arg_buffer_),
       defines_(std::move(task.defines_)),
       label_(std::move(task.label_)),
-      work_group_size_finalized_(task.work_group_size_finalized_) {
+      work_group_size_finalized_(task.work_group_size_finalized_),
+      compiled_multiple_of_32_(task.compiled_multiple_of_32_) {
   task.program_ = nullptr;
   task.arguments_encoder_ = nullptr;
   task.arg_buffer_ = nullptr;
@@ -107,6 +108,7 @@ ComputeTask& ComputeTask::operator=(ComputeTask&& task) {
     std::swap(defines_, task.defines_);
     std::swap(label_, task.label_);
     std::swap(work_group_size_finalized_, task.work_group_size_finalized_);
+    std::swap(compiled_multiple_of_32_, task.compiled_multiple_of_32_);
   }
   return *this;
 }
@@ -194,12 +196,18 @@ absl::Status ComputeTask::CompileProgram(
     } else {
       ComputePipelineHints hints;
       hints.immutable_buffer_mask = metal_args_.GetImmutableBufferMask();
-      if (work_group_size_finalized_ && operation_) {
+      if (operation_) {
         const int3 wg = operation_->work_group_size_;
         const int total = wg.x * wg.y * wg.z;
+        // Agello (Wave 2, M-09): predict multiple-of-32 during cold compile so
+        // cold and warm MTLBinaryArchive descriptors match; Tune() recompiles
+        // on the rare op whose finalized workgroup size is not a multiple of 32.
         hints.threadgroup_size_is_multiple_of_execution_width =
-            (total > 0 && (total % 32) == 0);
+            work_group_size_finalized_ ? (total > 0 && (total % 32) == 0)
+                                       : (total == 0 || (total % 32) == 0);
       }
+      compiled_multiple_of_32_ =
+          hints.threadgroup_size_is_multiple_of_execution_width;
       ABSL_RETURN_IF_ERROR(CreateComputeProgram(env->device(), code, "ComputeFunction", defines,
                                                 &program, label_, hints));
     }
@@ -314,6 +322,15 @@ absl::Status ComputeTask::Tune(TuningType tuning_type, Environment* env) {
   }
   operation_->work_group_size_ = possible_dispatches[0].work_group_size;
   operation_->RecalculateWorkGroupsCount();
+  work_group_size_finalized_ = true;
+  if (!use_arguments_buffer_) {
+    const int3 wg = operation_->work_group_size_;
+    const int total = wg.x * wg.y * wg.z;
+    const bool final_multiple = (total > 0 && (total % 32) == 0);
+    if (final_multiple != compiled_multiple_of_32_) {
+      ABSL_RETURN_IF_ERROR(CompileProgram(env, operation_->code_, defines_));
+    }
+  }
   return absl::OkStatus();
 }
 

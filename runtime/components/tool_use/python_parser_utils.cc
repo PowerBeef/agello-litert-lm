@@ -26,6 +26,10 @@ namespace litert::lm {
 
 absl::StatusOr<nlohmann::ordered_json> ParsePythonExpression(
     absl::string_view text) {
+  if (!IsValidUtf8(text)) {
+    return absl::InvalidArgumentError(
+        "Failed to parse Python tool calls: input is not valid UTF-8.");
+  }
   auto tool_calls = parse_python_expression(
       rust::Str(text.empty() ? "" : text.data(), text.size()));
   if (!tool_calls.is_ok) {

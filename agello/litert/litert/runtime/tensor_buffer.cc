@@ -1051,6 +1051,18 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtTensorBufferLockMode mode) {
                                     "Tensor buffer is already locked."));
   is_locked_ = true;
   lock_mode_ = mode;
+  bool lock_succeeded = false;
+  struct UnlockOnError {
+    bool& succeeded;
+    bool& locked;
+    ~UnlockOnError() {
+      if (!succeeded) locked = false;
+    }
+  } unlock_guard{lock_succeeded, is_locked_};
+  auto commit_lock = [&](Expected<void*> res) -> Expected<void*> {
+    if (res.HasValue()) lock_succeeded = true;
+    return res;
+  };
   if (event_ != nullptr) {
     // Only AHWB supports waiting on an input sync fence when locking the
     // buffer. For all other buffer types we wait here.
@@ -1062,13 +1074,13 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtTensorBufferLockMode mode) {
   switch (buffer_type()) {
     case kLiteRtTensorBufferTypeHostMemory: {
       LITERT_ASSIGN_OR_ABORT(auto host_buffer, GetHostBuffer());
-      return host_buffer;
+      return commit_lock(host_buffer);
     }
     case kLiteRtTensorBufferTypeAhwb: {
 #if LITERT_HAS_AHWB_SUPPORT
       LITERT_ASSIGN_OR_ABORT(auto ahwb_buffer, GetAhwbBuffer());
-      return litert::internal::AhwbBuffer::Lock(
-          ahwb_buffer, event_ != nullptr ? event_.get() : nullptr);
+      return commit_lock(litert::internal::AhwbBuffer::Lock(
+          ahwb_buffer, event_ != nullptr ? event_.get() : nullptr));
 #else
       return Unexpected(kLiteRtStatusErrorRuntimeFailure,
                          "AHardwareBuffer is not supported");
@@ -1076,7 +1088,7 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtTensorBufferLockMode mode) {
     }
     case kLiteRtTensorBufferTypeIon: {
       LITERT_ASSIGN_OR_ABORT(auto ion_buffer, GetIonBuffer());
-      return ion_buffer.first;
+      return commit_lock(ion_buffer.first);
     }
     case kLiteRtTensorBufferTypeDmaBuf: {
       LITERT_ASSIGN_OR_ABORT(auto dma_buffer, GetDmaBufBuffer());
@@ -1084,18 +1096,18 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtTensorBufferLockMode mode) {
       LITERT_RETURN_IF_ERROR(
           ::litert::internal::DmaBufBuffer::Lock(dma_buffer.second, mode));
 #endif
-      return dma_buffer.first;
+      return commit_lock(dma_buffer.first);
     }
     case kLiteRtTensorBufferTypeFastRpc: {
       LITERT_ASSIGN_OR_ABORT(auto fastrpc_buffer, GetFastRpcBuffer());
-      return fastrpc_buffer.first;
+      return commit_lock(fastrpc_buffer.first);
     }
     case kLiteRtTensorBufferTypeGlBuffer: {
 #if LITERT_HAS_OPENGL_SUPPORT
       LITERT_ASSIGN_OR_RETURN(auto gl_buffer, GetGlBuffer());
       LITERT_ASSIGN_OR_RETURN(float* const host_memory_ptr,
                               gl_buffer->Lock<float>(mode));
-      return host_memory_ptr;
+      return commit_lock(host_memory_ptr);
 #else
       return Unexpected(kLiteRtStatusErrorRuntimeFailure,
                         "OpenGL buffers are not supported");
@@ -1130,7 +1142,7 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtTensorBufferLockMode mode) {
       LITERT_ASSIGN_OR_RETURN(auto custom_buffer, GetCustomBuffer());
       LITERT_ASSIGN_OR_RETURN(void* const host_memory_ptr,
                               custom_buffer->Lock(mode));
-      return host_memory_ptr;
+      return commit_lock(host_memory_ptr);
     }
     case kLiteRtTensorBufferTypeGlTexture:
     case kLiteRtTensorBufferTypeUnknown:
@@ -1139,7 +1151,7 @@ Expected<void*> LiteRtTensorBufferT::Lock(LiteRtTensorBufferLockMode mode) {
         LITERT_ASSIGN_OR_RETURN(auto custom_buffer, GetCustomBuffer());
         LITERT_ASSIGN_OR_RETURN(void* const host_memory_ptr,
                                 custom_buffer->Lock(mode));
-        return host_memory_ptr;
+        return commit_lock(host_memory_ptr);
       }
       return Unexpected(kLiteRtStatusErrorRuntimeFailure,
                         "Unexpected tensor buffer type");

@@ -664,6 +664,7 @@ absl::StatusOr<bool> TryFuseFlashAttention(GraphFloat32* graph, const Tail& tail
   const int kv_heads = q_shape.h;
   const int cache_size = tail.selected->tensor.shape.c;
   if (q_shape.b != 1 || out->tensor.shape != q_shape || rows < 256 ||
+      (rows % 64) != 0 ||
       (head_dim != 256 && head_dim != 512) || kv_heads < 1 || cache_size < 4 ||
       (cache_size % 4) != 0) {
     return false;

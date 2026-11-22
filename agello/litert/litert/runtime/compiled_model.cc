@@ -32,6 +32,7 @@
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/container/flat_hash_set.h"  // from @com_google_absl
+#include "absl/strings/numbers.h"  // from @com_google_absl
 #include "litert/c/options/litert_cpu_options.h"
 #include "tflite/c/c_api.h"
 #include "tflite/mutable_op_resolver.h"
@@ -1266,7 +1267,14 @@ Expected<void> LiteRtCompiledModelT::InitializeActiveSubgraphs(
       int idx = interp_->GetSubgraphIndexFromSignature(key->c_str());
       if (idx < 0) continue;
       if (absl::StartsWith(*key, "verify_")) {
-        priority[idx] = 0;
+        int n = 0;
+        // Larger verify_N delegates first (more negative priority) so
+        // SharedBuffersPool sizes once for the largest verify graph.
+        if (absl::SimpleAtoi(key->substr(7), &n) && n > 0) {
+          priority[idx] = -n;
+        } else {
+          priority[idx] = 0;
+        }
       } else if (*key == "verify") {
         priority[idx] = 1;
       }

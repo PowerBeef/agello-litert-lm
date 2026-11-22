@@ -137,6 +137,7 @@ class ComputeTask {
 
   std::string label_;
   bool work_group_size_finalized_ = false;
+  bool compiled_multiple_of_32_ = false;
 };
 
 }  // namespace metal

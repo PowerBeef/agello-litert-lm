@@ -33,7 +33,9 @@ from litert_lm_builder import litertlm_header_schema_py_generated as H
 
 src, dst = sys.argv[1:3]
 OLD, NEW = 32003, 131101
-BLOCK, BLOCKS = 512, 131072 // 512
+BLOCK = 512
+# Size high rotary table to cover all positions 0..NEW-1 (257 blocks = 131,584 >= 131,101).
+BLOCKS = (NEW + BLOCK - 1) // BLOCK
 ALIGN = 16384
 TARGETS = ("tf_lite_prefill_decode", "tf_lite_mtp_drafter")
 

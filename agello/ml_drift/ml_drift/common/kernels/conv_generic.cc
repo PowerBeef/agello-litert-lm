@@ -758,7 +758,7 @@ class ConvCodeGenerator {
               conv_params_.IsYKernelIs1() ? "yc" + yind : "yck" + yind;
           address = "" + xc + ", " + yc;
           address += ", 0";
-          c += "  ScalarType2 exp_val" + id + " = args.src_exp.Read(" +
+          c += "  float2 exp_val" + id + " = args.src_exp.Read<float>(" +
                address + ").xy;\n";
         }
       }
@@ -1241,8 +1241,9 @@ class ConvCodeGenerator {
       for (int x = 0; x < kernel_params_.block_size.x; ++x) {
         const std::string xind = std::to_string(x);
         std::string id = GenerateIdSpatial(xind, yind, "0");
-        c += "  src" + id + " = ucl::Exp<Type>(src" + id + " - exp_val" + id +
-             ".y) * exp_val" + id + ".x;\n";
+        c += "  src" + id +
+             " = ucl::Convert<Type>(ucl::Exp<float4>(ucl::Convert<float4>(src" +
+             id + ") - exp_val" + id + ".y) * exp_val" + id + ".x);\n";
       }
     }
     return c;

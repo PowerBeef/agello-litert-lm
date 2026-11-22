@@ -535,8 +535,15 @@ bool IsContiguousDirectBuffer(const MetalMemoryInfo* memory_info, bool write) {
 bool LocksInPlace(const MetalMemoryInfo* memory_info, bool write) {
   if (memory_info->buffer_type == kLiteRtTensorBufferTypeMetalBufferPacked) {
     id<MTLBuffer> buffer = memory_info->metal_tensor.GetBufferHandle();
-    return buffer != nil && buffer.storageMode == MTLStorageModeShared &&
-           buffer.contents != nullptr && buffer.length >= memory_info->packed_bytes;
+    if (buffer == nil || buffer.storageMode != MTLStorageModeShared ||
+        buffer.contents == nullptr) {
+      return false;
+    }
+    const uintptr_t base_addr = reinterpret_cast<uintptr_t>(buffer.contents);
+    const uintptr_t ptr_addr =
+        reinterpret_cast<uintptr_t>(memory_info->metal_tensor.GetBufferPointer());
+    return ptr_addr >= base_addr &&
+           (ptr_addr - base_addr) + memory_info->packed_bytes <= buffer.length;
   }
   return IsContiguousDirectBuffer(memory_info, write);
 }
@@ -741,8 +748,8 @@ LiteRtStatus LiteRtClearMetalMemory(HwMemoryInfoPtr hw_memory_info) {
     } else {
       absl_status = absl::UnimplementedError("Unsupported tensor spatial format");
     }
+    [blit_encoder endEncoding];
     if (absl_status.ok()) {
-      [blit_encoder endEncoding];
       [command_buffer commit];
       [command_buffer waitUntilCompleted];
     }

@@ -510,7 +510,9 @@ TEST(ThinkingBudgetConstraintTest, AllowsAnyTokensNeverPromisesMoreThanTheMasks)
 TEST(ThinkingBudgetConstraintTest, AllowsAnyTokensIsFalseWithAUserConstraint) {
   FakeConstraint user({1, 2}, 32);
   ThinkingBudgetConstraint constraint(&user, /*budget=*/100, {}, {20, 21}, 32);
-  EXPECT_FALSE(constraint.AllowsAnyTokens(*constraint.Start(), 0));
+  // Current thinking step suspends user_constraint_, while multi-step lookahead stays false.
+  EXPECT_TRUE(constraint.AllowsAnyTokens(*constraint.Start(), 0));
+  EXPECT_FALSE(constraint.AllowsAnyTokens(*constraint.Start(), 1));
 }
 
 TEST(ThinkingBudgetConstraintTest,
@@ -558,6 +560,53 @@ TEST(ThinkingBudgetConstraintTest,
   EXPECT_TRUE(constraint.AllowsAnyTokens(*state, 4));
   EXPECT_TRUE(is_allowed(*state, 9));
   EXPECT_TRUE(is_allowed(*state, 10));
+}
+
+TEST(ThinkingBudgetConstraintTest, ZeroBudgetForcesImmediateEnd) {
+  ThinkingBudgetConstraint constraint(/*user_constraint=*/nullptr, /*budget=*/0,
+                                      /*start_token_ids=*/{10},
+                                      /*end_token_ids=*/{12, 13},
+                                      /*vocab_size=*/64);
+  auto state = constraint.Start();
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 10));
+  EXPECT_THAT(AllowedTokens(constraint, *state), ElementsAre(12));
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 12));
+  EXPECT_THAT(AllowedTokens(constraint, *state), ElementsAre(13));
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 13));
+  auto* s = static_cast<ThinkingBudgetConstraint::ThinkingState*>(state.get());
+  EXPECT_FALSE(s->in_thinking);
+
+  // Also test open-channel start (empty start_token_ids) with budget == 0.
+  ThinkingBudgetConstraint open_constraint(/*user_constraint=*/nullptr,
+                                           /*budget=*/0,
+                                           /*start_token_ids=*/{},
+                                           /*end_token_ids=*/{12},
+                                           /*vocab_size=*/64);
+  auto open_state = open_constraint.Start();
+  EXPECT_THAT(AllowedTokens(open_constraint, *open_state), ElementsAre(12));
+}
+
+TEST(ThinkingBudgetConstraintTest, NaturalEndHandlesOverlappingPrefixAndAllowsAnyDuringThink) {
+  FakeConstraint user_constraint({20, 1}, 64);
+  ThinkingBudgetConstraint constraint(&user_constraint, /*budget=*/10,
+                                      /*start_token_ids=*/{10},
+                                      /*end_token_ids=*/{12, 12, 13},
+                                      /*vocab_size=*/64);
+  auto state = constraint.Start();
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 10));
+  // Single-step decode during thinking must report AllowsAnyTokens == true even with user_constraint.
+  EXPECT_TRUE(constraint.AllowsAnyTokens(*state, 0));
+  // Feed 12, 12, 12, 13: KMP fallback retains prefix {12, 12} on the third 12, then 13 exits thinking.
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 12));
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 12));
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 12));
+  auto* s = static_cast<ThinkingBudgetConstraint::ThinkingState*>(state.get());
+  EXPECT_TRUE(s->in_thinking);
+  EXPECT_EQ(s->natural_end_match_index, 2);
+  ASSERT_OK_AND_ASSIGN(state, constraint.ComputeNext(*state, 13));
+  s = static_cast<ThinkingBudgetConstraint::ThinkingState*>(state.get());
+  EXPECT_FALSE(s->in_thinking);
+  EXPECT_THAT(AllowedTokens(constraint, *state), ElementsAre(20));
 }
 
 }  // namespace

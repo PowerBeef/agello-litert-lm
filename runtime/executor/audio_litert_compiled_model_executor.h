@@ -414,7 +414,7 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
     AudioExecutorSettings executor_settings_;
     Environment& env_;
     const Model& model_;
-    int overlap_size_;
+    int overlap_size_ = 0;
   };
 
   // The Audio Adapter LiteRT CompiledModel wrapper manage the input and
