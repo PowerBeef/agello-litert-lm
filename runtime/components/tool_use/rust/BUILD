@@ -35,8 +35,6 @@ rust_library(
         "fc_parser_test.rs",
     ],
     deps = [
-        "//runtime/components/tool_use/antlr/generated:antlr_fc_tool_call_parser",
-        "@crate_index//:antlr4rust",
         "@crate_index//:serde_json",
     ],
 )

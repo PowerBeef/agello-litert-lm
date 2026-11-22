@@ -32,7 +32,8 @@ namespace litert::lm {
 
 absl::StatusOr<nlohmann::ordered_json> ParseFcExpression(
     absl::string_view text) {
-  auto tool_calls = parse_fc_expression(text.data());
+  auto tool_calls = parse_fc_expression(
+      rust::Str(text.empty() ? "" : text.data(), text.size()));
   if (!tool_calls.is_ok) {
     absl::string_view error_message =
         absl::string_view(tool_calls.error.data(), tool_calls.error.size());

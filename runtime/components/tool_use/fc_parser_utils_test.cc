@@ -247,9 +247,52 @@ TEST(FcParserUtilsTest, NoCallPrefix) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST(FcParserUtilsTest, UnescapedString) {
-  EXPECT_THAT(ParseFcExpression(R"(call:print{text:"hello"})"),
+TEST(FcParserUtilsTest, UnquotedString) {
+  EXPECT_THAT(ParseFcExpression(R"(call:print{text:hello})"),
               StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(FcParserUtilsTest, ParseToolCallWithJsonDoubleQuotedString) {
+  EXPECT_THAT(
+      ParseFcExpression(
+          R"fc(call:calculate{expression:"250 * (((1 + (0.04 / 12))^60 - 1) / (0.04 / 12))"})fc"),
+      IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "calculate",
+                "arguments": {
+                  "expression": "250 * (((1 + (0.04 / 12))^60 - 1) / (0.04 / 12))"
+                }
+              }])json")));
+}
+
+TEST(FcParserUtilsTest, ParseToolCallWithJsonEscapesAndMixedDelimiters) {
+  EXPECT_THAT(
+      ParseFcExpression(
+          R"fc(call:search{"query":"say \"hello\"\nworld",note:<|"|>keep "raw" quotes<|"|>,tags:["a",<|"|>b<|"|>]})fc"),
+      IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "search",
+                "arguments": {
+                  "query": "say \"hello\"\nworld",
+                  "note": "keep \"raw\" quotes",
+                  "tags": ["a", "b"]
+                }
+              }])json")));
+}
+
+TEST(FcParserUtilsTest, UnterminatedDoubleQuotedString) {
+  EXPECT_THAT(ParseFcExpression(R"(call:print{text:"hello})"),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(FcParserUtilsTest, RespectsStringViewSliceLength) {
+  std::string backing = R"(call:tool_name{x:1}TRAILING_GARBAGE)";
+  absl::string_view slice(backing.data(), 19);
+  EXPECT_THAT(ParseFcExpression(slice),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "tool_name",
+                "arguments": {
+                  "x": 1
+                }
+              }])json")));
 }
 
 TEST(FcParserUtilsTest, DuplicateKeysInObject) {
