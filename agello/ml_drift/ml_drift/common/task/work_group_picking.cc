@@ -318,6 +318,14 @@ int3 GetWorkGroupSizeForApple(const int3& grid_size) {
   int y_size = GetOptimalSizeForApple(grid_size.y);
   int z_size = std::max(1, 32 / (x_size * y_size));
   z_size = std::min(z_size, static_cast<int>(grid_size.z));
+  // Agello (P2.1): expand 1D/2D workgroups along X/Y to fill a full 32-lane
+  // Apple SIMD group when Z is small (e.g. {640, 1, 1} -> {32, 1, 1}).
+  while (x_size * y_size * z_size < 32 && x_size * 2 <= grid_size.x) {
+    x_size *= 2;
+  }
+  while (x_size * y_size * z_size < 32 && y_size * 2 <= grid_size.y) {
+    y_size *= 2;
+  }
   return {x_size, y_size, z_size};
 }
 

@@ -747,51 +747,237 @@ std::string MeanStdDevNormalization::GetNormalizationCode(
   return c;
 }
 
-std::string GetRMSNormalizationCode(const GpuInfo& gpu_info, bool has_batch,
-                                    bool channels_x4, bool work_group_reduction,
+int3 GetRecommendedRMSWorkGroupSize(const GpuInfo& gpu_info,
+                                    const BHWC& shape) {
+  if (gpu_info.IsApple() && gpu_info.IsApiMetal()) {
+    const int tensor_slices = DivideRoundUp(shape.c, 4);
+    const int total_spatial_size = shape.b * shape.h * shape.w;
+    const float spatial_per_cu =
+        static_cast<float>(total_spatial_size) / gpu_info.GetComputeUnitsCount();
+    if (spatial_per_cu < 2.0f) {
+      // Agello (P2.1): cap Z to avoid launching idle threads (e.g. 1024 threads
+      // for 640 slices on C=2560) and pick exact 128-slice divisors when present.
+      int z = std::min(256, gpu_info.GetMaxWorkGroupSizeForZ());
+      if (tensor_slices >= 128 && (tensor_slices % 128) == 0 &&
+          (tensor_slices % 256) != 0) {
+        z = std::min(z, 128);
+      }
+      while (z >= tensor_slices * 2 && z > 1) {
+        z /= 2;
+      }
+      return int3(1, 1, z);
+    }
+  }
+  return GetRecommendedWorkGroupSize(gpu_info, shape);
+}
+
+std::string GetRMSNormalizationCode(const GpuInfo& gpu_info, const BHWC& shape,
+                                    bool has_batch, bool channels_x4,
+                                    bool work_group_reduction,
                                     const int3& work_group_size,
+                                    bool has_gamma, bool has_beta,
                                     bool has_depth) {
-  std::string c = GetVarianceCalculationCode(
-      gpu_info, work_group_reduction, work_group_size, has_batch, channels_x4,
-      /*two_step=*/false, has_depth);
-  // Current version of the kernel(Jun 2025) cause compilation error on some
-  // Adreno devices.
-  // Adreno(TM) 830, Compiler E031.47.12.01: ENCODE FATAL ERROR
-  // (vendor/qcom/proprietary/graphics/adreno200/shadercompiler/llvm/lib/Target/Oxili/QGPUMachineEncoder.cpp:1083:
-  // address register can't be src operand in direct addressing
-  // Adreno(TM) 830, Compiler E031.47.18.30: compiled without error.
+  const int tensor_slices = DivideRoundUp(shape.c, 4);
+  const int wg_xy = work_group_size.x * work_group_size.y;
+  const int wg_z = work_group_size.z;
+  const bool use_apple_simd =
+      work_group_reduction && gpu_info.IsApple() && gpu_info.IsApiMetal() &&
+      wg_z > 1 && wg_xy > 0 && wg_xy < 32 && (wg_xy & (wg_xy - 1)) == 0 &&
+      (wg_z & (wg_z - 1)) == 0 && ((wg_xy * wg_z) % 32) == 0;
+  const int z_per_simd = use_apple_simd ? (32 / wg_xy) : 1;
+  const int num_z_partials = use_apple_simd ? (wg_z / z_per_simd) : 0;
+  const bool single_pass = work_group_reduction && tensor_slices <= wg_z;
+
+  std::string c;
+  if (work_group_reduction && gpu_info.IsApiOpenCl()) {
+    c += "__attribute__((reqd_work_group_size(" +
+         std::to_string(work_group_size.x) + ", " +
+         std::to_string(work_group_size.y) + ", " +
+         std::to_string(work_group_size.z) + ")))\n";
+  }
+  c += "MAIN_FUNCTION($0) {\n";
+  if (use_apple_simd) {
+    if (num_z_partials > 1) {
+      if (wg_xy == 1) {
+        c += "  __local float shared_mem[" + std::to_string(num_z_partials) +
+             "];\n";
+      } else {
+        c += "  __local float shared_mem[" +
+             std::to_string(work_group_size.y) + "][" +
+             std::to_string(work_group_size.x) + "][" +
+             std::to_string(num_z_partials) + "];\n";
+      }
+    }
+  } else if (work_group_reduction && wg_z > 1) {
+    if (wg_xy == 1) {
+      c += "  __local float shared_mem[" + std::to_string(wg_z) + "];\n";
+    } else {
+      c += "  __local float shared_mem[" + std::to_string(work_group_size.y) +
+           "][" + std::to_string(work_group_size.x) + "][" +
+           std::to_string(wg_z) + "];\n";
+    }
+  }
+  if (has_batch) {
+    c += "  int linear_id = ucl::GetGlobalId<0>();\n";
+    c += "  int X = linear_id / args.dst_tensor.Batch();\n";
+    c += "  int B = linear_id % args.dst_tensor.Batch();\n";
+    c += "  args.src_tensor.SetBatchRef(B);\n";
+    c += "  args.dst_tensor.SetBatchRef(B);\n";
+  } else {
+    c += "  int X = ucl::GetGlobalId<0>();\n";
+  }
+  if (has_depth) {
+    c += "  int linear_y = ucl::GetGlobalId<1>();\n";
+    c += "  int Y = linear_y / args.dst_tensor.Depth();\n";
+    c += "  int D = linear_y % args.dst_tensor.Depth();\n";
+  } else {
+    c += "  int Y = ucl::GetGlobalId<1>();\n";
+  }
+  if (!work_group_reduction) {
+    c += "  if (X >= args.dst_tensor.Width()) { return; }\n";
+    c += "  if (Y >= args.dst_tensor.Height()) { return; }\n";
+  }
+  if (work_group_reduction) {
+    c += "  int local_id = ucl::GetLocalId<2>();\n";
+    c += "  int reduction_group_size = ucl::GetGroupSize<2>();\n";
+  } else {
+    c += "  int local_id = 0;\n";
+    c += "  int reduction_group_size = 1;\n";
+  }
+
+  // Agello (P2.1): dedicated RMSNorm path computing only sum_sq (zero mean
+  // overhead) with register caching when slices <= wg.z.
+  if (single_pass) {
+    c += "  int x_clamped = min(X, args.src_tensor.Width() - 1);\n";
+    c += "  int y_clamped = min(Y, args.src_tensor.Height() - 1);\n";
+    if (has_depth) {
+      c += "  int d_clamped = min(D, args.src_tensor.Depth() - 1);\n";
+    }
+    c += "  float4 t_cached = ucl::Init<float4>(0.0f);\n";
+    c += "  float sum_sq = 0.0f;\n";
+    c += "  if (local_id < args.src_tensor.Slices()) {\n";
+    if (has_depth) {
+      c += "    t_cached = args.src_tensor.Read<float>(x_clamped, y_clamped, "
+           "d_clamped, local_id);\n";
+    } else {
+      c += "    t_cached = args.src_tensor.Read<float>(x_clamped, y_clamped, "
+           "local_id);\n";
+    }
+    if (!channels_x4) {
+      c += ZeroClampVec4Code("local_id", "args.src_tensor.Channels()",
+                             "t_cached");
+    }
+    c += "    sum_sq = dot(t_cached, t_cached);\n";
+    c += "  }\n";
+  } else {
+    c += "  int x_clamped = min(X, args.src_tensor.Width() - 1);\n";
+    c += "  int y_clamped = min(Y, args.src_tensor.Height() - 1);\n";
+    if (has_depth) {
+      c += "  int d_clamped = min(D, args.src_tensor.Depth() - 1);\n";
+    }
+    c += "  float4 private_sum4_sq = ucl::Init<float4>(0.0f);\n";
+    c += "  for (int S = local_id; S < args.src_tensor.Slices(); S += "
+         "reduction_group_size) {\n";
+    if (has_depth) {
+      c += "    float4 t = args.src_tensor.Read<float>(x_clamped, y_clamped, "
+           "d_clamped, S);\n";
+    } else {
+      c += "    float4 t = args.src_tensor.Read<float>(x_clamped, y_clamped, "
+           "S);\n";
+    }
+    if (!channels_x4) {
+      c += ZeroClampVec4Code("S", "args.src_tensor.Channels()", "t");
+    }
+    c += "    private_sum4_sq += t * t;\n";
+    c += "  }\n";
+    c += "  float sum_sq = dot(private_sum4_sq, ucl::Init<float4>(1.0f));\n";
+  }
+
+  if (use_apple_simd) {
+    if (wg_xy == 1) {
+      c += "  sum_sq = simd_sum(sum_sq);\n";
+    } else {
+      for (int delta = 16; delta >= wg_xy; delta /= 2) {
+        c += "  sum_sq += simd_shuffle_down(sum_sq, " + std::to_string(delta) +
+             ");\n";
+      }
+    }
+    if (num_z_partials == 1) {
+      if (wg_xy > 1) {
+        c += "  sum_sq = simd_shuffle(sum_sq, ucl::GetLocalId<1>() * " +
+             std::to_string(work_group_size.x) + " + ucl::GetLocalId<0>());\n";
+      }
+    } else {
+      const std::string mem_name =
+          wg_xy == 1
+              ? "shared_mem"
+              : "shared_mem[ucl::GetLocalId<1>()][ucl::GetLocalId<0>()]";
+      c += "  if ((local_id & " + std::to_string(z_per_simd - 1) + ") == 0) {\n";
+      c += "    " + mem_name + "[local_id / " + std::to_string(z_per_simd) +
+           "] = sum_sq;\n";
+      c += "  }\n";
+      c += "  ucl::SyncThreads<WorkGroup, Local>();\n";
+      c += "  sum_sq = " + mem_name + "[0];\n";
+      for (int i = 1; i < num_z_partials; ++i) {
+        c += "  sum_sq += " + mem_name + "[" + std::to_string(i) + "];\n";
+      }
+    }
+  } else if (work_group_reduction && wg_z > 1) {
+    c += GetReduceCode("sum_sq", work_group_size, /*two_step=*/false);
+  }
+
   if (IsBadAdrenoDriver(gpu_info)) {
     c += R"(
-      if (X != -1) {
-        mean_sq += args.variance_bias;
-      }
-      float stddev_inv = rsqrt(mean_sq);
+  float mean_sq = sum_sq;
+  if (X != -1) {
+    mean_sq *= args.inv_ch_count;
+    mean_sq += args.variance_bias;
+  }
+  float stddev_inv = rsqrt(mean_sq);
 )";
   } else {
+    c += "  float mean_sq = sum_sq * args.inv_ch_count;\n";
     c += "  float stddev_inv = rsqrt(mean_sq + args.variance_bias);\n";
   }
-  c += R"(
-  for (int S = local_id; S < args.src_tensor.Slices(); S += reduction_group_size) {
-)";
-  if (has_depth) {
-    c += "    float4 t = args.src_tensor.Read<float>(X, Y, D, S);\n";
+
+  if (work_group_reduction) {
+    c += "  if (X >= args.dst_tensor.Width()) { return; }\n";
+    c += "  if (Y >= args.dst_tensor.Height()) { return; }\n";
+  }
+
+  const std::string coords_s = has_depth ? "X, Y, D, S" : "X, Y, S";
+  const std::string coords_lid =
+      has_depth ? "X, Y, D, local_id" : "X, Y, local_id";
+  if (single_pass) {
+    c += "  if (local_id < args.src_tensor.Slices()) {\n";
+    c += "    float4 t_normalized = t_cached * stddev_inv;\n";
+    if (has_gamma) {
+      c += "    t_normalized *= args.gamma.Read<float>(local_id);\n";
+    }
+    if (has_beta) {
+      c += "    t_normalized += args.beta.Read<float>(local_id);\n";
+    }
+    c += "    args.dst_tensor::type result = "
+         "ucl::Convert<args.dst_tensor::type>(t_normalized);\n";
+    c += "    args.dst_tensor.Write(result, " + coords_lid + ");\n";
+    c += "  }\n";
   } else {
-    c += "    float4 t = args.src_tensor.Read<float>(X, Y, S);\n";
+    c += "  for (int S = local_id; S < args.src_tensor.Slices(); S += "
+         "reduction_group_size) {\n";
+    c += "    float4 t = args.src_tensor.Read<float>(" + coords_s + ");\n";
+    c += "    float4 t_normalized = t * stddev_inv;\n";
+    if (has_gamma) {
+      c += "    t_normalized *= args.gamma.Read<float>(S);\n";
+    }
+    if (has_beta) {
+      c += "    t_normalized += args.beta.Read<float>(S);\n";
+    }
+    c += "    args.dst_tensor::type result = "
+         "ucl::Convert<args.dst_tensor::type>(t_normalized);\n";
+    c += "    args.dst_tensor.Write(result, " + coords_s + ");\n";
+    c += "  }\n";
   }
-  c += R"(
-    float4 t_normalized = t * stddev_inv;
-)";
-  c += R"(
-    args.dst_tensor::type result = ucl::Convert<args.dst_tensor::type>(t_normalized);
-)";
-  if (has_depth) {
-    c += "    args.dst_tensor.Write(result, X, Y, D, S);\n";
-  } else {
-    c += "    args.dst_tensor.Write(result, X, Y, S);\n";
-  }
-  c += R"(
-  }
-})";
+  c += "}\n";
   return c;
 }
 
@@ -848,14 +1034,14 @@ MeanStdDevNormalization CreateMeanStdDevNormalization(
                                  two_step, &gamma, &beta);
 }
 
-MeanStdDevNormalization CreateRMSNormalization(const OperationDef& definition,
-                                               const GpuInfo& gpu_info,
-                                               const BHWC& shape,
-                                               float variance_bias) {
+MeanStdDevNormalization CreateRMSNormalization(
+    const OperationDef& definition, const GpuInfo& gpu_info, const BHWC& shape,
+    float variance_bias, const Tensor<Linear, DataType::kFloat32>* gamma,
+    const Tensor<Linear, DataType::kFloat32>* beta) {
   MeanStdDevNormalization norm;
   norm.work_group_reduction_ = UseWorkGroupReduction(gpu_info, shape);
   if (norm.work_group_reduction_) {
-    norm.work_group_size_ = GetRecommendedWorkGroupSize(gpu_info, shape);
+    norm.work_group_size_ = GetRecommendedRMSWorkGroupSize(gpu_info, shape);
   } else {
     norm.work_group_size_ = int3(8, 8, 1);
   }
@@ -864,10 +1050,22 @@ MeanStdDevNormalization CreateRMSNormalization(const OperationDef& definition,
   norm.has_depth_ = definition.src_tensors[0].HasAxis(Axis::kDepth);
   norm.AddSrcTensor("src_tensor", definition.src_tensors[0]);
   norm.AddDstTensor("dst_tensor", definition.dst_tensors[0]);
+  if (gamma) {
+    TensorDescriptor gamma_tensor_desc = CreateConstantLinearTensorDescriptor(
+        gpu_info, definition.src_tensors[0].GetDataType(), *gamma);
+    norm.args_.AddObject("gamma", std::make_unique<TensorDescriptor>(
+                                      std::move(gamma_tensor_desc)));
+  }
+  if (beta) {
+    TensorDescriptor beta_tensor_desc = CreateConstantLinearTensorDescriptor(
+        gpu_info, definition.src_tensors[0].GetDataType(), *beta);
+    norm.args_.AddObject("beta", std::make_unique<TensorDescriptor>(
+                                     std::move(beta_tensor_desc)));
+  }
   norm.code_ = GetRMSNormalizationCode(
-      gpu_info, definition.dst_tensors[0].HasAxis(Axis::kBatch),
+      gpu_info, shape, definition.dst_tensors[0].HasAxis(Axis::kBatch),
       shape.c % 4 == 0, norm.work_group_reduction_, norm.work_group_size_,
-      norm.has_depth_);
+      gamma != nullptr, beta != nullptr, norm.has_depth_);
   return norm;
 }
 

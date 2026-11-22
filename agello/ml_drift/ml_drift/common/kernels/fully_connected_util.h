@@ -69,6 +69,12 @@ std::string GetWeightsBatchId(int runtime_batch_ids = 0);
 int GetLocalBatchSize(const GpuInfo& gpu_info, CalculationsPrecision precision,
                       int block_spatial, const int3& work_group_size);
 
+// Agello (P2.1): Apple Metal hardware SIMD-group reduction for FullyConnected.
+bool CanUseAppleMetalSimdReduction(const GpuInfo& gpu_info,
+                                   const int3& work_group_size);
+std::string GetAppleMetalSimdReductionCode(DataType acc_type, int block_spatial,
+                                           const int3& work_group_size);
+
 std::string GetReductionCode(int first, int last, int local_batch_size,
                              const std::string& thread_id,
                              const std::string& reduction_local_id,

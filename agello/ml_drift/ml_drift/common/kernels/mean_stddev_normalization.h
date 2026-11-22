@@ -62,7 +62,9 @@ class MeanStdDevNormalization : public GPUOperation {
  private:
   friend MeanStdDevNormalization CreateRMSNormalization(
       const OperationDef& definition, const GpuInfo& gpu_info,
-      const BHWC& shape, float variance_bias);
+      const BHWC& shape, float variance_bias,
+      const Tensor<Linear, DataType::kFloat32>* gamma,
+      const Tensor<Linear, DataType::kFloat32>* beta);
   friend std::unique_ptr<GPUOperation> CreateStatisticalTopK(
       const OperationDef& definition, const GpuInfo& gpu_info,
       const BHWC& shape, float stddev_multiplier);
@@ -87,11 +89,13 @@ MeanStdDevNormalization CreateMeanStdDevNormalization(
     float variance_bias, const Tensor<Linear, DataType::kFloat32>& gamma,
     const Tensor<Linear, DataType::kFloat32>& beta, bool two_step);
 
-// Creates a root mean square normalization operation.
-MeanStdDevNormalization CreateRMSNormalization(const OperationDef& definition,
-                                               const GpuInfo& gpu_info,
-                                               const BHWC& shape,
-                                               float variance_bias = 1.0e-8f);
+// Creates a root mean square normalization operation with optional fused
+// per-channel scale (gamma) and bias (beta).
+MeanStdDevNormalization CreateRMSNormalization(
+    const OperationDef& definition, const GpuInfo& gpu_info, const BHWC& shape,
+    float variance_bias = 1.0e-8f,
+    const Tensor<Linear, DataType::kFloat32>* gamma = nullptr,
+    const Tensor<Linear, DataType::kFloat32>* beta = nullptr);
 
 // Creates a statistical TopK operation.
 std::unique_ptr<GPUOperation> CreateStatisticalTopK(

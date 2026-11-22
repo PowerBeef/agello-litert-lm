@@ -46,4 +46,43 @@ TEST(WorkGroupPickingTest, GetPossibleWorkGroups) {
   }
 }
 
+TEST(WorkGroupPickingTest, Apple1DFillsSimdWidth) {
+  ml_drift::GpuInfo gpu_info;
+  ml_drift::GetGpuInfoFromDeviceDescription("Apple A19 Pro",
+                                            ml_drift::GpuApi::kMetal,
+                                            &gpu_info);
+  ml_drift::KernelInfo kernel_info;
+  kernel_info.max_work_group_size = 1024;
+
+  auto wg_x = ml_drift::GetPossibleWorkGroups(
+      ml_drift::TuningType::kFast, gpu_info, kernel_info,
+      ml_drift::int3(640, 1, 1));
+  ASSERT_EQ(wg_x.size(), 1);
+  EXPECT_EQ(wg_x[0], ml_drift::int3(32, 1, 1));
+
+  auto wg_y = ml_drift::GetPossibleWorkGroups(
+      ml_drift::TuningType::kFast, gpu_info, kernel_info,
+      ml_drift::int3(1, 640, 1));
+  ASSERT_EQ(wg_y.size(), 1);
+  EXPECT_EQ(wg_y[0], ml_drift::int3(1, 32, 1));
+
+  auto wg_2d = ml_drift::GetPossibleWorkGroups(
+      ml_drift::TuningType::kFast, gpu_info, kernel_info,
+      ml_drift::int3(64, 1, 2));
+  ASSERT_EQ(wg_2d.size(), 1);
+  EXPECT_EQ(wg_2d[0], ml_drift::int3(16, 1, 2));
+
+  auto wg_small = ml_drift::GetPossibleWorkGroups(
+      ml_drift::TuningType::kFast, gpu_info, kernel_info,
+      ml_drift::int3(16, 1, 1));
+  ASSERT_EQ(wg_small.size(), 1);
+  EXPECT_EQ(wg_small[0], ml_drift::int3(16, 1, 1));
+
+  auto wg_3d = ml_drift::GetPossibleWorkGroups(
+      ml_drift::TuningType::kFast, gpu_info, kernel_info,
+      ml_drift::int3(4, 1, 640));
+  ASSERT_EQ(wg_3d.size(), 1);
+  EXPECT_EQ(wg_3d[0], ml_drift::int3(8, 1, 4));
+}
+
 }  // namespace

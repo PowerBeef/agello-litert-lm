@@ -433,27 +433,42 @@ void MetalArguments::Encode(id<MTLComputeCommandEncoder> encoder,
   }
 }
 
+namespace {
+MTLResourceUsage ToMetalResourceUsage(
+    AccessType access_type, MemoryType memory_type = MemoryType::kGlobal) {
+  if (memory_type == MemoryType::kConstant ||
+      access_type == AccessType::kRead) {
+    return MTLResourceUsageRead;
+  }
+  if (access_type == AccessType::kWrite) {
+    return MTLResourceUsageWrite;
+  }
+  return MTLResourceUsageRead | MTLResourceUsageWrite;
+}
+}  // namespace
+
 void MetalArguments::AddResourcesToEncoder(
     id<MTLComputeCommandEncoder> encoder) const {
   for (auto& b : buffers_) {
     [encoder useResource:b.second.handle
-                   usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                   usage:ToMetalResourceUsage(b.second.desc.access_type,
+                                              b.second.desc.memory_type)];
   }
   for (auto& image : images2d_) {
     [encoder useResource:image.second.handle
-                   usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                   usage:ToMetalResourceUsage(image.second.desc.access_type)];
   }
   for (auto& image : image2d_arrays_) {
     [encoder useResource:image.second.handle
-                   usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                   usage:ToMetalResourceUsage(image.second.desc.access_type)];
   }
   for (auto& image : images3d_) {
     [encoder useResource:image.second.handle
-                   usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                   usage:ToMetalResourceUsage(image.second.desc.access_type)];
   }
   for (auto& image : image_buffers_) {
     [encoder useResource:image.second.handle
-                   usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                   usage:ToMetalResourceUsage(image.second.desc.access_type)];
   }
 }
 

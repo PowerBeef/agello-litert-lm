@@ -738,6 +738,7 @@ cc_library(
         "//ml_drift/common:precision",
         "//ml_drift/common:shape",
         "//ml_drift/common:types",
+        "//ml_drift/common:util",
         "//ml_drift/common/task:buffer_desc",
         "//ml_drift/common/task:gpu_operation",
         "//ml_drift/common/task:tensor_desc",

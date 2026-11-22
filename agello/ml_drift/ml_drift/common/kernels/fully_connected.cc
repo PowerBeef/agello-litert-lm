@@ -851,23 +851,29 @@ std::string FullyConnected::GetFullyConnectedKernelCode(
   }
   if (wg_reduction_) {
     c += "  } // end if condition\n";
-    const int local_batch_size = fc::GetLocalBatchSize(
-        gpu_info, precision, block_spatial, work_group_size_);
-    c += "  __local AccType temp";
-    if (local_batch_size != 1) {
-      c += "[" + std::to_string(local_batch_size) + "]";
-    }
-    c += "[" + std::to_string(work_group_size_.x * work_group_size_.y) + "];\n";
+    if (fc::CanUseAppleMetalSimdReduction(gpu_info, work_group_size_)) {
+      c += fc::GetAppleMetalSimdReductionCode(acc_type, block_spatial,
+                                              work_group_size_);
+    } else {
+      const int local_batch_size = fc::GetLocalBatchSize(
+          gpu_info, precision, block_spatial, work_group_size_);
+      c += "  __local AccType temp";
+      if (local_batch_size != 1) {
+        c += "[" + std::to_string(local_batch_size) + "]";
+      }
+      c += "[" + std::to_string(work_group_size_.x * work_group_size_.y) +
+           "];\n";
 
-    const int upload_groups = DivideRoundUp(block_spatial, local_batch_size);
-    for (int group = 0; group < upload_groups; ++group) {
-      const int first = group * local_batch_size;
-      const int last =
-          std::min(block_spatial - 1, first + local_batch_size - 1);
-      c += fc::GetReductionCode(first, last, local_batch_size, "tid.x", "tid.y",
-                                "WG_SIZE_Y", "temp");
-      if (group != upload_groups - 1) {
-        c += "  ucl::SyncThreads<WorkGroup, Local>();\n";
+      const int upload_groups = DivideRoundUp(block_spatial, local_batch_size);
+      for (int group = 0; group < upload_groups; ++group) {
+        const int first = group * local_batch_size;
+        const int last =
+            std::min(block_spatial - 1, first + local_batch_size - 1);
+        c += fc::GetReductionCode(first, last, local_batch_size, "tid.x",
+                                  "tid.y", "WG_SIZE_Y", "temp");
+        if (group != upload_groups - 1) {
+          c += "  ucl::SyncThreads<WorkGroup, Local>();\n";
+        }
       }
     }
     c += "  if (dst_s >= dst_end_slice) return;\n";

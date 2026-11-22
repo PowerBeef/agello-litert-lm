@@ -3110,14 +3110,21 @@ GpuModelBuilder::TensorHandle GpuModelBuilder::RMSNormalization(
   op_def.src_tensors.push_back(src.tensor_desc);
   op_def.dst_tensors.push_back(dst.tensor_desc);
 
-  MeanStdDevNormalization operation =
-      CreateRMSNormalization(op_def, gpu_info_, new_shape, epsilon);
+  // Agello (P2.1): fuse per-channel gamma/beta directly into RMSNormalization
+  // in FP32, eliminating standalone Mul/Add nodes and intermediate FP16 rounding.
+  const Tensor<Linear, DataType::kFloat32>* fused_gamma =
+      (gamma && gamma->shape.v == new_shape.c) ? gamma : nullptr;
+  const Tensor<Linear, DataType::kFloat32>* fused_beta =
+      (beta && beta->shape.v == new_shape.c) ? beta : nullptr;
+
+  MeanStdDevNormalization operation = CreateRMSNormalization(
+      op_def, gpu_info_, new_shape, epsilon, fused_gamma, fused_beta);
   gpu_node.gpu_operation =
       std::make_unique<MeanStdDevNormalization>(std::move(operation));
-  if (gamma) {
+  if (gamma && !fused_gamma) {
     dst = Multiplication(dst, *gamma);
   }
-  if (beta) {
+  if (beta && !fused_beta) {
     dst = Add(dst, *beta);
   }
   return dst;

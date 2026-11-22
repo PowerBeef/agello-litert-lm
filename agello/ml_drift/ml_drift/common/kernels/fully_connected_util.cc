@@ -14,6 +14,7 @@
 
 #include "ml_drift/common/kernels/fully_connected_util.h"
 
+#include <algorithm>
 #include <string>
 
 #include "absl/strings/str_replace.h"
@@ -26,6 +27,7 @@
 #include "ml_drift/common/task/gpu_operation.h"
 #include "ml_drift/common/task/tensor_desc.h"
 #include "ml_drift/common/types.h"
+#include "ml_drift/common/util.h"
 
 namespace ml_drift {
 namespace fc {
@@ -293,22 +295,119 @@ std::string GetWeightsBatchId(int runtime_batch_ids) {
 
 int GetLocalBatchSize(const GpuInfo& gpu_info, CalculationsPrecision precision,
                       int block_spatial, const int3& work_group_size) {
-  int local_batch_size = block_spatial;
+  // Agello (P2.1): clamp batch size to 8 instead of collapsing to 1 when
+  // block_spatial == 16 (verify / verify_8), avoiding a 16x barrier cliff.
+  int local_batch_size = std::min(block_spatial, 8);
   int data_type_size =
       precision == CalculationsPrecision::kF16 && gpu_info.SupportsFP16() ? 2
                                                                           : 4;
   int workgroup_storage_size = work_group_size.x * work_group_size.y *
                                local_batch_size * data_type_size * 4;
-  if (local_batch_size > 8 ||
-      (gpu_info.IsApiWebGpu() &&
-       workgroup_storage_size >
-           gpu_info.webgpu_info.max_compute_workgroup_storage_size)) {
+  if (gpu_info.IsApiWebGpu() &&
+      workgroup_storage_size >
+          gpu_info.webgpu_info.max_compute_workgroup_storage_size) {
     local_batch_size = 1;
   }
   if (gpu_info.IsAdreno() && gpu_info.adreno_info.IsLowEnd()) {
     local_batch_size = 1;
   }
   return local_batch_size;
+}
+
+bool CanUseAppleMetalSimdReduction(const GpuInfo& gpu_info,
+                                   const int3& work_group_size) {
+  const int x = work_group_size.x;
+  const int y = work_group_size.y;
+  return gpu_info.IsApple() && gpu_info.IsApiMetal() &&
+         work_group_size.z == 1 && x > 0 && y > 1 && (x & (x - 1)) == 0 &&
+         (y & (y - 1)) == 0 && ((x * y) % 32) == 0;
+}
+
+std::string GetAppleMetalSimdReductionCode(DataType acc_type, int block_spatial,
+                                           const int3& work_group_size) {
+  constexpr int kSimdWidth = 32;
+  const int x = work_group_size.x;
+  const int y = work_group_size.y;
+  const int y_per_simd = x < kSimdWidth ? (kSimdWidth / x) : 1;
+  const int num_partials = y / y_per_simd;
+
+  std::string c;
+  // Step 1: intra-SIMD-group reduction along Y with zero barriers and zero
+  // threadgroup memory. Metal assigns linear_tid = tid.y * x + tid.x, so
+  // lanes separated by a power-of-two delta >= x share the same tid.x.
+  if (x == 1) {
+    for (int sp_id = 0; sp_id < block_spatial; ++sp_id) {
+      const std::string r = "r_sp" + std::to_string(sp_id);
+      c += "  " + r + " = simd_sum(" + r + ");\n";
+    }
+  } else if (x < kSimdWidth) {
+    for (int delta = kSimdWidth / 2; delta >= x; delta /= 2) {
+      const std::string d = std::to_string(delta);
+      for (int sp_id = 0; sp_id < block_spatial; ++sp_id) {
+        const std::string r = "r_sp" + std::to_string(sp_id);
+        c += "  " + r + " += simd_shuffle_down(" + r + ", " + d + ");\n";
+      }
+    }
+  }
+
+  // Step 2: combine across the remaining num_partials SIMD-group rows.
+  // tid.y == 0 already holds partial 0 in registers, so only partials 1..N-1
+  // are staged through threadgroup memory (1 barrier per batch).
+  if (num_partials > 1) {
+    const int elem_bytes = acc_type == DataType::kFloat16 ? 8 : 16;
+    const int slots_per_sp = (num_partials - 1) * x;
+    constexpr int kMaxTgBytes = 8192;
+    const int local_batch_size = std::max(
+        1, std::min(block_spatial, kMaxTgBytes / (slots_per_sp * elem_bytes)));
+    c += "  __local AccType temp";
+    if (local_batch_size != 1) {
+      c += "[" + std::to_string(local_batch_size) + "]";
+    }
+    c += "[" + std::to_string(slots_per_sp) + "];\n";
+
+    const int upload_groups = DivideRoundUp(block_spatial, local_batch_size);
+    for (int group = 0; group < upload_groups; ++group) {
+      const int first = group * local_batch_size;
+      const int last =
+          std::min(block_spatial - 1, first + local_batch_size - 1);
+      if (y_per_simd == 1) {
+        c += "  if (tid.y > 0) {\n";
+        c += "    int sg_slot = (tid.y - 1) * WG_SIZE_X + tid.x;\n";
+      } else {
+        c += "  if ((tid.y & " + std::to_string(y_per_simd - 1) +
+             ") == 0 && tid.y > 0) {\n";
+        c += "    int sg_slot = (tid.y / " + std::to_string(y_per_simd) +
+             " - 1) * WG_SIZE_X + tid.x;\n";
+      }
+      for (int sp_id = first; sp_id <= last; ++sp_id) {
+        const std::string local_mem =
+            local_batch_size == 1
+                ? "temp"
+                : "temp[" + std::to_string(sp_id - first) + "]";
+        c += "    " + local_mem + "[sg_slot] = r_sp" + std::to_string(sp_id) +
+             ";\n";
+      }
+      c += "  }\n";
+      c += "  ucl::SyncThreads<WorkGroup, Local>();\n";
+      c += "  if (tid.y == 0) {\n";
+      for (int sp_id = first; sp_id <= last; ++sp_id) {
+        const std::string local_mem =
+            local_batch_size == 1
+                ? "temp"
+                : "temp[" + std::to_string(sp_id - first) + "]";
+        const std::string r = "r_sp" + std::to_string(sp_id);
+        for (int sg = 0; sg < num_partials - 1; ++sg) {
+          c += "    " + r + " += " + local_mem + "[" +
+               std::to_string(sg * x) + " + tid.x];\n";
+        }
+      }
+      c += "  }\n";
+      if (group != upload_groups - 1) {
+        c += "  ucl::SyncThreads<WorkGroup, Local>();\n";
+      }
+    }
+  }
+  return c;
 }
 
 std::string GetReductionCode(int first, int last, int local_batch_size,
@@ -319,8 +418,9 @@ std::string GetReductionCode(int first, int last, int local_batch_size,
   std::string c;
   for (int sp_id = first; sp_id <= last; ++sp_id) {
     const std::string local_mem =
-        local_batch_size == 1 ? "MEM_NAME"
-                              : "MEM_NAME[" + std::to_string(sp_id) + "]";
+        local_batch_size == 1
+            ? "MEM_NAME"
+            : "MEM_NAME[" + std::to_string(sp_id - first) + "]";
     c += "  " + local_mem + "[T_ID * R_SIZE + R_ID] = r_sp" +
          std::to_string(sp_id) + ";\n";
   }
@@ -329,8 +429,9 @@ std::string GetReductionCode(int first, int last, int local_batch_size,
   c += "    if (R_ID < stride) {\n";
   for (int sp_id = first; sp_id <= last; ++sp_id) {
     const std::string local_mem =
-        local_batch_size == 1 ? "MEM_NAME"
-                              : "MEM_NAME[" + std::to_string(sp_id) + "]";
+        local_batch_size == 1
+            ? "MEM_NAME"
+            : "MEM_NAME[" + std::to_string(sp_id - first) + "]";
     c += "      r_sp" + std::to_string(sp_id) + " += " + local_mem +
          "[T_ID * R_SIZE + R_ID + stride];\n";
     c += "      " + local_mem + "[T_ID * R_SIZE + R_ID] = r_sp" +
