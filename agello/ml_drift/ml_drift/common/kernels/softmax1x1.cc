@@ -230,7 +230,7 @@ std::string Softmax1x1::GetSoftmaxKernelCode(const OperationDef& op_def,
   c += "  value.y = maximum;\n";
   c += "  __local float2 loc_mem[GROUP_REDUCTION_SIZE];\n";
   c += GetReduceCode(work_group_size_.x);
-  c += "  float inv_sum = 1.0f / value.x;\n";
+  c += "  float inv_sum = value.x > 0.0f ? 1.0f / value.x : 0.0f;\n";
   c += "  maximum = value.y;\n";
   if (reduce_only_) {
     c += "  if (tid != 0) return;\n";

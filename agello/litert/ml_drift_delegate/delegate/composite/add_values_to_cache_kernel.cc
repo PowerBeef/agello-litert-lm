@@ -23,7 +23,6 @@
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
-#include "absl/strings/substitute.h"  // from @com_google_absl
 #include "ml_drift/common/data_type.h"  // from @ml_drift
 #include "ml_drift/common/ir_model.h"  // from @ml_drift
 #include "ml_drift/common/model.h"  // from @ml_drift
@@ -99,17 +98,19 @@ std::unique_ptr<::ml_drift::GPUOperation> CreateAddValuesToCache(
     float max_value_k = static_cast<float>(INT8_MAX) * scale_k;
     float min_value_k = static_cast<float>(INT8_MIN) * scale_k;
     float inverse_scale_k = 1.0f / scale_k;
-    custom_op.args_.AddFloat("min_k", min_value_k, src_k.GetDataType());
-    custom_op.args_.AddFloat("max_k", max_value_k, src_k.GetDataType());
+    // Keep quantization bounds and reciprocal scale in FP32 to avoid +/-1 INT8
+    // bin boundary jitter from FP16 ULP rounding near 255.0.
+    custom_op.args_.AddFloat("min_k", min_value_k, ::ml_drift::DataType::kFloat32);
+    custom_op.args_.AddFloat("max_k", max_value_k, ::ml_drift::DataType::kFloat32);
     custom_op.args_.AddFloat("inverse_scale_k", inverse_scale_k,
-                             src_k.GetDataType());
+                             ::ml_drift::DataType::kFloat32);
     float max_value_v = static_cast<float>(INT8_MAX) * scale_v;
     float min_value_v = static_cast<float>(INT8_MIN) * scale_v;
     float inverse_scale_v = 1.0f / scale_v;
-    custom_op.args_.AddFloat("min_v", min_value_v, src_v.GetDataType());
-    custom_op.args_.AddFloat("max_v", max_value_v, src_v.GetDataType());
+    custom_op.args_.AddFloat("min_v", min_value_v, ::ml_drift::DataType::kFloat32);
+    custom_op.args_.AddFloat("max_v", max_value_v, ::ml_drift::DataType::kFloat32);
     custom_op.args_.AddFloat("inverse_scale_v", inverse_scale_v,
-                             src_v.GetDataType());
+                             ::ml_drift::DataType::kFloat32);
     quantized_cache = true;
   }
 
@@ -149,18 +150,18 @@ MAIN_FUNCTION($0) {
   )";
 
   if (quantized_cache) {
-    const std::string src_k_type = ToUclDataType(src_k.GetDataType(), 4);
-    op_code += absl::Substitute(R"(
-  // quantize the slices
-  $0 clamped_value_k = min(ucl::Init<$0>(args.max_k), max(ucl::Init<$0>(args.min_k), value_k));
-  $0 quantized_value_k = round((clamped_value_k - ucl::Init<$0>(args.min_k)) * ucl::Init<$0>(args.inverse_scale_k));
+    op_code += R"(
+  // quantize the slices in FP32 to eliminate FP16 bin-boundary jitter
+  float4 value_k_f = ucl::Convert<float4>(value_k);
+  float4 clamped_value_k = min(ucl::Init<float4>(args.max_k), max(ucl::Init<float4>(args.min_k), value_k_f));
+  float4 quantized_value_k = round((clamped_value_k - ucl::Init<float4>(args.min_k)) * ucl::Init<float4>(args.inverse_scale_k));
   uchar4 final_value_k = ucl::Convert<uchar4>(quantized_value_k);
 
-  $0 clamped_value_v = min(ucl::Init<$0>(args.max_v), max(ucl::Init<$0>(args.min_v), value_v));
-  $0 quantized_value_v = round((clamped_value_v - ucl::Init<$0>(args.min_v)) * ucl::Init<$0>(args.inverse_scale_v));
+  float4 value_v_f = ucl::Convert<float4>(value_v);
+  float4 clamped_value_v = min(ucl::Init<float4>(args.max_v), max(ucl::Init<float4>(args.min_v), value_v_f));
+  float4 quantized_value_v = round((clamped_value_v - ucl::Init<float4>(args.min_v)) * ucl::Init<float4>(args.inverse_scale_v));
   uchar4 final_value_v = ucl::Convert<uchar4>(quantized_value_v);
-  )",
-                                src_k_type);
+  )";
   } else {
     op_code += R"(
   args.src_k::type final_value_k = value_k;

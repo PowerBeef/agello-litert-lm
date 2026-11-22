@@ -220,9 +220,12 @@ std::string ConvAppleMPP::GetKernelCode(const TensorDescriptor& src,
   const DataType accum_type =
       (params_.weights_data_type == DataType::kInt8 || subbyte_weights)
           ? DataType::kInt32
-          : DataType::kFloat16;
+          : (params_.softmax_input_activation ? DataType::kFloat32
+                                              : DataType::kFloat16);
   const DataType out_type =
-      params_.has_dequant ? params_.dequant_dst_type : accum_type;
+      params_.has_dequant
+          ? params_.dequant_dst_type
+          : (params_.softmax_input_activation ? dst.GetDataType() : accum_type);
   std::string c;
   c += "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>\n";
   if (weights_conversion && params_.weights_data_type != DataType::kFloat16 &&
@@ -747,7 +750,7 @@ MAIN_FUNCTION($0) {
     c += "          auto coord = c_tile.get_multidimensional_index(i);\n";
     c += "          int lm = coord[1] - m_base;\n";
     c += "          if (lm >= 0 && lm < STRIP_M) {\n";
-    c += "            tmp_h[lm * N_TILE + coord[0]] = c_tile[i];\n";
+    c += "            tmp_h[lm * N_TILE + coord[0]] = ucl::Convert<OUT_SCALAR>(c_tile[i]);\n";
     c += "          }\n";
     c += "        }\n";
     c += "      }\n";
@@ -826,8 +829,8 @@ MAIN_FUNCTION($0) {
       }
       c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(resf32);\n";
     } else {
-      c += "      OUT_VEC4 res_value = tmp_x4[sub_spatial_id * N_TILE_SLICES + "
-           "tile_n_id];\n";
+      c += "      OUT_VEC4 res_value = ucl::Convert<OUT_VEC4>(tmp_x4[sub_spatial_id * N_TILE_SLICES + "
+           "tile_n_id]);\n";
       if (params_.has_bias) {
         c += "      res_value += args.biases.Read(slice_id);\n";
       }

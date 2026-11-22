@@ -142,7 +142,7 @@ std::string GetSoftmaxReducedExp(const OperationDef& op_def,
     c += "    maximum = value.y;\n";
     c += "  }\n";
   }
-  c += "  float inv_sum = 1.0f / sum;\n";
+  c += "  float inv_sum = sum > 0.0f ? 1.0f / sum : 0.0f;\n";
   return c;
 }
 
