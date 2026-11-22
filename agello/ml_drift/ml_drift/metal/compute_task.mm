@@ -85,7 +85,10 @@ ComputeTask::ComputeTask(ComputeTask&& task)
       use_arguments_buffer_(task.use_arguments_buffer_),
       need_icb_support_(task.need_icb_support_),
       arguments_encoder_(task.arguments_encoder_),
-      arg_buffer_(task.arg_buffer_) {
+      arg_buffer_(task.arg_buffer_),
+      defines_(std::move(task.defines_)),
+      label_(std::move(task.label_)),
+      work_group_size_finalized_(task.work_group_size_finalized_) {
   task.program_ = nullptr;
   task.arguments_encoder_ = nullptr;
   task.arg_buffer_ = nullptr;
@@ -101,6 +104,9 @@ ComputeTask& ComputeTask::operator=(ComputeTask&& task) {
     std::swap(need_icb_support_, task.need_icb_support_);
     std::swap(arguments_encoder_, task.arguments_encoder_);
     std::swap(arg_buffer_, task.arg_buffer_);
+    std::swap(defines_, task.defines_);
+    std::swap(label_, task.label_);
+    std::swap(work_group_size_finalized_, task.work_group_size_finalized_);
   }
   return *this;
 }
@@ -186,8 +192,16 @@ absl::Status ComputeTask::CompileProgram(
         return absl::InternalError("Failed to create MTLBuffer.");
       }
     } else {
+      ComputePipelineHints hints;
+      hints.immutable_buffer_mask = metal_args_.GetImmutableBufferMask();
+      if (work_group_size_finalized_ && operation_) {
+        const int3 wg = operation_->work_group_size_;
+        const int total = wg.x * wg.y * wg.z;
+        hints.threadgroup_size_is_multiple_of_execution_width =
+            (total > 0 && (total % 32) == 0);
+      }
       ABSL_RETURN_IF_ERROR(CreateComputeProgram(env->device(), code, "ComputeFunction", defines,
-                                                &program, label_));
+                                                &program, label_, hints));
     }
     program_ = program;
   }
@@ -306,6 +320,19 @@ absl::Status ComputeTask::Tune(TuningType tuning_type, Environment* env) {
 void ComputeTask::SetWorkGroupSize(const int3& work_group_size) {
   operation_->work_group_size_ = work_group_size;
   operation_->RecalculateWorkGroupsCount();
+}
+
+void ComputeTask::SetFinalWorkGroupSize(const int3& work_group_size) {
+  SetWorkGroupSize(work_group_size);
+  work_group_size_finalized_ = true;
+}
+
+void ComputeTask::MarkInputImmutable(int index) {
+  if (!operation_) return;
+  const auto& names = operation_->GetSrcTensorsNames();
+  if (index >= 0 && index < static_cast<int>(names.size())) {
+    metal_args_.MarkObjectRefImmutable(names[index]);
+  }
 }
 
 absl::Duration ComputeTask::GetTaskTime(id<MTLCommandQueue> command_queue) {

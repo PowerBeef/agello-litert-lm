@@ -718,11 +718,15 @@ AppleInfo::AppleInfo(const std::string& gpu_description) {
       {"apple m4", AppleGpu::kM4},
       {"apple m4 pro", AppleGpu::kM4Pro},
       {"apple m4 max", AppleGpu::kM4Max},
+      {"apple m4 ultra", AppleGpu::kM4Ultra},
       {"apple m5", AppleGpu::kM5},
       {"apple m5 pro", AppleGpu::kM5Pro},
       {"apple m5 max", AppleGpu::kM5Max},
       {"apple m5 ultra", AppleGpu::kM5Ultra},
       {"apple m6", AppleGpu::kM6},
+      {"apple m6 pro", AppleGpu::kM6Pro},
+      {"apple m6 max", AppleGpu::kM6Max},
+      {"apple m6 ultra", AppleGpu::kM6Ultra},
   };
   gpu_type = AppleGpu::kUnknown;
   std::string gpu_name = "";
@@ -836,7 +840,7 @@ bool AppleInfo::IsM3Series() const {
 
 bool AppleInfo::IsM4Series() const {
   return gpu_type == AppleGpu::kM4 || gpu_type == AppleGpu::kM4Pro ||
-         gpu_type == AppleGpu::kM4Max;
+         gpu_type == AppleGpu::kM4Max || gpu_type == AppleGpu::kM4Ultra;
 }
 
 bool AppleInfo::IsM5Series() const {
@@ -844,7 +848,10 @@ bool AppleInfo::IsM5Series() const {
          gpu_type == AppleGpu::kM5Max || gpu_type == AppleGpu::kM5Ultra;
 }
 
-bool AppleInfo::IsM6Series() const { return gpu_type == AppleGpu::kM6; }
+bool AppleInfo::IsM6Series() const {
+  return gpu_type == AppleGpu::kM6 || gpu_type == AppleGpu::kM6Pro ||
+         gpu_type == AppleGpu::kM6Max || gpu_type == AppleGpu::kM6Ultra;
+}
 
 bool AppleInfo::IsBionic() const {
   return gpu_family >= AppleInfo::Family::kApple4;
@@ -954,6 +961,9 @@ int AppleInfo::GetComputeUnitsCount() const {
     case AppleGpu::kM4Max:
       // approximate
       return 40;
+    case AppleGpu::kM4Ultra:
+      // approximate
+      return 80;
     case AppleGpu::kM5:
       // approximate
       return 10;
@@ -969,6 +979,15 @@ int AppleInfo::GetComputeUnitsCount() const {
     case AppleGpu::kM6:
       // approximate
       return 12;
+    case AppleGpu::kM6Pro:
+      // approximate
+      return 20;
+    case AppleGpu::kM6Max:
+      // approximate
+      return 40;
+    case AppleGpu::kM6Ultra:
+      // approximate
+      return 80;
     case AppleGpu::kUnknown:
       // Agello (G1): the estimate SetUnknownChipFamily gave, when it ran.
       return compute_units != -1 ? compute_units : 4;

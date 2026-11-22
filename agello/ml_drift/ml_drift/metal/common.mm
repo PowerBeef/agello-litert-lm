@@ -18,8 +18,12 @@
 #import <Metal/Metal.h>
 
 #include <Availability.h>
+#include <cstdio>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -163,7 +167,127 @@ absl::Status CreateFunction(id<MTLDevice> device, const std::string& code,
   }
   return absl::OkStatus();
 }
+
+// Agello (P1.3): process-wide deduplicated compute pipeline cache + persistent
+// MTLBinaryArchive. Gemma 4 E4B compiles ~6,910 nodes across 12 subgraphs that
+// collapse to ~250 unique (source, macros, hints) pipelines.
+struct PipelineCacheKey {
+  uint64_t device_id = 0;
+  std::string code;
+  std::string function_name;
+  std::map<std::string, std::string> macros;
+  ComputePipelineHints hints;
+
+  bool operator==(const PipelineCacheKey& o) const {
+    return device_id == o.device_id && function_name == o.function_name &&
+           hints == o.hints && macros == o.macros && code == o.code;
+  }
+};
+
+struct PipelineCacheKeyHash {
+  size_t operator()(const PipelineCacheKey& k) const {
+    size_t h = std::hash<uint64_t>{}(k.device_id);
+    auto mix = [&h](size_t v) {
+      h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    };
+    mix(std::hash<std::string>{}(k.code));
+    mix(std::hash<std::string>{}(k.function_name));
+    mix(std::hash<uint64_t>{}(k.hints.immutable_buffer_mask));
+    mix(k.hints.threadgroup_size_is_multiple_of_execution_width ? 1u : 0u);
+    for (const auto& kv : k.macros) {
+      mix(std::hash<std::string>{}(kv.first));
+      mix(std::hash<std::string>{}(kv.second));
+    }
+    return h;
+  }
+};
+
+struct PipelineCacheState {
+  std::mutex mutex;
+  std::unordered_map<PipelineCacheKey, id<MTLComputePipelineState>, PipelineCacheKeyHash> psos;
+  std::mutex archive_mutex;
+  id<MTLBinaryArchive> archive = nil;
+  uint64_t archive_device_id = 0;
+  std::string archive_path;
+  bool archive_loaded_from_disk = false;
+  bool archive_dirty = false;
+};
+
+PipelineCacheState& GetPipelineCache() {
+  static auto* state = new PipelineCacheState();
+  return *state;
+}
+
+uint64_t DeviceCacheKey(id<MTLDevice> device) {
+  if (device == nil) return 0;
+  if (@available(macOS 10.13, iOS 11.0, tvOS 11.0, *)) {
+    const uint64_t reg = device.registryID;
+    if (reg != 0) return reg;
+  }
+  return reinterpret_cast<uintptr_t>((__bridge void*)device);
+}
 }  // namespace
+
+void SetPipelineArchiveDirectory(id<MTLDevice> device, const std::string& dir) {
+  if (device == nil || dir.empty() || dir == ":memory") return;
+  if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
+    @autoreleasepool {
+      const uint64_t dev_id = DeviceCacheKey(device);
+      const std::string path = dir + "/agello_pipelines.mtlarc";
+      auto& cache = GetPipelineCache();
+      std::lock_guard<std::mutex> lock(cache.archive_mutex);
+      if (cache.archive != nil && cache.archive_device_id == dev_id &&
+          cache.archive_path == path) {
+        return;
+      }
+      NSString* ns_path = [NSString stringWithUTF8String:path.c_str()];
+      NSURL* url = [NSURL fileURLWithPath:ns_path];
+      MTLBinaryArchiveDescriptor* desc = [[MTLBinaryArchiveDescriptor alloc] init];
+      BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:ns_path];
+      desc.url = exists ? url : nil;
+      NSError* err = nil;
+      id<MTLBinaryArchive> archive = [device newBinaryArchiveWithDescriptor:desc error:&err];
+      bool loaded_existing = exists && archive != nil;
+      if (archive == nil && exists) {
+        // OS/driver upgrade or truncated file: start a fresh binary archive.
+        desc.url = nil;
+        err = nil;
+        archive = [device newBinaryArchiveWithDescriptor:desc error:&err];
+        loaded_existing = false;
+      }
+      if (archive != nil) {
+        cache.archive = archive;
+        cache.archive_device_id = dev_id;
+        cache.archive_path = path;
+        cache.archive_loaded_from_disk = loaded_existing;
+        cache.archive_dirty = false;
+      }
+    }
+  }
+}
+
+void FlushPipelineArchive() {
+  if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
+    @autoreleasepool {
+      auto& cache = GetPipelineCache();
+      std::lock_guard<std::mutex> lock(cache.archive_mutex);
+      if (cache.archive == nil || !cache.archive_dirty || cache.archive_path.empty()) return;
+      const std::string tmp_path = cache.archive_path + ".tmp";
+      NSURL* tmp_url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:tmp_path.c_str()]];
+      NSError* err = nil;
+      if ([cache.archive serializeToURL:tmp_url error:&err]) {
+        if (std::rename(tmp_path.c_str(), cache.archive_path.c_str()) == 0) {
+          cache.archive_dirty = false;
+          cache.archive_loaded_from_disk = true;
+        } else {
+          std::remove(tmp_path.c_str());
+        }
+      } else {
+        std::remove(tmp_path.c_str());
+      }
+    }
+  }
+}
 
 MetalLanguageVersion ToMetalLanguageVersion(MTLLanguageVersion version) {
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000 || __IPHONE_OS_VERSION_MAX_ALLOWED >= 260000 || \
@@ -274,27 +398,97 @@ MTLLanguageVersion GetMaxSupportedMTLLanguageVersion(id<MTLDevice> device) {
 absl::Status CreateComputeProgram(id<MTLDevice> device, const std::string& code,
                                   const std::string& function_name,
                                   const std::map<std::string, std::string>& macros,
-                                  id<MTLComputePipelineState>* program, const std::string& label) {
+                                  id<MTLComputePipelineState>* program, const std::string& label,
+                                  const ComputePipelineHints& hints) {
+  const uint64_t dev_id = DeviceCacheKey(device);
+  PipelineCacheKey cache_key{dev_id, code, function_name, macros, hints};
+  auto& cache = GetPipelineCache();
+  {
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    auto it = cache.psos.find(cache_key);
+    if (it != cache.psos.end()) {
+      *program = it->second;
+      return absl::OkStatus();
+    }
+  }
+
   id<MTLFunction> function;
   ABSL_RETURN_IF_ERROR(CreateFunction(device, code, function_name, macros, &function));
 
-  NSError* error = nil;
+  MTLComputePipelineDescriptor* pipeline_desc = [[MTLComputePipelineDescriptor alloc] init];
+  pipeline_desc.computeFunction = function;
   if (!label.empty()) {
-    MTLComputePipelineDescriptor* pipeline_desc = [[MTLComputePipelineDescriptor alloc] init];
-    pipeline_desc.computeFunction = function;
     pipeline_desc.label = [NSString stringWithUTF8String:label.c_str()];
-    *program = [device newComputePipelineStateWithDescriptor:pipeline_desc
+  }
+  if (hints.threadgroup_size_is_multiple_of_execution_width) {
+    pipeline_desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = YES;
+  }
+  if (hints.immutable_buffer_mask != 0) {
+    // Metal's argument table supports up to 31 buffer bindings (indices 0..30).
+    constexpr int kMaxBufferBindings = 31;
+    for (int i = 0; i < kMaxBufferBindings; ++i) {
+      if ((hints.immutable_buffer_mask >> i) & 1ULL) {
+        pipeline_desc.buffers[i].mutability = MTLMutabilityImmutable;
+      }
+    }
+  }
+
+  id<MTLComputePipelineState> compiled = nil;
+  NSError* error = nil;
+  if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
+    id<MTLBinaryArchive> archive = nil;
+    bool try_archive_hit = false;
+    {
+      std::lock_guard<std::mutex> lock(cache.archive_mutex);
+      if (cache.archive != nil && cache.archive_device_id == dev_id) {
+        archive = cache.archive;
+        try_archive_hit = cache.archive_loaded_from_disk;
+      }
+    }
+    if (archive != nil) {
+      pipeline_desc.binaryArchives = @[ archive ];
+      if (try_archive_hit) {
+        NSError* miss_error = nil;
+        compiled =
+            [device newComputePipelineStateWithDescriptor:pipeline_desc
+                                                  options:MTLPipelineOptionFailOnBinaryArchiveMiss
+                                               reflection:nullptr
+                                                    error:&miss_error];
+      }
+      if (compiled == nil) {
+        compiled = [device newComputePipelineStateWithDescriptor:pipeline_desc
+                                                         options:MTLPipelineOptionNone
+                                                      reflection:nullptr
+                                                           error:&error];
+        if (compiled != nil) {
+          std::lock_guard<std::mutex> lock(cache.archive_mutex);
+          if (cache.archive == archive) {
+            NSError* add_error = nil;
+            if ([archive addComputePipelineFunctionsWithDescriptor:pipeline_desc
+                                                             error:&add_error]) {
+              cache.archive_dirty = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (compiled == nil && error == nil) {
+    compiled = [device newComputePipelineStateWithDescriptor:pipeline_desc
                                                      options:MTLPipelineOptionNone
                                                   reflection:nullptr
                                                        error:&error];
-  } else {
-    *program = [device newComputePipelineStateWithFunction:function error:&error];
   }
-  if (!*program) {
+  if (!compiled) {
     NSString* errorString =
-        [NSString stringWithFormat:@"newComputePipelineStateWithFunction error: %@",
+        [NSString stringWithFormat:@"newComputePipelineStateWithDescriptor error: %@",
                                    [error localizedDescription]];
     return absl::InternalError([errorString UTF8String]);
+  }
+  {
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    auto [it, inserted] = cache.psos.emplace(std::move(cache_key), compiled);
+    *program = it->second;
   }
   return absl::OkStatus();
 }

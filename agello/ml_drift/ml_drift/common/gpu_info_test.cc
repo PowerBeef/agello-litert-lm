@@ -232,6 +232,11 @@ TEST(AppleInfoTest, TestComputeUnitsCountAndFamily) {
   EXPECT_EQ(GetAppleInfo("Apple M4 Pro").GetComputeUnitsCount(), 20);
   EXPECT_EQ(GetAppleInfo("Apple M4 Max").gpu_type, AppleGpu::kM4Max);
   EXPECT_EQ(GetAppleInfo("Apple M4 Max").GetComputeUnitsCount(), 40);
+  EXPECT_EQ(GetAppleInfo("Apple M4 Ultra").gpu_type, AppleGpu::kM4Ultra);
+  EXPECT_EQ(GetAppleInfo("Apple M4 Ultra").GetComputeUnitsCount(), 80);
+  EXPECT_TRUE(GetAppleInfo("Apple M4 Ultra").IsM4Series());
+  EXPECT_EQ(GetAppleInfo("Apple M4 Ultra").gpu_family,
+            AppleInfo::Family::kApple9);
 
   // M5 series
   EXPECT_EQ(GetAppleInfo("Apple M5").gpu_type, AppleGpu::kM5);
@@ -240,6 +245,19 @@ TEST(AppleInfoTest, TestComputeUnitsCountAndFamily) {
   EXPECT_EQ(GetAppleInfo("Apple M5 Pro").GetComputeUnitsCount(), 20);
   EXPECT_EQ(GetAppleInfo("Apple M5 Max").gpu_type, AppleGpu::kM5Max);
   EXPECT_EQ(GetAppleInfo("Apple M5 Max").GetComputeUnitsCount(), 40);
+
+  // M6 series
+  EXPECT_EQ(GetAppleInfo("Apple M6").gpu_type, AppleGpu::kM6);
+  EXPECT_EQ(GetAppleInfo("Apple M6").GetComputeUnitsCount(), 12);
+  EXPECT_EQ(GetAppleInfo("Apple M6 Pro").gpu_type, AppleGpu::kM6Pro);
+  EXPECT_EQ(GetAppleInfo("Apple M6 Pro").GetComputeUnitsCount(), 20);
+  EXPECT_EQ(GetAppleInfo("Apple M6 Max").gpu_type, AppleGpu::kM6Max);
+  EXPECT_EQ(GetAppleInfo("Apple M6 Max").GetComputeUnitsCount(), 40);
+  EXPECT_EQ(GetAppleInfo("Apple M6 Ultra").gpu_type, AppleGpu::kM6Ultra);
+  EXPECT_EQ(GetAppleInfo("Apple M6 Ultra").GetComputeUnitsCount(), 80);
+  EXPECT_TRUE(GetAppleInfo("Apple M6 Ultra").IsM6Series());
+  EXPECT_EQ(GetAppleInfo("Apple M6 Ultra").gpu_family,
+            AppleInfo::Family::kApple10);
 }
 
 TEST(GpuInfoTest, DefaultInitialization) {

@@ -257,6 +257,18 @@ absl::Status DelegateKernelLiteRt::ConvertNonExternalInputTensorsToGpuMemory(
   }
 
   ABSL_RETURN_IF_ERROR(ctx_->PreConvert(/*input=*/true));
+  // Agello (P1.3): ensure Metal compute encoders end cleanly if any tensor lookup
+  // or conversion returns early with an error.
+  struct PostConvertGuard {
+    GpuInferenceContext* ctx;
+    bool input;
+    bool active = true;
+    ~PostConvertGuard() {
+      if (active) {
+        (void)ctx->PostConvert(input);
+      }
+    }
+  } post_convert_guard{ctx_.get(), /*input=*/true};
 
   for (int i = 0; i < input_indices_.size(); ++i) {
     if (IsExternalSharedConstantTensor(input_ids_[i]) ||
@@ -283,6 +295,7 @@ absl::Status DelegateKernelLiteRt::ConvertNonExternalInputTensorsToGpuMemory(
         input_converters_[i]->Convert(*src_buffer, *dst_tensor));
   }
 
+  post_convert_guard.active = false;
   ABSL_RETURN_IF_ERROR(ctx_->PostConvert(/*input=*/true));
   return absl::OkStatus();
 }
@@ -294,6 +307,16 @@ absl::Status DelegateKernelLiteRt::ConvertGpuMemoryToNonExternalOutputTensors(
   }
 
   ABSL_RETURN_IF_ERROR(ctx_->PreConvert(/*input=*/false));
+  struct PostConvertGuard {
+    GpuInferenceContext* ctx;
+    bool input;
+    bool active = true;
+    ~PostConvertGuard() {
+      if (active) {
+        (void)ctx->PostConvert(input);
+      }
+    }
+  } post_convert_guard{ctx_.get(), /*input=*/false};
 
   for (int i = 0; i < output_ids_.size(); ++i) {
     if (external_tensor_ids_.contains(output_ids_[i])) {
@@ -319,6 +342,7 @@ absl::Status DelegateKernelLiteRt::ConvertGpuMemoryToNonExternalOutputTensors(
         output_converters_[i]->Convert(*src_tensor, *dst_buffer));
   }
 
+  post_convert_guard.active = false;
   ABSL_RETURN_IF_ERROR(ctx_->PostConvert(/*input=*/false));
   return absl::OkStatus();
 }

@@ -92,6 +92,10 @@ class ComputeTask {
 
   int3 GetWorkGroupSize() const { return operation_->work_group_size_; }
   void SetWorkGroupSize(const int3& work_group_size);
+  // Agello (P1.3): sets the already-tuned work group size before compiling deserialized tasks.
+  void SetFinalWorkGroupSize(const int3& work_group_size);
+  // Agello (P1.3): marks input tensor `index` as an immutable external weight buffer.
+  void MarkInputImmutable(int index);
 
   uint64_t GetConstArgsSize() const { return operation_->const_args_size_; }
   uint64_t GetFlopsCount() const { return operation_->flops_; }
@@ -132,6 +136,7 @@ class ComputeTask {
   std::map<std::string, std::string> defines_;
 
   std::string label_;
+  bool work_group_size_finalized_ = false;
 };
 
 }  // namespace metal

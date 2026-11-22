@@ -501,12 +501,45 @@ absl::Status MetalArguments::AllocateObjects(const Arguments& args,
 absl::Status MetalArguments::AddObjectArgs(const GpuInfo& gpu_info,
                                            const Arguments& args) {
   for (const auto& t : args.GetObjects()) {
+    immutable_object_prefixes_.insert(t.first + "_");
     AddGPUResources(t.first, t.second->GetGPUResources(gpu_info));
   }
   for (const auto& t : args.GetObjectRefs()) {
     AddGPUResources(t.first, t.second->GetGPUResources(gpu_info));
   }
   return absl::OkStatus();
+}
+
+void MetalArguments::MarkObjectRefImmutable(const std::string& name) {
+  immutable_object_prefixes_.insert(name + "_");
+}
+
+uint64_t MetalArguments::GetImmutableBufferMask() const {
+  uint64_t mask = 0;
+  int index = 0;
+  constexpr int kMaxBufferBindings = 31;
+  for (const auto& b : buffers_) {
+    if (index < kMaxBufferBindings) {
+      bool immutable = (b.second.desc.memory_type == MemoryType::kConstant);
+      if (!immutable && b.second.desc.access_type == AccessType::kRead) {
+        for (const auto& prefix : immutable_object_prefixes_) {
+          if (b.first.size() >= prefix.size() &&
+              b.first.compare(0, prefix.size(), prefix) == 0) {
+            immutable = true;
+            break;
+          }
+        }
+      }
+      if (immutable) {
+        mask |= (1ULL << index);
+      }
+    }
+    index++;
+  }
+  if (!const_data_.empty() && index < kMaxBufferBindings) {
+    mask |= (1ULL << index);
+  }
+  return mask;
 }
 
 std::string MetalArguments::GetListOfArgs(const GpuInfo& gpu_info,

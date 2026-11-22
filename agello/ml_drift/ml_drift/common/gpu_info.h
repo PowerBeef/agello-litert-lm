@@ -261,11 +261,15 @@ enum class AppleGpu {
   kM4,
   kM4Pro,
   kM4Max,
+  kM4Ultra,
   kM5,
   kM5Pro,
   kM5Max,
   kM5Ultra,
   kM6,
+  kM6Pro,
+  kM6Max,
+  kM6Ultra,
 };
 
 struct AppleInfo {

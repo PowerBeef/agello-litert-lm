@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_ML_DRIFT_DELEGATE_SHARED_MEMORY_MANAGER_SHARED_MEMORY_MANAGER_METAL_H_
 
 #import <Metal/Metal.h>
+#include <unistd.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -245,28 +246,36 @@ inline std::unique_ptr<ml_drift::SharedMemoryManager> MakeSharedMemoryManagerMet
           const size_t bytes_count = tensor_desc.GetData().size();
           const uint8_t* raw_data_ptr = data_ptr - page_adjusted_offset;
           const size_t raw_bytes_count = bytes_count + page_adjusted_offset;
-          auto* release_cb_ptr =
-              new ::litert::ml_drift::ReleaseDataCallback(std::move(release_data_callback));
-          id<MTLBuffer> buffer =
-              [mtl_device newBufferWithBytesNoCopy:const_cast<uint8_t*>(raw_data_ptr)
-                                            length:raw_bytes_count
-                                           options:MTLResourceStorageModeShared
-                                       deallocator:^(void* pointer, NSUInteger length) {
-                                         (**release_cb_ptr)();
-                                         delete release_cb_ptr;
-                                       }];
-          if (buffer == nil) {
-            (**release_cb_ptr)();
-            delete release_cb_ptr;
-            return absl::InternalError("Failed to create Metal buffer with no copy.");
+          // Metal's newBufferWithBytesNoCopy: requires both pointer and length to be
+          // multiples of vm_page_size (16 KB on Apple Silicon). mmap maps full pages.
+          const size_t page_size = static_cast<size_t>(getpagesize());
+          const size_t aligned_bytes_count =
+              (raw_bytes_count + page_size - 1) & ~(page_size - 1);
+          if (aligned_bytes_count > 0 &&
+              reinterpret_cast<uintptr_t>(raw_data_ptr) % page_size == 0) {
+            auto* release_cb_ptr =
+                new ::litert::ml_drift::ReleaseDataCallback(std::move(release_data_callback));
+            id<MTLBuffer> buffer =
+                [mtl_device newBufferWithBytesNoCopy:const_cast<uint8_t*>(raw_data_ptr)
+                                              length:aligned_bytes_count
+                                             options:MTLResourceStorageModeShared
+                                         deallocator:^(void* pointer, NSUInteger length) {
+                                           (**release_cb_ptr)();
+                                           delete release_cb_ptr;
+                                         }];
+            if (buffer == nil) {
+              (**release_cb_ptr)();
+              delete release_cb_ptr;
+              return absl::InternalError("Failed to create Metal buffer with no copy.");
+            }
+            absl::Status status = metal::CreateTensorSharedBuffer(
+                buffer, tensor_desc, metal_tensor.get(), page_adjusted_offset);
+            if (!status.ok()) {
+              return status;
+            }
+            tensor = std::move(metal_tensor);
+            return absl::OkStatus();
           }
-          absl::Status status = metal::CreateTensorSharedBuffer(
-              buffer, tensor_desc, metal_tensor.get(), page_adjusted_offset);
-          if (!status.ok()) {
-            return status;
-          }
-          tensor = std::move(metal_tensor);
-          return absl::OkStatus();
         }
 
         // Fallback to default creation if no mmap or not buffer.

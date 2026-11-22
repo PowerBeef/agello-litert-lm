@@ -15,7 +15,9 @@
 #include "ml_drift_delegate/delegate/gpu_backend_metal.h"
 
 #import <Metal/Metal.h>
+#include <unistd.h>
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -419,25 +421,28 @@ absl::Status GpuBackendMetal::UpdateSpatialTensor(::ml_drift::GpuSpatialTensor* 
     size_t size = desc.GetData().size();
     const uint8_t* raw_data = data - page_adjusted_offset;
     size_t raw_size = size + page_adjusted_offset;
-
-    auto* release_cb_ptr = new ReleaseDataCallback(std::move(release_data_callback));
-    id<MTLBuffer> buffer =
-        [device_->device() newBufferWithBytesNoCopy:const_cast<uint8_t*>(raw_data)
-                                             length:raw_size
-                                            options:MTLResourceStorageModeShared
-                                        deallocator:^(void* pointer, NSUInteger length) {
-                                          (**release_cb_ptr)();
-                                          delete release_cb_ptr;
-                                        }];
-    if (buffer == nil) {
-      (**release_cb_ptr)();
-      delete release_cb_ptr;
-      return absl::InternalError("Failed to create Metal buffer with no copy.");
+    const size_t page_size = static_cast<size_t>(getpagesize());
+    const size_t aligned_size = (raw_size + page_size - 1) & ~(page_size - 1);
+    if (aligned_size > 0 && reinterpret_cast<uintptr_t>(raw_data) % page_size == 0) {
+      auto* release_cb_ptr = new ReleaseDataCallback(std::move(release_data_callback));
+      id<MTLBuffer> buffer =
+          [device_->device() newBufferWithBytesNoCopy:const_cast<uint8_t*>(raw_data)
+                                               length:aligned_size
+                                              options:MTLResourceStorageModeShared
+                                          deallocator:^(void* pointer, NSUInteger length) {
+                                            (**release_cb_ptr)();
+                                            delete release_cb_ptr;
+                                          }];
+      if (buffer == nil) {
+        (**release_cb_ptr)();
+        delete release_cb_ptr;
+        return absl::InternalError("Failed to create Metal buffer with no copy.");
+      }
+      ::ml_drift::TensorDescriptor desc_no_data;
+      desc.CopyWithoutData(&desc_no_data);
+      return ::ml_drift::metal::CreateTensorSharedBuffer(buffer, desc_no_data, metal_tensor,
+                                                         page_adjusted_offset);
     }
-    ::ml_drift::TensorDescriptor desc_no_data;
-    desc.CopyWithoutData(&desc_no_data);
-    return ::ml_drift::metal::CreateTensorSharedBuffer(buffer, desc_no_data, metal_tensor,
-                                                       page_adjusted_offset);
   }
 
   auto status = metal_tensor->CreateFromDescriptor(desc, device_->device());

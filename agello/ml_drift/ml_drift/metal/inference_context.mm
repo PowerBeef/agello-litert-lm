@@ -176,6 +176,13 @@ absl::Status InferenceContext::InitFromGpuModel(
     return RebindPoolTensors(ids);
   });
   GetMutableNodes(create_info.external_mutable_tensors);
+  for (auto& node : nodes_) {
+    for (int j = 0; j < node.inputs.size(); ++j) {
+      if (create_info.external_immutable_tensors.contains(node.inputs[j])) {
+        node.task.MarkInputImmutable(j);
+      }
+    }
+  }
   ABSL_RETURN_IF_ERROR(CompileOperations(environment));
   ABSL_RETURN_IF_ERROR(BindTensorsToOperations());
   ABSL_RETURN_IF_ERROR(UpdateParams(environment->GetInfo()));
@@ -220,6 +227,7 @@ absl::Status InferenceContext::InitFromGpuModel(
     }
   }
   DumpGraphForTelemetry("built");
+  FlushPipelineArchive();
   return absl::OkStatus();
 }
 
@@ -252,13 +260,17 @@ absl::Status InferenceContext::RestoreDeserialized(
   memory_manager_.SetRebind(model_id_, [this](const absl::flat_hash_set<ValueId>& ids) {
     return RebindPoolTensors(ids);
   });
+  for (auto& node : nodes_) {
+    for (int j = 0; j < node.inputs.size(); ++j) {
+      if (create_info_ref.external_immutable_tensors.contains(node.inputs[j])) {
+        node.task.MarkInputImmutable(j);
+      }
+    }
+    ABSL_RETURN_IF_ERROR(node.task.RestoreDeserialized(&environment));
+  }
   ABSL_RETURN_IF_ERROR(DecodeTasks(&environment, decoded_fb));
 
   GetMutableNodes(create_info_ref.external_mutable_tensors);
-
-  for (auto& node : nodes_) {
-    ABSL_RETURN_IF_ERROR(node.task.RestoreDeserialized(&environment));
-  }
 
   ABSL_RETURN_IF_ERROR(BindTensorsToOperations());
 
@@ -267,6 +279,7 @@ absl::Status InferenceContext::RestoreDeserialized(
     ABSL_RETURN_IF_ERROR(memory_manager_.SetExternalTensor(GetKey(external_tensor.first), nullptr));
   }
   DumpGraphForTelemetry("restored");
+  FlushPipelineArchive();
   return absl::OkStatus();
 }
 
@@ -303,13 +316,14 @@ absl::Status InferenceContext::DecodeTasks(
     std::string code;
     std::map<std::string, std::string> defines;
     DecodeProgram((*fb_inference->metal_programs())[i], &code, &defines);
-    ABSL_RETURN_IF_ERROR(nodes_[i].task.Init(env, code, defines));
 
     int3 wg_size;
     wg_size.x = (*fb_inference->tuned_work_group_sizes_per_node())[i]->x();
     wg_size.y = (*fb_inference->tuned_work_group_sizes_per_node())[i]->y();
     wg_size.z = (*fb_inference->tuned_work_group_sizes_per_node())[i]->z();
-    nodes_[i].task.SetWorkGroupSize(wg_size);
+    nodes_[i].task.SetFinalWorkGroupSize(wg_size);
+
+    ABSL_RETURN_IF_ERROR(nodes_[i].task.Init(env, code, defines));
   }
   return absl::OkStatus();
 }

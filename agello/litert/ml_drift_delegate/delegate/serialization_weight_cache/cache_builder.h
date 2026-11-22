@@ -41,8 +41,10 @@ namespace ml_drift {
 inline constexpr char kInMemoryCachePath[] = ":memory";
 
 // The minimum alignment required between elements in the cache file.
+// Apple Silicon (iOS/macOS arm64) uses 16 KB VM pages required by Metal's
+// newBufferWithBytesNoCopy:.
 #if defined(__APPLE__)
-inline constexpr uint64_t kMinAlignment = 4096;
+inline constexpr uint64_t kMinAlignment = 16384;
 #else
 inline constexpr uint64_t kMinAlignment = 128;
 #endif

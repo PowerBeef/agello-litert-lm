@@ -17,8 +17,10 @@
 
 #import <Metal/Metal.h>
 
+#include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -60,6 +62,16 @@ class MetalArguments : public ArgumentsBinder {
   // For usage with Argument Buffers
   void AddResourcesToEncoder(id<MTLComputeCommandEncoder> encoder) const;
   void EncodeArguments(id<MTLArgumentEncoder> arguments_encoder);
+
+  // Agello (P1.3): marks an external object ref (e.g. a shared weight tensor in
+  // external_immutable_tensors) as immutable across the entire command buffer.
+  void MarkObjectRefImmutable(const std::string& name);
+
+  // Agello (P1.3): bitmask of Metal buffer binding indices (0..30) that are
+  // guaranteed immutable for the entire command buffer (uniforms struct,
+  // constant address-space buffers, owned read-only constant objects, and
+  // marked external immutable tensors).
+  uint64_t GetImmutableBufferMask() const;
 
  private:
   // creates structure with layout:
@@ -170,6 +182,8 @@ class MetalArguments : public ArgumentsBinder {
 
   std::map<std::string, GPUObjectDescriptorPtr, std::less<>> object_refs_;
   std::vector<GPUObjectPtr> objects_;
+  // Agello (P1.3): object/ref name prefixes known immutable for MTLMutabilityImmutable.
+  std::set<std::string> immutable_object_prefixes_;
 };
 
 }  // namespace metal

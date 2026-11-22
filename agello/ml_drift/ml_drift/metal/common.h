@@ -17,7 +17,9 @@
 
 #import <Metal/Metal.h>
 
+#include <cstdint>
 #include <map>
+#include <string>
 #include <utility>
 
 #include "absl/status/status.h"
@@ -30,12 +32,37 @@ namespace metal {
 MetalLanguageVersion ToMetalLanguageVersion(MTLLanguageVersion version);
 MTLLanguageVersion GetMaxSupportedMTLLanguageVersion(id<MTLDevice> device);
 
+// Agello (P1.3): compiler hints forwarded to MTLComputePipelineDescriptor.
+struct ComputePipelineHints {
+  // Bit i is set when buffer(i) is guaranteed immutable for the entire command
+  // buffer (inline uniforms struct or read-only constant/weight buffer).
+  uint64_t immutable_buffer_mask = 0;
+  // True only when the final dispatched threadgroup size is guaranteed to be a
+  // multiple of threadExecutionWidth (32 on Apple Silicon).
+  bool threadgroup_size_is_multiple_of_execution_width = false;
+
+  bool operator==(const ComputePipelineHints& other) const {
+    return immutable_buffer_mask == other.immutable_buffer_mask &&
+           threadgroup_size_is_multiple_of_execution_width ==
+               other.threadgroup_size_is_multiple_of_execution_width;
+  }
+};
+
+// Configures the directory used to load/persist the Metal MTLBinaryArchive of
+// deduplicated compute pipelines (Agello, P1.3). Safe to call repeatedly.
+void SetPipelineArchiveDirectory(id<MTLDevice> device, const std::string& dir);
+
+// Atomically writes newly compiled pipelines to the configured MTLBinaryArchive
+// on disk, if any were added since the last flush (Agello, P1.3).
+void FlushPipelineArchive();
+
 // `label` names the pipeline in Instruments and GPU captures (Agello).
 absl::Status CreateComputeProgram(
     id<MTLDevice> device, const std::string& code,
     const std::string& function_name,
     const std::map<std::string, std::string>& macros,
-    id<MTLComputePipelineState>* program, const std::string& label = "");
+    id<MTLComputePipelineState>* program, const std::string& label = "",
+    const ComputePipelineHints& hints = {});
 
 absl::Status CreateComputeProgramWithArgumentBuffer(
     id<MTLDevice> device, const std::string& code,

@@ -29,6 +29,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "ml_drift/common/precision.h"  // from @ml_drift
+#include "ml_drift/metal/common.h"  // from @ml_drift
 #include "ml_drift/metal/converter.h"  // from @ml_drift
 #include "ml_drift/metal/inference_context.h"  // from @ml_drift
 #include "ml_drift/metal/metal_device.h"  // from @ml_drift
@@ -344,6 +345,10 @@ TfLiteDelegatePtr CreateMlDriftMetalDelegate(MlDriftDelegateOptionsPtr options,
   if (!metal_device) {
     ABSL_LOG(ERROR) << "Failed to get Metal device: " << metal_device.Error();
     return {nullptr, LiteRtDeleteMlDriftMetalDelegate};
+  }
+  if (!delegate_data->serialization_dir.empty()) {
+    ::ml_drift::metal::SetPipelineArchiveDirectory((*metal_device)->device(),
+                                                   delegate_data->serialization_dir);
   }
 
 #ifdef __APPLE__
