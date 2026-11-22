@@ -191,7 +191,7 @@ std::mutex anomaly_mutex;
 AnomalyRecord anomalies[kAnomalyRing];
 int64_t anomaly_total = 0;
 
-std::atomic<int> current_run{kGpuOther};
+thread_local int current_run = kGpuOther;
 
 constexpr const char* kGaugeNames[] = {
 #define AGELLO_TELEMETRY_NAME(id, name) name,
@@ -652,18 +652,19 @@ void SetFact(const char* key, const std::string& value) {
   facts.emplace_back(key, value);
 }
 
-void SetCurrentRun(int gpu_span) { current_run.store(gpu_span, std::memory_order_relaxed); }
-int CurrentRun() { return current_run.load(std::memory_order_relaxed); }
+void SetCurrentRun(int gpu_span) { current_run = gpu_span; }
+int CurrentRun() { return current_run; }
 
 namespace {
-std::atomic<bool> gpu_waits_deferred{false};
+// Per-thread so a concurrent GPU workload on another thread (e.g. EmbeddingGemma
+// indexing while E4B streams a speculative round) never skips its own Metal waits
+// or steals the decode thread's hold.
+thread_local bool gpu_waits_deferred = false;
 std::atomic<void (*)()> deferred_wait_hook{nullptr};
 }  // namespace
 
-void DeferGpuWaits(bool deferred) {
-  gpu_waits_deferred.store(deferred, std::memory_order_release);
-}
-bool GpuWaitsDeferred() { return gpu_waits_deferred.load(std::memory_order_acquire); }
+void DeferGpuWaits(bool deferred) { gpu_waits_deferred = deferred; }
+bool GpuWaitsDeferred() { return gpu_waits_deferred; }
 void SetDeferredWaitHook(void (*hook)()) {
   deferred_wait_hook.store(hook, std::memory_order_release);
 }
@@ -674,7 +675,7 @@ void WaitForDeferredGpuWork() {
 namespace {
 std::atomic<void (*)()> mark_hook{nullptr};
 std::atomic<void (*)()> wait_marked_hook{nullptr};
-std::atomic<bool> hold_next_run{false};
+thread_local bool hold_next_run = false;
 std::atomic<void (*)()> hold_release_hook{nullptr};
 }  // namespace
 
@@ -688,8 +689,12 @@ void MarkDeferredGpuWork() {
 void WaitForMarkedGpuWork() {
   if (auto* hook = wait_marked_hook.load(std::memory_order_acquire)) hook();
 }
-void HoldNextGpuRun() { hold_next_run.store(true, std::memory_order_release); }
-bool TakeGpuRunHold() { return hold_next_run.exchange(false, std::memory_order_acq_rel); }
+void HoldNextGpuRun() { hold_next_run = true; }
+bool TakeGpuRunHold() {
+  const bool held = hold_next_run;
+  hold_next_run = false;
+  return held;
+}
 void SetHoldReleaseHook(void (*release)()) {
   hold_release_hook.store(release, std::memory_order_release);
 }

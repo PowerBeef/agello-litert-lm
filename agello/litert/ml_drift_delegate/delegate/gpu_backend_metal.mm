@@ -54,37 +54,42 @@ constexpr absl::string_view kBackendName = "Metal";
 constexpr absl::string_view kSerializedDataPrefix = "gpuv3_metal_data_";
 constexpr int kFlushPeriodDuringDispatch = 256;
 
-// Agello, the replay test (AGELLO_MTP_REPLAY): while the telemetry library defers GPU waits, a
-// run's last command buffer is committed and kept here instead of waited on; the replay waits for
-// it once at the end. Every delegate of an environment shares one command queue, which runs
-// buffers in commit order, so the last one committed finishing means all have.
-absl::Mutex g_deferred_mutex;
-id<MTLCommandBuffer> g_last_deferred ABSL_GUARDED_BY(g_deferred_mutex) = nil;
+// While the calling thread defers GPU waits (resident MTP rounds / replay), its last
+// command buffer is committed and kept in thread-local storage instead of waited on;
+// WaitForDeferredGpuWork waits for it once at the end. Per-thread isolation ensures a
+// concurrent Metal workload on another thread (e.g. EmbeddingGemma) is never affected.
+struct DeferredBufferSlot {
+  CFTypeRef ref = nullptr;
+  ~DeferredBufferSlot() {
+    if (ref != nullptr) CFRelease(ref);
+  }
+  void Set(id<MTLCommandBuffer> buf) {
+    if (ref != nullptr) CFRelease(ref);
+    ref = buf != nil ? CFBridgingRetain(buf) : nullptr;
+  }
+  id<MTLCommandBuffer> Take() {
+    if (ref == nullptr) return nil;
+    id<MTLCommandBuffer> out = CFBridgingRelease(ref);
+    ref = nullptr;
+    return out;
+  }
+  id<MTLCommandBuffer> Peek() const {
+    return ref != nullptr ? (__bridge id<MTLCommandBuffer>)ref : nil;
+  }
+};
 
-id<MTLCommandBuffer> g_marked ABSL_GUARDED_BY(g_deferred_mutex) = nil;
+thread_local DeferredBufferSlot g_last_deferred;
+thread_local DeferredBufferSlot g_marked;
 
-void MarkLastDeferred() {
-  absl::MutexLock lock(&g_deferred_mutex);
-  g_marked = g_last_deferred;
-}
+void MarkLastDeferred() { g_marked.Set(g_last_deferred.Peek()); }
 
 void WaitForMarked() {
-  id<MTLCommandBuffer> marked = nil;
-  {
-    absl::MutexLock lock(&g_deferred_mutex);
-    marked = g_marked;
-    g_marked = nil;
-  }
+  id<MTLCommandBuffer> marked = g_marked.Take();
   if (marked != nil) [marked waitUntilCompleted];
 }
 
 void WaitForLastDeferred() {
-  id<MTLCommandBuffer> last = nil;
-  {
-    absl::MutexLock lock(&g_deferred_mutex);
-    last = g_last_deferred;
-    g_last_deferred = nil;
-  }
+  id<MTLCommandBuffer> last = g_last_deferred.Take();
   if (last != nil) {
     ::agello::telemetry::ScopedSpan wait_span(::agello::telemetry::kGpuWaitOther);
     [last waitUntilCompleted];
@@ -250,10 +255,7 @@ absl::Status GpuBackendMetal::WaitForCompletion() {
     ::agello::telemetry::SetMarkHooks(&MarkLastDeferred, &WaitForMarked);
     ::agello::telemetry::AttachGpuTiming(command_buffer_);
     [command_buffer_ commit];
-    {
-      absl::MutexLock lock(&g_deferred_mutex);
-      g_last_deferred = command_buffer_;
-    }
+    g_last_deferred.Set(command_buffer_);
     command_buffer_ = nullptr;
     return absl::OkStatus();
   }

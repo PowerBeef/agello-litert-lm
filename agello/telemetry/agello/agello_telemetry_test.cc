@@ -177,5 +177,33 @@ TEST_F(TelemetryTest, LogitsProbeSamplesBelowLevelFour) {
   EXPECT_NE(SnapshotJson().find("\"logits_rows_checked\":2"), std::string::npos);
 }
 
+TEST_F(TelemetryTest, GpuWaitDeferralAndRunStateAreThreadLocal) {
+  DeferGpuWaits(true);
+  HoldNextGpuRun();
+  SetCurrentRun(kGpuVerify);
+
+  bool other_deferred = true;
+  bool other_held = true;
+  int other_run = -1;
+  std::thread other([&] {
+    other_deferred = GpuWaitsDeferred();
+    other_held = TakeGpuRunHold();
+    other_run = CurrentRun();
+    DeferGpuWaits(false);
+    SetCurrentRun(kGpuPrefill);
+  });
+  other.join();
+
+  EXPECT_FALSE(other_deferred);
+  EXPECT_FALSE(other_held);
+  EXPECT_EQ(other_run, kGpuOther);
+  EXPECT_TRUE(GpuWaitsDeferred());
+  EXPECT_TRUE(TakeGpuRunHold());
+  EXPECT_EQ(CurrentRun(), kGpuVerify);
+
+  DeferGpuWaits(false);
+  SetCurrentRun(kGpuOther);
+}
+
 }  // namespace
 }  // namespace agello::telemetry
