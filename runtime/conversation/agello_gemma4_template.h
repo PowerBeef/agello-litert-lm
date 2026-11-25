@@ -27,11 +27,13 @@ namespace litert::lm {
 // response, made the model read it twice, after a `<turn|>` that closed its own turn: then it
 // often ended the answer at once (Agello's probe 36, an empty reply after the date tool).
 //
-// Returns `jinja` with four edits:
+// Returns `jinja` with six edits:
 // 1. a model message with tool calls ends with `<|tool_response>`, not `<turn|>\n`;
 // 2. the tool response that follows it leaves out its first `<|tool_response>`;
 // 3. the answer after a tool response gets no `<|turn>model\n` header, as it is generated;
-// 4. no generation prompt follows a tool call.
+// 4. no generation prompt follows a tool call;
+// 5. `format_argument` renders null/None values as `null` instead of Python's `None`;
+// 6. `messages[0]['role']` checks guard against an empty `messages` list.
 // Returns `jinja` unchanged when any of the pieces it edits isn't there (another template).
 std::string FixGemma4ToolTemplate(absl::string_view jinja);
 

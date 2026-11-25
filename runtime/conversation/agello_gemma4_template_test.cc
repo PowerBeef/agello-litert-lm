@@ -134,5 +134,30 @@ TEST(AgelloGemma4TemplateTest, ChatsWithoutToolsDontChange) {
             Render(FileTemplate(), chat, true));
 }
 
+// Null values in tool arguments and responses render as `null`, never `None` or empty.
+TEST(AgelloGemma4TemplateTest, NullToolArgumentRendersAsNull) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json call = {
+      {"role", "assistant"},
+      {"tool_calls",
+       json::array({{{"type", "function"},
+                     {"function",
+                      {{"name", "set_value"},
+                       {"arguments", {{"key", "test"}, {"value", nullptr}}}}}}})}};
+  const std::string rendered = Render(fixed, json::array({User("Test"), call}), false);
+  EXPECT_TRUE(absl::StrContains(rendered, "value:null")) << rendered;
+  EXPECT_FALSE(absl::StrContains(rendered, "value:None")) << rendered;
+}
+
+// An empty messages list renders without indexing `messages[0]`.
+TEST(AgelloGemma4TemplateTest, EmptyMessagesRendersCleanly) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  EXPECT_EQ(Render(fixed, json::array(), false), "");
+  EXPECT_EQ(Render(fixed, json::array(), true), "<|turn>model\n");
+  const std::string with_missing_content =
+      Render(fixed, json::array({{{"role", "user"}}}), false);
+  EXPECT_TRUE(absl::StrContains(with_missing_content, "<|turn>user\n")) << with_missing_content;
+}
+
 }  // namespace
 }  // namespace litert::lm

@@ -150,8 +150,11 @@ fn tojson(value: minijinja::Value) -> Result<String, minijinja::Error> {
     })
 }
 
+// Agello: treat both JSON `null` (`is_none()`) and missing keys (`is_undefined()`) as `none`.
+// Upstream's `value.is_undefined()` alone returned false for actual JSON `null` values,
+// breaking `is none` / `is not none` in tool argument and parameter templates.
 fn is_none(value: minijinja::Value) -> bool {
-    value.is_undefined()
+    value.is_none() || value.is_undefined()
 }
 
 fn lstrip(s: std::borrow::Cow<'_, str>, chars: Option<std::borrow::Cow<'_, str>>) -> String {
@@ -352,6 +355,7 @@ mod tests {
     fn test_is_none() {
         let source =
             "{% if does_not_exist is none %}does_not_exist is none{% else %}FAIL{% endif %},
+        {% if null_val is none %}null_val is none{% else %}FAIL{% endif %},
         {% if existing is not none %}existing is not none{% else %}FAIL{% endif %}";
         let wrapper = new_minijinja_template(source.to_string());
 
@@ -359,11 +363,11 @@ mod tests {
             "messages": [],
             "tools": null,
             "add_generation_prompt": false,
-            "extra_context": {"existing": 123}
+            "extra_context": {"existing": 123, "null_val": null}
         });
         let res = wrapper.apply(inputs.to_string());
         assert!(res.is_ok);
-        assert_eq!(res.content, "does_not_exist is none,\nexisting is not none");
+        assert_eq!(res.content, "does_not_exist is none,\nnull_val is none,\nexisting is not none");
     }
 
     #[test]

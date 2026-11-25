@@ -57,6 +57,26 @@ std::string FixGemma4ToolTemplate(absl::string_view jinja) {
        "    {%- if ns.prev_message_type != 'tool_response' and "
        "ns.prev_message_type != 'tool_call' -%}\n"
        "        {{- '<|turn>model\\n' -}}\n"},
+      // 5. Render null tool arguments/responses as `null`, not Python's `None`.
+      {"        {{- ']' -}}\n"
+       "    {%- else -%}\n"
+       "        {{- argument -}}\n"
+       "    {%- endif -%}\n"
+       "{%- endmacro -%}\n",
+       "        {{- ']' -}}\n"
+       "    {%- elif argument is none -%}\n"
+       "        {{- 'null' -}}\n"
+       "    {%- else -%}\n"
+       "        {{- argument -}}\n"
+       "    {%- endif -%}\n"
+       "{%- endmacro -%}\n"},
+      // 6. Guard `messages[0]['role']` when rendering with an empty `messages` list.
+      {"{%- if (enable_thinking is defined and enable_thinking) or tools or "
+       "messages[0]['role'] in ['system', 'developer'] -%}\n",
+       "{%- if (enable_thinking is defined and enable_thinking) or tools or "
+       "(messages and messages[0]['role'] in ['system', 'developer']) -%}\n"},
+      {"    {%- if messages[0]['role'] in ['system', 'developer'] -%}\n",
+       "    {%- if messages and messages[0]['role'] in ['system', 'developer'] -%}\n"},
   };
   std::string fixed(jinja);
   for (const auto& [from, to] : edits) {
