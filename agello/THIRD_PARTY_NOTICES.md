@@ -1,6 +1,6 @@
 # Third-party notices: CLiteRTLM.xcframework
 
-Built from PowerBeef/agello-litert-lm (branch agello-next), a fork of LiteRT-LM
+Built from PowerBeef/agello-litert-lm (branch main), a fork of LiteRT-LM
 (Copyright Google LLC, Apache-2.0), with LiteRT and ML Drift (Apache-2.0) linked
 statically. It also contains the components below, listed from the framework's link
 inputs by agello/third_party_notices.py.
@@ -97,10 +97,10 @@ inputs by agello/third_party_notices.py.
 | Ooura's FFT (fft2d) | LicenseRef-Ooura |
 | FlatBuffers | Apache-2.0 |
 | KISS FFT | BSD-3-Clause |
-| LiteRT (PowerBeef/LiteRT, branch agello-next) | Apache-2.0 |
+| LiteRT (in this repository, agello/litert) | Apache-2.0 |
 | miniaudio | MIT-0 OR Unlicense |
 | minizip (zlib contrib) | Zlib |
-| ML Drift (PowerBeef/ml-drift, branch agello-next) | Apache-2.0 |
+| ML Drift (in this repository, agello/ml_drift) | Apache-2.0 |
 | pthreadpool | BSD-2-Clause |
 | ruy | Apache-2.0 |
 | SentencePiece | Apache-2.0 |
@@ -1198,7 +1198,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### esaxx-rs-0.1.10 (Rust crate), spm_precompiled-0.1.4 (Rust crate), tokenizers-0.21.0 (Rust crate), FlatBuffers, LiteRT (PowerBeef/LiteRT, branch agello-next), ML Drift (PowerBeef/ml-drift, branch agello-next), ruy, SentencePiece, tokenizers-cpp
+### esaxx-rs-0.1.10 (Rust crate), spm_precompiled-0.1.4 (Rust crate), tokenizers-0.21.0 (Rust crate), FlatBuffers, LiteRT (in this repository, agello/litert), ML Drift (in this repository, agello/ml_drift), ruy, SentencePiece, tokenizers-cpp
 
 ```
 Apache License

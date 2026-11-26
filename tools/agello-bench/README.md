@@ -1,10 +1,9 @@
 # agello-bench
 
-Measures a LiteRT-LM build on Apple silicon with fixed cases, so two builds
-(arms) can be compared: Google's release binaries, a nightly, or our own
-builds. It grew out of the #3913 research runner
-(`research/issue-3913/runner` at the `research/3913` tag) and reproduces its
-results exactly.
+Measures our LiteRT-LM builds on Apple silicon with fixed cases, so two builds
+(arms — e.g. shipped release vs a candidate on `main`) can be compared. It grew
+out of the #3913 research runner (`research/issue-3913/runner` at the
+`research/3913` tag) and reproduces its results exactly.
 
 - `BenchKit` (library, macOS and iOS 27): the cases, their prompts and scoring,
   the machine record and the runner. Agello's harness can run the same cases
@@ -25,9 +24,9 @@ swift build -c release
 swift test                      # BenchKit's unit tests (no model needed)
 .build/release/agello-bench env # this machine, and the runtime binary's SHA-256
 
-.build/release/agello-bench run --model ~/Models/agello/gemma-4-E4B-it-fp16-rope.litertlm \
-  --suite suites/short.json --label A0 --cache ~/Models/agello/cache/A0-kv8192 \
-  --warmup 1 --out results/A0.jsonl
+.build/release/agello-bench run --model ~/Models/agello/gemma-4-E4B-it-agello-v2.litertlm \
+  --suite suites/short.json --no-benchmark-mode --mtp --label A0 \
+  --cache ~/Models/agello/cache/A0 --warmup 1 --out results/A0.jsonl
 ```
 
 `run` options: `--backend gpu|cpu`, `--fp32`, `--kv N` (maxNumTokens, default
@@ -54,13 +53,14 @@ folder must be named `LiteRT-LM` (SwiftPM names path packages after their
 folder). Give each arm its own build folder:
 
 ```sh
-LITERTLM_PACKAGE=~/arms/nightly/LiteRT-LM swift build -c release --scratch-path .build-nightly
+LITERTLM_PACKAGE=~/arms/candidate/LiteRT-LM swift build -c release --scratch-path .build-next
 ```
 
-On macOS, Google's release binaries run on WebGPU (`CLiteRTLM_mac`). The Metal
-path that ships on the iPhone runs on a Mac through Agello as an iPhone app
-(`PLATFORM=mac scripts/device-harness.sh` in the Agello repository), and through
-our `agello-next` framework, which has a macOS Metal slice (since `3b2327cf`).
+Our framework (`agello/build-xcframework.sh` on `main`) ships both an `ios-arm64` Metal slice and a
+`macos-arm64` Metal slice, so macOS `agello-bench` runs exercise the same Metal 4 / ML Drift path
+that ships on the iPhone (`AGELLO_SIMULATE_APPLE_GPU="Apple A19 Pro"` selects the A19 Pro kernel
+paths). For end-to-end app comparisons on Mac and iPhone, use `scripts/cli-bench.sh` and
+`scripts/phone-bench.sh` in the Agello repository.
 
 ## Cases
 

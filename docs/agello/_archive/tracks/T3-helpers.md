@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # T3: the first reply after a helper
 
 Agello runs short helper prompts beside the chat: a title after the first exchange, memories after

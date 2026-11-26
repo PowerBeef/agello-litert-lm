@@ -31,23 +31,27 @@ Every probe is an inline check of one atomic level before any work.
 | 1 | counters (default in our builds) | fixed set of counters and anomaly events | one relaxed atomic add |
 | 2 | spans | per-kind aggregates (count, total, max, log2 histogram), DynamicTracing signposts | ~40 ns per span |
 | 3 | trace | spans also go to per-thread ring buffers, written as a Chrome/Perfetto trace | +~20 ns |
-| 4 | deep | per-kernel GPU timing (one encoder per kernel), numerical probes | changes timing; for diagnosis only |
+| 4 | deep | per-kernel GPU timing (one encoder per kernel), per-row numerical probes | changes timing; for diagnosis only (graph dumps work at any level via `AGELLO_TELEMETRY_GRAPH_DIR`) |
 
 - **Counters** (fixed enum, no strings): prompt and generated tokens; runs per signature (prefill
-  128/1024, decode, verify, drafter); host buffer locks, copies and bytes; command buffers
+  128/1024, decode, `verify`, `verify8` + `verify8_rows_compared`/`verify8_rows_agreed`, drafter);
+  host buffer locks, copies and bytes; command buffers
   committed; GPU waits and wait time; mask fills and bytes; embedding lookups (CPU model runs);
   sampler path (GPU/CPU) and fallbacks; logit-mask path; KV copies and context switches; program
   and weight cache hits, misses and rebuilds; allocations on the decode path; run-option
   parses; stop reasons (EOS, max tokens, KV full, cancel); errors by status code.
 - **Spans** (fixed enum of kinds, plus interned names for LiteRT's existing trace sites): turn,
   template render, tokenize, prefill, prefill chunk, embedding lookup, mask fill, parameter fill,
-  bind, run, GPU wait, decode step, sample, constraint, detokenize, stream callback, MTP draft and
-  verify, KV clone and restore, task queue wait, engine and session init phases, delegate invoke.
+  bind, run (`run.prefill`, `run.decode`, `run.verify`, `run.verify8`, `run.drafter`), GPU wait,
+  decode step, sample, constraint, detokenize, stream callback, MTP draft and
+  verify (`gpu.verify`, `gpu.verify8`), KV clone and restore, task queue wait, engine and session
+  init phases, delegate invoke.
   Since the probes of 2026-11-10: `token`, one event per token a decode step yields with the
   token's id as its argument (the span's count is the tokens written, and a level 3 trace gives
   them in order); `mtp.draft` and `mtp.verify` around the two halves of an MTP round;
   `engine.init` and `session.create`. The counter `kv_copy_bytes` adds the bytes each KV copy
-  moves (every buffer of both banks: 917.5 MB a copy at a 32,000-token window).
+  moves (with Metal 4 `copyBufferMappingsFromBuffer:` helper snapshots on v2 ring-KV, only local
+  rings are blitted: ~12–15 MB instead of a full-window copy).
   Signposts go to an `os_log` handle with the DynamicTracing category (about 11 ns per pair until
   Instruments records; PointsOfInterest costs about 410 ns per signpost even when nothing
   records, so only turn-level spans use it).
@@ -104,30 +108,45 @@ Every probe is an inline check of one atomic level before any work.
 | Instruments | level 2+: subsystem `com.patricedery.agello.litertlm`, category DynamicTracing (os_signpost intervals) |
 | Per case | agello-bench resets before each case and stores the snapshot in the record's `telemetry`; the engine load's goes to `<out>.load-telemetry.json` |
 | Report | `python3 tools/agello-bench/telemetry.py results/run.jsonl` (also a load snapshot, `results/run.jsonl.load-telemetry.json`, or an Agello `harness-report.json`) |
-| GPU graphs | `AGELLO_TELEMETRY_GRAPH_DIR=<dir>` (any level): ML Drift writes each initialized graph there, built or restored from the program cache, as `gpu-graph-<n>-<kernels>-nodes.json` (kernel names, work groups, FLOPs, input and output shapes); `telemetry.py --graph <dir>` summarizes them |
+| GPU graphs | `AGELLO_TELEMETRY_GRAPH_DIR=<dir>` (works at **any** telemetry level, independent of level 4 timing): ML Drift writes each initialized graph there, built or restored from the program cache, as `gpu-graph-<n>-<kernels>-nodes.json` (kernel names, work groups, FLOPs, input and output shapes); `telemetry.py --graph <dir>` summarizes them |
+| Kernel shapes | `AGELLO_KERNEL_SHAPES=1` (at level 4): keys per-kernel GPU timings by output and input tensor shapes (`BxHxWxC`), splitting one kernel kind by layer type (e.g. local ring attention vs global attention). Dynamic spans cap at 512, so use for one graph/case at a time |
 
-Build notes: LiteRT-LM's probes come with `@agello_telemetry` in the tree. LiteRT's probes (trace
-sites, command-buffer timing, host copies, caches, delegation) and ML Drift's (kernel names and
-timing, the graph dump) live in our LiteRT and ML Drift forks (branch `agello-next`), pinned in the
-WORKSPACE by commit and sha256. To change them, build from local checkouts with
-`--override_repository=litert=…` and `--override_repository=ml_drift=…` in `.bazelrc.user`, then
-push and re-pin.
+Build notes: LiteRT-LM's probes (`@agello_telemetry`), LiteRT's probes (`agello/litert`), and ML
+Drift's probes (`agello/ml_drift`) all live in this single repository (`PowerBeef/agello-litert-lm`,
+branch `main`). Edit any probe in place and rebuild with `agello/build-xcframework.sh` (or
+`--mac-only` for Mac CLI runs) — no `--override_repository` or re-pin step is needed.
 
 Overhead on the M6 (speed sweep, ABAB, same build): levels 1 and 2 within ±0.3% of level 0 for
 prefill and decode, replies identical.
 
-## First readings (M6, 2K prompt, 128 generated, kv 8192)
+### Metal waits
+
+The Metal delegate busy-spins a CPU core for every GPU wait by default when benchmark mode is on.
+Asking for passive waits, with command buffers still committed as they're encoded (LiteRT
+`77ed9cab`), measured −0.3% decode and +0.4% prefill against busy-waiting (within noise), and
+2.0 ms of process CPU per generated token instead of 29.3. Since 2026-11-11 (Agello `6db56c6`),
+Agello leaves `ExperimentalFlags.enableBenchmark = false` at every load and reads reply stats from
+`LiteRTLM.Telemetry`, so the shipping app runs with passive GPU waits (`reference/facts.md` F-019).
+In `agello-bench`, pass `--no-benchmark-mode` to match the app.
+
+## Historical first readings (2026-10-14, M6, 2K prompt, 128 generated, kv 8192)
+
+> [!NOTE]
+> The tables below are the original 2026-10-14 baseline measurements taken before bounded attention,
+> zero-copy NEON FP16 greedy sampling (`0` host read copies), `MTLBinaryArchive`, MSL 4.1
+> `agello_flash_attention`, `verify_8`, ring/sparse KV, and GPU Vision landed. Kept for historical
+> context; current iPhone 17 Pro and M6 figures live in `iRT/docs/BACKEND.md` and `iRT/Vendor/README.md`.
 
 | | Without MTP | With MTP (4 tokens per round on this text) |
 | --- | --- | --- |
 | Step | 21.7 ms per token, of which the model run 21.0 ms (it doesn't return early: async falls back to sync on Metal) | 7.5 ms per token |
 | GPU | 20.7 ms per decode run in ~9 command buffers; 95% busy over the turn; 106 GB/s effective weight bandwidth | verify 22.6 ms per run; drafter 0.66 ms per run; 83% busy; 98 GB/s |
-| Host per token | sampling 0.50 ms (CPU sampler: the GPU sampler is closed source; measured 2026-10-14 before direct logits reads, 0.044 ms since, see T7), parameter fill 0.24 ms, embedding lookups 0.14 ms | drafter steps' host work between GPU runs (CPU sampling, readbacks, lookups) leaves the GPU idle 17% |
+| Host per token | sampling 0.50 ms (CPU sampler: measured 2026-10-14 before direct logits reads and zero-copy NEON FP16 greedy sampling), parameter fill 0.24 ms, embedding lookups 0.14 ms | drafter steps' host work between GPU runs (CPU sampling, readbacks, lookups) leaves the GPU idle 17% |
 | Prefill | 2,049 tokens in 3 chunks, 932 ms, 98% GPU | same |
 | Other | 2 CPU model runs per prompt token (embedder, per-layer embedder): 4,483 inferences per case; one tensor buffer allocated per decode step; token history copied for every mask fill | |
 | Load (warm cache) | delegate graph conversion ~950 ms of a 1.1 s load | |
 
-### GPU kernels (level 4, 2K prompt, 64 generated)
+### GPU kernels (2026-10-14, level 4, 2K prompt, 64 generated)
 
 Shares of summed kernel time (each kernel in its own encoder, so absolute times run high):
 
@@ -137,27 +156,24 @@ Shares of summed kernel time (each kernel in its own encoder, so absolute times 
 | Prefill | Neural Accelerator int8 convolutions 39%, mask select 11.5%, softmax 16.4%, int4→int8 weight conversion 8.4%, activation quantization 3.7% | **mask select 23%, softmax 37%**, convolutions 20.5% (same work as at 8K), weight conversion 4.4% |
 
 The matmul work doesn't depend on T; the select and the softmax scale with it. Bounding them to
-the filled length (T4's first step, tracks/T4-attention.md) did more than estimated: prefill +140%
-at 32K and +37.5% at 8K, decode +14% at 32K. The int4 weights are converted to int8 on every prefill run (T9:
-native int4 for the Neural Accelerator path).
+the filled length (T4's first step, `_archive/tracks/T4-attention.md`) lifted prefill +140% at 32K
+and +37.5% at 8K, and decode +14% at 32K.
 
-### Load, delegation and host copies (2K prompt, 64 generated, MTP)
+### Load, delegation and host copies (2026-10-14, 2K prompt, 64 generated, MTP)
 
 | | Reading |
 | --- | --- |
 | Delegation | 6 compiled models, 20,392 nodes: 20,335 on the GPU in 5 partitions (one per GPU subgraph: no CPU round trips inside a model), 3 in XNNPack, 54 on TFLite's own CPU kernels (the CPU embedders) |
 | Caches | Cold load: 5 program-cache misses, weight cache missed, built, flushed and reloaded (5 misses, 5 hits), 8.3 s. Warm: 5 program-cache hits, 1.1 s, of which delegate graph conversion 0.5 s |
-| GPU graphs | Decode 1,766 kernels (15.9 GFLOP), verify 1,817 (63.5), prefill-1024 1,678 (6,318), prefill-128 1,632 (790), drafter 164. In decode, 302 RMS-norm kernels, 321 multiplies, 247 reshapes, 132 strided slices and 85 selects; 1,010 kernels fuse several ops, many of them a cast → quantize-dequantize → cast chain, sometimes twice in a row |
-| Host copies | 113 GPU → host reads and 274 host → GPU writes per case (4.9 MB per generated token, prefill included). Writes are cheap (126 MB of per-layer embeddings per prefill at about 40 GB/s). Reads are not: the logits buffers aren't packed, so each read converts ML Drift's layout on the CPU: 1.7 ms per 2 MB verify readback, 0.47 ms per 512 KB drafter readback, about 50 ms of a 494 ms decode turn (10%) |
+| GPU graphs | Decode 1,766 kernels (15.9 GFLOP), verify 1,817 (63.5), prefill-1024 1,678 (6,318), prefill-128 1,632 (790), drafter 164 |
+| Host copies | 113 GPU → host reads and 274 host → GPU writes per case (4.9 MB per generated token, prefill included; since eliminated on greedy decode by direct locks + zero-copy NEON FP16 greedy sampling: `0` host read copies) |
 | Async | The executor asks for asynchronous runs; the Metal backend has no post-dispatch event, so every run completes synchronously (fact `gpu_async`) |
 
-Fixed by T5's first step (tracks/T5-unified-memory.md): non-packed buffers are now read and
-written directly, decode +13.6% with MTP, and session snapshots (`kv_clone`, the same slow path
-for the KV caches) 7x faster. T7 (sampling on the GPU) would remove the readback altogether.
-The decode graph's 1,766 dispatches per token point at T6 (encoding) and at fusing the
-elementwise chains around the norms.
+Direct non-packed buffer reads/writes (`_archive/tracks/T5-unified-memory.md`) lifted MTP decode
++13.6% and sped up raw `kv_clone` snapshots 7×; subsequent zero-copy NEON FP16 greedy sampling
+(`73000de4`) eliminated host logits read copies entirely (`0.0 KB/tok`).
 
-### Logits (level 4, 2K prompt, 128 generated, MTP)
+### Logits (2026-10-14, level 4, 2K prompt, 128 generated, MTP)
 
 | | Model (129 positions) | Drafter (96 drafts) |
 | --- | --- | --- |
@@ -167,31 +183,14 @@ elementwise chains around the norms.
 | Top-1 probability | p10 1.000, min 0.27 | p10 0.998, min 0.52 |
 | Entropy, nats | p90 0.004, max 4.0 | p90 0.019, max 3.2 |
 
-On this repetitive text the model is nearly certain at almost every position, which matches the
-100% MTP acceptance. The near-tie count is the one to watch on long contexts at FP16 (#3913):
-positions whose top two logits differ by less than FP16's resolution.
-
-### Metal waits
-
-The Metal delegate busy-spins a CPU core for every GPU wait by default; benchmark mode isn't the
-cause. Asking for passive waits, with command buffers still committed as they're encoded (LiteRT
-fork 77ed9cab), measured −0.3% decode and +0.4% prefill against busy-waiting (within noise), and
-2.0 ms of process CPU per generated token instead of 29.3. This applies only with benchmark mode
-off: in benchmark mode LiteRT-LM requests the active wait, and Agello turns benchmark mode on
-(`ExperimentalFlags.enableBenchmark`), so the app still busy-waits (reference/facts.md F-019).
-
-These point at T2 (parameter fill, per-step allocation, history copies), T5 (async and buffer
-locks), T7 (an open GPU sampler, which also closes most of the MTP gap to Google's build), T11
-(load), and T12 (MTP drafting on the GPU).
-
-## Plan
+## Status
 
 1. Done (2026-10-14): core library, C and Swift APIs, LiteRT-LM probes (turns, executor, MTP,
    sampler, execution manager watchdogs), LiteRT's trace macros mapped to spans, command-buffer
-   GPU time, agello-bench integration and `telemetry.py`; overhead within noise.
-2. Done (2026-10-14): pipeline labels, GPU family probe and per-kernel timing; the GPU graph
-   dump (built or restored); LiteRT buffer lock and copy counters with per-size spans, program
-   and weight cache events, delegation coverage per compiled model, the async fallback fact.
-3. Done (2026-10-14): numerical probes on logits (CPU sampler path) and gauges; Agello's
-   harness carries them in each scenario's snapshot. Next: GPU-side stats kernels, invariant
-   checks (KV positions, sampled ids against constraints).
+   GPU time, `agello-bench` integration and `telemetry.py`; overhead within noise.
+2. Done (2026-10-14): pipeline labels, GPU family probe and per-kernel timing; GPU graph dumps
+   (`AGELLO_TELEMETRY_GRAPH_DIR`); LiteRT buffer lock/copy counters, cache events, delegation
+   coverage, numerical logits probes (`ProbeLogits`, `ProbeLogitsHalf`, `ProbeLogitsHalfDSHWBC4`).
+3. Done (2026-11-10 to 2026-11-24): `token`, `mtp.draft`/`mtp.verify`, `engine.init`,
+   `session.create`, `runs_verify8`/`run.verify8`/`gpu.verify8` spans & counters,
+   `AGELLO_KERNEL_SHAPES=1` shape-keyed level-4 kernel attribution, and intra-MTP cancel telemetry.

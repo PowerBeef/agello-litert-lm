@@ -7,10 +7,11 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BENCH="$HERE/../agello-bench"
-B="$BENCH/.build-next/out/Products/Release/agello-bench"
-MODEL="$(python3 -c "import json; print(json.load(open('$HERE/pins.json'))['models']['e4b-ours']['path'])")"
+B="$BENCH/.build-next/release/agello-bench"
+MODEL="$(python3 -c "import json; m = json.load(open('$HERE/pins.json'))['models']; print((m.get('e4b-v2') or m['e4b-ours'])['path'])")"
+KV="${KV:-8192}"
 OUT="${SCRATCH:-${TMPDIR:-/tmp}}/agello-docs-empirical"
-[ -x "$B" ] || { echo "build agello-bench first: see tools/agello-bench/README.md (.build-next)" >&2; exit 1; }
+[ -x "$B" ] || { echo "build agello-bench first: swift build -c release --scratch-path .build-next (see tools/agello-bench/README.md)" >&2; exit 1; }
 rm -rf "$OUT"
 mkdir -p "$OUT"
 for fam in "native:" "a17pro:Apple A17 Pro" "m2:Apple M2" "m1:Apple M1"; do
@@ -20,7 +21,7 @@ for fam in "native:" "a17pro:Apple A17 Pro" "m2:Apple M2" "m1:Apple M1"; do
   if [ -n "$sim" ]; then export AGELLO_SIMULATE_APPLE_GPU="$sim"; else unset AGELLO_SIMULATE_APPLE_GPU; fi
   (cd "$BENCH" && AGELLO_TELEMETRY_GRAPH_DIR="$OUT/graphs-$name" "$B" run --model "$MODEL" \
     --case '{"id":"t2k","kind":"speed","sentences":129,"late":false,"seed":0,"decode":16}' \
-    --kv 8192 --mtp --telemetry 2 --label "$name" --cache "$OUT/cache" \
+    --kv "$KV" --mtp --no-benchmark-mode --telemetry 2 --label "$name" --cache "$OUT/cache" \
     --out "$OUT/run-$name.jsonl" 2> "$OUT/log-$name.txt")
   echo "$name: exit $?, $(ls "$OUT/graphs-$name" | wc -l | tr -d ' ') graphs"
 done

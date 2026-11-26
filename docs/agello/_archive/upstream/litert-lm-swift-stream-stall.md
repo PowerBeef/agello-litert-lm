@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Draft issue (LiteRT-LM): dropping a conversation during its stream stalls for 10 minutes (Swift)
 
 **Title:** Swift: releasing a Conversation from its own stream callback waits for the engine's

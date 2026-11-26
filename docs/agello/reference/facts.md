@@ -1,5 +1,19 @@
 # Facts register
 
+> [!IMPORTANT]
+> **Stale pin (`b7b856a0`, `agello-one-20261115`, v1 32K, 2026-11-17) — do not quote superseded rows.**
+> Until the post-Phase-C `repin.py` pass lands, the following fact groups are superseded by live
+> code (`agello-one-20261124` @ `c819aecb`, vendored `swift/` @ `9c8c783d`, v2 64K E4B @ `9935a811`,
+> Core AI ANE `EmbeddingGemma 2` @ `41026d1c`): `F-001`–`F-003`/`F-013`/`F-015`/`F-018` (pins &
+> releases), `F-010` (`AgelloSim` + pure-Swift `LiteRTLMTools`), `F-020`–`F-023` & `F-029`–`F-030`
+> (v2 E4B & Core AI ANE `.aar`), `F-047` (`verify_8` default ON), `F-049`–`F-053` (128K
+> Dual-`GATHER` RoPE & 65,536 allocation), `F-057`–`F-059` & `F-063` (1,536-slot ring KV + sparse
+> globals + Metal 4 `copyBufferMappingsFromBuffer:` helper snapshots), `F-069` (Apple10 GPU Vision
+> MPP), `F-084` (Core AI ANE `EmbeddingGemma 2` & iOS 27 `SpeechAnalyzer`), `F-090`/`F-092`/`F-096`
+> (`MTLBinaryArchive`, MSL 4.1 `agello_flash_attention`, `dst_window` QK skip), and `F-123` (ANE
+> INT4 `0.99949` avg cosine vs LiteRT FP32). Cross-check Agello's `Vendor/README.md`,
+> `docs/BACKEND.md`, `docs/ROADMAP.md`, and `ModelCatalog.swift`.
+
 > **Scope:** the canonical register of numbers and user-facing facts about LiteRT-LM, LiteRT, ML Drift
 > and the models Agello uses: one row per fact, with its value, what kind of fact it is, the
 > conditions it holds under, the verified claims behind it, the older figures it replaces, where it is

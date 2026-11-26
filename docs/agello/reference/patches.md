@@ -75,19 +75,19 @@ flowchart LR
 ### Tags in commit subjects
 
 Our commit subjects end with the plan item they belong to. The tags come from
-[../PLAN-MAC.md](../PLAN-MAC.md) and the track notes in [../tracks/](../tracks/):
+[../_archive/PLAN-MAC.md](../_archive/PLAN-MAC.md) and the track notes in [../_archive/tracks/](../_archive/tracks/):
 
 | Tag | Meaning | Track note |
 | --- | --- | --- |
 | `M1.2`, `M1.3`, `M1.5` | Building the runtime from source with the Metal accelerator | [../BUILD.md](../BUILD.md) |
 | `T0` | Telemetry | [../TELEMETRY.md](../TELEMETRY.md) |
-| `T2`, `P6` | Host costs per token, the FP16 greedy path | [../tracks/T2-host-costs.md](../tracks/T2-host-costs.md), [../tracks/T7-sampler.md](../tracks/T7-sampler.md) |
-| `T3` | Session switches (helper conversations) | [../tracks/T3-helpers.md](../tracks/T3-helpers.md) |
-| `T4` | Attention bounded to the filled length and the local window | [../tracks/T4-attention.md](../tracks/T4-attention.md) |
-| `T5` | Unified memory: host copies and waits | [../tracks/T5-unified-memory.md](../tracks/T5-unified-memory.md) |
-| `T11` | One weight cache entry for every context size | [../tracks/T11-caches.md](../tracks/T11-caches.md) |
+| `T2`, `P6` | Host costs per token, the FP16 greedy path | [../_archive/tracks/T2-host-costs.md](../_archive/tracks/T2-host-costs.md), [../_archive/tracks/T7-sampler.md](../_archive/tracks/T7-sampler.md) |
+| `T3` | Session switches (helper conversations) | [../_archive/tracks/T3-helpers.md](../_archive/tracks/T3-helpers.md) |
+| `T4` | Attention bounded to the filled length and the local window | [../_archive/tracks/T4-attention.md](../_archive/tracks/T4-attention.md) |
+| `T5` | Unified memory: host copies and waits | [../_archive/tracks/T5-unified-memory.md](../_archive/tracks/T5-unified-memory.md) |
+| `T11` | One weight cache entry for every context size | [../_archive/tracks/T11-caches.md](../_archive/tracks/T11-caches.md) |
 | `P1.x` | Ship readiness: build info, release script, notices | [../BUILD.md](../BUILD.md) |
-| `CPU`, `SIM` | The XNNPACK fix; the simulated GPU family | [../VALIDATION.md](../VALIDATION.md) |
+| `CPU`, `SIM` | The XNNPACK fix; the simulated GPU family | [../_archive/VALIDATION.md](../_archive/VALIDATION.md) |
 
 The track notes are leads: the numbers on this page come from the raw records in
 [../results/](../results/) or from verified ledger claims.
@@ -97,7 +97,7 @@ The track notes are leads: the numbers on this page come from the raw records in
 | Status | Meaning |
 | --- | --- |
 | Not filed | No draft and nothing posted |
-| Drafted | A text in [../upstream/](../upstream/), not posted (see [contributing.md](contributing.md#our-drafts)) |
+| Drafted | A text in [../_archive/upstream/](../_archive/upstream/), not posted (see [contributing.md](contributing.md#our-drafts)) |
 | Posted | An issue, comment or pull request exists upstream |
 | Overlapped upstream | Google landed a change in the same place after our base; porting it by hand would change ours or need less of it |
 | Fixed upstream | Google's code would make ours unnecessary if we took it (a pin we move, or a change we port: we don't rebase) |
@@ -114,7 +114,7 @@ evidence. Commits that only move a pin are grouped at the end of
 | --- | --- | --- | --- |
 | LiteRT-LM [`f3408e06`](https://github.com/PowerBeef/agello-litert-lm/commit/f3408e067168d4ec2e47d68b98b7e37b778a876d) (on the old `agello` branch, shipped until 2026-10-28, as [`a3c0d0ef`](https://github.com/PowerBeef/agello-litert-lm/commit/a3c0d0ef729c28d529e2b063785a0808dd19c062)) | Failed tool calls get an `error` tool response; the turn continues ([litert-lm/swift-api.md](litert-lm/swift-api.md#tools), LM-SWIFT-023, LM-SWIFT-024) | v0.18.0 rethrew any tool failure and ended the reply | Probe 15 ([below](#the-swift-patches)) |
 | LiteRT-LM [`0b2ca12f`](https://github.com/PowerBeef/agello-litert-lm/commit/0b2ca12fc46ee105444397cef10c096677cef4d0) (on the old `agello` branch as [`85b1a776`](https://github.com/PowerBeef/agello-litert-lm/commit/85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff)) | `StreamContext` holds its conversation weakly ([litert-lm/swift-api.md](litert-lm/swift-api.md#our-fix-a-stream-holds-its-conversation-weakly), LM-SWIFT-019 to -021) | A dropped conversation was deleted on the callback thread and waited for the 10-minute timeout | Probe 9 ([below](#the-swift-patches)) |
-| LiteRT-LM [`d1488ce7`](https://github.com/PowerBeef/agello-litert-lm/commit/d1488ce7a99efcf8f483ab54648f27df814aee16) | Gemma 3, Gemma 4 and FunctionGemma processors build without the closed FST provider and keep response formats ([`gemma4_data_processor.cc:157-164`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/model_data_processor/gemma4_data_processor.cc#L157-L164); [litert-lm/conversation.md](litert-lm/conversation.md#constraints), LM-CNV-073, LM-CNV-074) | Without the provider, any conversation with constrained decoding failed, JSON output included | Agello's Mac parity run in `results/mac/2026-10-14/agello/parity-ours/` (probe 2, constrained JSON), a build [../PARITY.md](../PARITY.md) describes as including it; its records carry no build id |
+| LiteRT-LM [`d1488ce7`](https://github.com/PowerBeef/agello-litert-lm/commit/d1488ce7a99efcf8f483ab54648f27df814aee16) | Gemma 3, Gemma 4 and FunctionGemma processors build without the closed FST provider and keep response formats ([`gemma4_data_processor.cc:157-164`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/runtime/conversation/model_data_processor/gemma4_data_processor.cc#L157-L164); [litert-lm/conversation.md](litert-lm/conversation.md#constraints), LM-CNV-073, LM-CNV-074) | Without the provider, any conversation with constrained decoding failed, JSON output included | Agello's Mac parity run in `results/mac/2026-10-14/agello/parity-ours/` (probe 2, constrained JSON), a build [../_archive/PARITY.md](../_archive/PARITY.md) describes as including it; its records carry no build id |
 | LiteRT-LM [`9f619cf9`](https://github.com/PowerBeef/agello-litert-lm/commit/9f619cf9d28e4df96df981b0768b0e5932d6f2b6) | A decode task whose sampled-ID buffer can't be created finishes with the error ([litert-lm/engine-and-sessions.md](litert-lm/engine-and-sessions.md#our-changes-in-this-area), LM-ENG-094) | It stayed `kProcessing`, so waits on its session ran into the 10-minute timeout | Code only; no measurement |
 | LiteRT-LM [`51f099fb`](https://github.com/PowerBeef/agello-litert-lm/commit/51f099fb7411204ce006d55ff79eb6b0bd06bea0), then [`b8f807ec`](https://github.com/PowerBeef/agello-litert-lm/commit/b8f807ecdc3667477aa7238659dff7f2cf9e671e) | XNNPACK declared at TensorFlow's pin with upstream XNNPACK `c72e2a4ae0`'s scale sizing as a patch ([`WORKSPACE:275-290`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/WORKSPACE#L275-L290); [litert/cpu-xnnpack.md](litert/cpu-xnnpack.md#our-xnnpack-patch), RT-CPU-016) | The CPU engine for E4B held 5.5 GB of oversized scale buffers and iOS killed it | iPhone probe 6 before and after (RT-CPU-017) |
 
@@ -277,10 +277,10 @@ Neither patch is upstream: Google's `main` at `d87575de` (2026-10-15) has no com
 <!-- c:OUR-008 -->
 
 **C3, again.** Agello's docs disagree on the count once more. At Agello `a691212`,
-`Vendor/README.md` lists five Swift patches and `CLAUDE.md` says five, while the README's
+`Vendor/README.md` lists five Swift patches and `AGENTS.md` says five, while the README's
 "Vendored LiteRT-LM" section and the `agello-litert-update` skill say four, and the fifth in
 `Vendor/README.md` says the flags sit behind a `Mutex`, which `82b05ea1` replaced with an `NSLock`
-(optimized builds crashed). In October the drift was `CLAUDE.md` saying "v0.18.0 plus one tool-call
+(optimized builds crashed). In October the drift was `AGENTS.md` saying "v0.18.0 plus one tool-call
 patch" while the wrapper carried two. <!-- c:OUR-003 -->
 
 ### Other commits on the agello branch
@@ -351,9 +351,9 @@ are changes we could port by hand, and the files they touch are no longer a reba
 
 ### Drafts and posts
 
-Seven drafts in [../upstream/](../upstream/) cover four LiteRT-LM issues, three LiteRT pull
+Seven drafts in [../_archive/upstream/](../_archive/upstream/) cover four LiteRT-LM issues, three LiteRT pull
 requests and one ML Drift pull request; the commit that added all seven (`8a1df223`) and
-[../PLAN-MAC.md](../PLAN-MAC.md)'s P8 row say "three LiteRT-LM issues" and three PRs. The files
+[../_archive/PLAN-MAC.md](../_archive/PLAN-MAC.md)'s P8 row say "three LiteRT-LM issues" and three PRs. The files
 are the count (C8). <!-- c:OUR-016 --> None is posted: [contributing.md](contributing.md#our-drafts)
 has the status, the gaps and the posting rule.
 
@@ -418,7 +418,7 @@ slicing; `content_identifier_test.cc` has 2
   <!-- c:OUR-024 -->
 - **Mac first.** Most speed evidence is from the M6 Mac; the iPhone run of 2026-10-15 used build
   `2e54fbdb9ca9` (LiteRT-LM `67d00f36`) and later builds for the XNNPACK fix and the simulated
-  Apple9 paths; see [../VALIDATION.md](../VALIDATION.md) and
+  Apple9 paths; see [../_archive/VALIDATION.md](../_archive/VALIDATION.md) and
   [versions.md](versions.md#performance-figures-which-build) (LM-VER-024).
 
 ## The fork landing page (C4)
@@ -459,7 +459,7 @@ but GitHub records no visibility change. <!-- c:OUR-027 -->
 card commit `b58c33c6` after it keeps that file. <!-- c:OUR-028 --> The older file was replaced,
 not deleted: it stays downloadable at `13d5aa4c`.
 
-[../AUDIT.md](../AUDIT.md) and [../BASELINE.md](../BASELINE.md) cite revision `13d5aa4c` (AUDIT
+[../_archive/AUDIT.md](../_archive/AUDIT.md) and [../_archive/BASELINE.md](../_archive/BASELINE.md) cite revision `13d5aa4c` (AUDIT
 also the sha256 `4a691f03…`), and both now open with a note that they describe that 2048-token-block
 revision; `pins.json` and Agello's model catalog at `a691212` use `a1693e22`. <!-- c:OUR-029 --> **C17 resolution:** AUDIT's and BASELINE's measurements and section sizes are
 of the 2048-block file; the reference documents `a1693e22`. The two files differ in the

@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Baselines (M0.6) and first parity (M1.6)
 
 > Measured with the 2048-token-block revision `13d5aa4c` of our E4B file; Agello now uses

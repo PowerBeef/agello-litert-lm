@@ -27,7 +27,7 @@
   (reproduced; will investigate FP16 accumulation), and hasn't commented since; on 2026-11-17 the
   issue is open, labeled as awaiting a developer, assigned to `hheydary` (since 2026-10-29), with
   20 comments, eight of them ours.
-- **Seven drafts** wait in [../upstream/](../upstream/): four LiteRT-LM issues, three LiteRT pull
+- **Seven drafts** wait in [../_archive/upstream/](../_archive/upstream/): four LiteRT-LM issues, three LiteRT pull
   requests and one ML Drift pull request. Two need rework before posting (a Google change
   overlaps one; another lacks a later commit), and some of their numbers have no raw record.
 
@@ -51,8 +51,8 @@ links on this page read them at Google's bases.
 
 Nothing is posted, pushed or uploaded without the user's explicit OK: no issue, comment or pull
 request upstream, no push to our forks, no GitHub release of our framework, no model upload to
-Hugging Face. [../PLAN-MAC.md](../PLAN-MAC.md) states it for pushes, releases, model uploads and
-upstream posts, [../upstream/README.md](../upstream/README.md) for every draft, and Agello's
+Hugging Face. [../_archive/PLAN-MAC.md](../_archive/PLAN-MAC.md) states it for pushes, releases, model uploads and
+upstream posts, [../_archive/upstream/README.md](../_archive/upstream/README.md) for every draft, and Agello's
 `agello-litert-update` skill for pushes and posts; our release script is a dry run unless given
 `--publish`
 ([`agello/release-xcframework.sh:69-75`](https://github.com/PowerBeef/agello-litert-lm/blob/b7b856a0cf7e2304f556e985218bc698768233f7/agello/release-xcframework.sh#L69-L75)).
@@ -136,17 +136,17 @@ be accepted, so posting one first only produces a failed CLA check.
 
 ## Our drafts
 
-[../upstream/](../upstream/) holds seven drafts, added in one commit (`8a1df223`, 2026-10-15):
+[../_archive/upstream/](../_archive/upstream/) holds seven drafts, added in one commit (`8a1df223`, 2026-10-15):
 
 | Draft | Kind | Our commits | State on 2026-10-15 |
 | --- | --- | --- | --- |
-| [litert-lm-swift-stream-stall.md](../upstream/litert-lm-swift-stream-stall.md) | LiteRT-LM issue | `85b1a776` (old `agello` branch; `0b2ca12f` in `main`) | Not posted |
-| [litert-lm-swift-tool-call-errors.md](../upstream/litert-lm-swift-tool-call-errors.md) | LiteRT-LM issue | `a3c0d0ef` (old `agello` branch; `f3408e06` in `main`) | Not posted |
-| [litert-lm-session-snapshots.md](../upstream/litert-lm-session-snapshots.md) | LiteRT-LM issue | `aec81cb7`, `ed998d80`, `585203d3` | Not posted |
-| [litert-lm-decode-host-costs.md](../upstream/litert-lm-decode-host-costs.md) | LiteRT-LM issue | `ef197a04`, `e43f9a8d`, `5e946049`, `fdd5bac7` | Not posted |
-| [litert-bounded-attention.md](../upstream/litert-bounded-attention.md) | LiteRT PR and ML Drift PR | LiteRT `ede28c64`, `aa05bd2d`, `31386317`; ML Drift `6ae7c68`, `2184a7f` | Not posted; add ML Drift `15fa9e2` |
-| [litert-weight-cache-key.md](../upstream/litert-weight-cache-key.md) | LiteRT PR | LiteRT `97e06d36` | Not posted |
-| [litert-metal-direct-copies.md](../upstream/litert-metal-direct-copies.md) | LiteRT PR | LiteRT `e17213ea`, `584f3461` | Not posted; rework on top of LiteRT `bd326784` |
+| [litert-lm-swift-stream-stall.md](../_archive/upstream/litert-lm-swift-stream-stall.md) | LiteRT-LM issue | `85b1a776` (old `agello` branch; `0b2ca12f` in `main`) | Not posted |
+| [litert-lm-swift-tool-call-errors.md](../_archive/upstream/litert-lm-swift-tool-call-errors.md) | LiteRT-LM issue | `a3c0d0ef` (old `agello` branch; `f3408e06` in `main`) | Not posted |
+| [litert-lm-session-snapshots.md](../_archive/upstream/litert-lm-session-snapshots.md) | LiteRT-LM issue | `aec81cb7`, `ed998d80`, `585203d3` | Not posted |
+| [litert-lm-decode-host-costs.md](../_archive/upstream/litert-lm-decode-host-costs.md) | LiteRT-LM issue | `ef197a04`, `e43f9a8d`, `5e946049`, `fdd5bac7` | Not posted |
+| [litert-bounded-attention.md](../_archive/upstream/litert-bounded-attention.md) | LiteRT PR and ML Drift PR | LiteRT `ede28c64`, `aa05bd2d`, `31386317`; ML Drift `6ae7c68`, `2184a7f` | Not posted; add ML Drift `15fa9e2` |
+| [litert-weight-cache-key.md](../_archive/upstream/litert-weight-cache-key.md) | LiteRT PR | LiteRT `97e06d36` | Not posted |
+| [litert-metal-direct-copies.md](../_archive/upstream/litert-metal-direct-copies.md) | LiteRT PR | LiteRT `e17213ea`, `584f3461` | Not posted; rework on top of LiteRT `bd326784` |
 
 That is four LiteRT-LM issues and four pull requests (three LiteRT, one ML Drift), as the
 patches page records (C8, OUR-016). As of 2026-10-15, the only issue or pull request by
@@ -171,7 +171,7 @@ Gaps to close before posting:
    (OUR-011); the ML Drift draft lists `6ae7c68` and `2184a7f` but not `15fa9e2`, the window in
    ConvWaveMatrix (OUR-017).
 4. **Mac versus iPhone.** The drafts' numbers are from the M6 Mac, and their index asks for an
-   iPhone run before posting; the iPhone run of 2026-10-15 ([../VALIDATION.md](../VALIDATION.md))
+   iPhone run before posting; the iPhone run of 2026-10-15 ([../_archive/VALIDATION.md](../_archive/VALIDATION.md))
    covers the T3, T11 and window builds, not each draft's table.
 5. **Our names.** The drafts keep our environment switches (`AGELLO_BOUNDED_ATTENTION`,
    `AGELLO_SHARED_WEIGHT_CACHE`, ...) and track names; the weight-cache draft already says the
@@ -353,13 +353,13 @@ Google's file under the CLA).
 ## Checklist for user-facing docs
 
 Agello's README, `docs/` (USER_GUIDE, ENGINEERING, ARCHITECTURE, TESTING), `NOTICE`,
-`Vendor/README.md`, `CLAUDE.md` and the skills repeat facts that live here. On each change to
+`Vendor/README.md`, `AGENTS.md` and the skills repeat facts that live here. On each change to
 the runtime, the model or the tests, check:
 
 | Fact | Where in Agello (`a691212`) | Source of truth |
 | --- | --- | --- |
 | LiteRT-LM version | README badge ("our Metal build", line 10) and "Vendored LiteRT-LM"; ARCHITECTURE code map ("our runtime release") | [versions.md](versions.md) |
-| Patches in the wrapper | `Vendor/README.md` (five), `CLAUDE.md` (five), README "Vendored LiteRT-LM" and the `agello-litert-update` skill (four: stale, C3), `NOTICE` (each change, no count) | [patches.md](patches.md#what-agello-ships-c3) |
+| Patches in the wrapper | `Vendor/README.md` (five), `AGENTS.md` (five), README "Vendored LiteRT-LM" and the `agello-litert-update` skill (four: stale, C3), `NOTICE` (each change, no count) | [patches.md](patches.md#what-agello-ships-c3) |
 | Which runtime ships | README "Vendored LiteRT-LM", `Vendor/README.md` "The runtime"; ENGINEERING's #3913 section names Google's prebuilt binary as what the app ran when the bug was found | [versions.md](versions.md#what-ships-and-what-is-documented) |
 | Performance figures | README Performance (our build, 2026-11-17; Google's v0.18.0 table kept as history) | [versions.md](versions.md#performance-figures-which-build) (C16) |
 | Model file and revision | ModelCatalog, NOTICE, USER_GUIDE "The models", ENGINEERING | `pins.json`; [patches.md](patches.md#model-revisions-in-older-notes-c17) |
@@ -378,9 +378,9 @@ Rules for those docs:
 - **Name the build and date** with any speed or memory figure, as the README's Performance table
   needs (C16).
 - **No reference-only facts in user docs** unless a verified claim backs them; link this
-  reference from developer docs (`CLAUDE.md`, skills), not from the user guide.
+  reference from developer docs (`AGENTS.md`, skills), not from the user guide.
 - **Update together**: a wrapper change touches `Vendor/README.md`, `NOTICE`, the README section
-  and `CLAUDE.md` in one commit (C3 came from missing `CLAUDE.md`).
+  and `AGENTS.md` in one commit (C3 came from missing `AGENTS.md`).
 - **The fork's landing page** (since 2026-11-15 the root `README.md` of `main`, Google's, and the
   repository's description) is a user-facing doc too (C4,
   [patches.md](patches.md#the-fork-landing-page-c4)).

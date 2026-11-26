@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""generated/swift-api-inventory.md: the public API of the LiteRTLM Swift module, from a symbol graph.
+"""generated/swift-api-inventory.md: the public API of the LiteRTLM and LiteRTLMTools Swift modules.
 
-Usage: gen_swift_api.py <LiteRTLM.symbols.json> [<build log>]
-(gen_swift_api.sh builds the symbol graph in a scratch folder and calls this.)
+Usage: gen_swift_api.py [--log <build log>] <LiteRTLM.symbols.json> [<LiteRTLMTools.symbols.json> ...]
+(gen_swift_api.sh builds the symbol graphs in a scratch folder and calls this.)
 """
+import argparse
 import collections
 import json
 import os
@@ -37,33 +38,74 @@ def where(sym):
     return f"[`{rel}:{line}`]({common.permalink(KEY, rel, line)})"
 
 
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--log", default="", help="Optional swift dump-symbol-graph build log")
+    p.add_argument("inputs", nargs="+", help="One or more *.symbols.json files (plus optional trailing log)")
+    args = p.parse_args()
+    graphs = []
+    log_path = args.log
+    for item in args.inputs:
+        if item.endswith(".json"):
+            graphs.append(item)
+        elif not log_path:
+            log_path = item
+    if not graphs:
+        p.error("at least one *.symbols.json file is required")
+    return graphs, log_path
+
+
 def main():
-    graph = json.load(open(sys.argv[1]))
-    log = open(sys.argv[2]).read() if len(sys.argv) > 2 else ""
-    syms = [s for s in graph["symbols"] if s.get("accessLevel") in ("public", "open")]
+    graph_paths, log_path = parse_args()
+    log = open(log_path).read() if log_path and os.path.isfile(log_path) else ""
+    modules = []
+    syms = []
+    seen_ids = set()
+    for gp in graph_paths:
+        graph = json.load(open(gp))
+        mod_name = graph.get("module", {}).get("name")
+        if mod_name and mod_name not in modules:
+            modules.append(mod_name)
+        for s in graph.get("symbols", []):
+            if s.get("accessLevel") not in ("public", "open"):
+                continue
+            precise = s.get("identifier", {}).get("precise")
+            key = precise or (tuple(s.get("pathComponents", [])), decl(s))
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            syms.append((mod_name or "", s))
+
     by_type = collections.defaultdict(list)
     tops = {}
-    for s in syms:
+    top_module = {}
+    for mod_name, s in syms:
         path = s["pathComponents"]
         if len(path) == 1:
             tops[path[0]] = s
+            top_module[path[0]] = mod_name
         else:
             by_type[path[0]].append(s)
 
+    mod_list = ", ".join(f"`{m}`" for m in modules)
+    mod_label = "Modules" if len(modules) > 1 else "Module"
     md = [common.gen_header("gen_swift_api.sh", [KEY]), "# LiteRTLM Swift API inventory\n\n",
-          f"Module `{graph['module']['name']}`, {len(syms)} public symbols, {len(tops)} top-level declarations. "
+          f"{mod_label} {mod_list}, {len(syms)} public symbols, {len(tops)} top-level declarations. "
           "Built with `swift package dump-symbol-graph --minimum-access-level public` against `dist/CLiteRTLM.xcframework`.\n\n"]
     if "LiteRTLMFoundationModels" in log and "error" in log:
         md.append("> The `LiteRTLMFoundationModels` target (`swift/apple_fm/`) didn't compile against the macOS 27 SDK "
                   "when this was generated, so it isn't listed.\n\n")
     kinds = collections.Counter(tops[t]["kind"]["displayName"] for t in tops)
+
     def plural(k, n):
         k = k.lower()
         return k if n == 1 else (k + "es" if k.endswith("s") else k + "s")
+
     md.append("Top level: " + ", ".join(f"{n} {plural(k, n)}" for k, n in kinds.most_common()) + "\n\n")
     for name in sorted(tops, key=lambda n: (tops[n]["kind"]["displayName"], n)):
         t = tops[name]
-        md.append(f"## {name} ({t['kind']['displayName'].lower()})\n\n`{decl(t)}`  {where(t)}\n\n")
+        mod_note = f" — `{top_module[name]}`" if len(modules) > 1 and top_module.get(name) else ""
+        md.append(f"## {name} ({t['kind']['displayName'].lower()}{mod_note})\n\n`{decl(t)}`  {where(t)}\n\n")
         if doc(t):
             md.append(doc(t) + "\n\n")
         members = sorted(by_type.get(name, []), key=lambda s: (s["kind"]["displayName"], s["pathComponents"]))

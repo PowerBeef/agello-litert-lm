@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Gemma 4 E4B: the attention graph (spike S4)
 
 How the `.litertlm` graph attends: where the sliding window comes from, what

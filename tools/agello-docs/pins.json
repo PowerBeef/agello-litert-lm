@@ -244,21 +244,37 @@
     }
   },
   "models": {
+    "e4b-v2": {
+      "path": "/Users/patricedery/Models/agello/gemma-4-E4B-it-agello-v2.litertlm",
+      "sha256": "7d63a4d8efee11108933c28e9f9a0a17804998379b5fd58ae03031130dac7e7b",
+      "source": "huggingface.co/PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope @ 9935a8114c3a10920bbd5e85be92087727246254",
+      "note": "What Agello ships: 1,536-slot local KV rings, 128K Dual-GATHER float16-exact rotary tables (<0.001 rad across 0..131,071), and verify_8 speculative signature (tools/model-surgery/build_v2.sh)."
+    },
     "e4b-ours": {
       "path": "/Users/patricedery/Models/agello/gemma-4-E4B-it-fp16-rope.litertlm",
       "sha256": "6353a23321e46624e0fa1b038d23370e8e0af84032d24d30ef53be3b116f655c",
       "source": "huggingface.co/PowerBeef02/gemma-4-E4B-it-litert-lm-fp16-rope @ a1693e22a3439b0d36570cc7844d7b572336a85d",
-      "note": "What Agello downloads: Google's file with 512-token rotary blocks (patch_rope.py --split --block 512)."
+      "note": "Legacy v1 32K file: Google's file with 512-token rotary blocks (patch_rope.py --split --block 512), kept on HF main for stock LiteRT-LM / #3913 users."
     },
     "e4b-google": {
       "path": "/Users/patricedery/Models/agello/gemma-4-E4B-it.litertlm",
       "sha256": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
       "source": "huggingface.co/litert-community/gemma-4-E4B-it-litert-lm @ 2eee7ac325f20eb8c9ac1d0e972f7c84663062da"
     },
+    "embeddinggemma-ane": {
+      "format": "coreai-ane-aar",
+      "path": "/Users/patricedery/Models/agello/embeddinggemma-2-text-270m-ane.aar",
+      "extracted_dir": "/Users/patricedery/Models/agello/embeddinggemma-2-text-270m-ane",
+      "bytes": 128245086,
+      "sha256": "122c2d86657c20aa567fb778801a46e3aec786eec7bbabff618f1c4a531b2ece",
+      "source": "huggingface.co/PowerBeef02/embeddinggemma-2-text-270m-coreai-ane @ 41026d1cbf50d4825e0b2c91f2cc131f7433f071",
+      "note": "What Agello ships for primary embeddings: 4-bucket (128/256/512/1024) asymmetric INT4 Core AI Apple Neural Engine bundle (unpacked via AppleArchive; not a .litertlm container)."
+    },
     "embeddinggemma": {
       "path": "/Users/patricedery/Models/agello/embeddinggemma-2-text-270m.litertlm",
       "sha256": "2d079ee2f6f066b1f368e8d7c819f55214eaef1d0513b312321901f30ab286fb",
-      "source": "huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm @ 9be6e8b90982095dc05c2bd162e4b954ee4dbac7"
+      "source": "huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm @ 9be6e8b90982095dc05c2bd162e4b954ee4dbac7",
+      "note": "Legacy LiteRT GPU FP16 fallback container."
     }
   },
   "remote_models": {
@@ -291,24 +307,52 @@
   },
   "hf_repos_comment": "Official configs read by gen_hf_configs.py; --update moves each to the repo's current revision.",
   "previous_pins": {
-    "comment": "The pins before the last re-pin (2026-11-17), still readable for repin.py. repin_batch names that re-pin's verdict batches: a claim verified in one of them, with every code source at a current pin or base, isn't listed again.",
+    "comment": "Pins and tokens from prior reference pins (2026-10-15 and 2026-11-17), read dynamically by repin.py. repin_batch names the next re-pin's verdict batch prefix (z-repin2): claims only verified in z-repin are re-checked for text/model/policy changes when repinning.",
     "litert-lm": [
+      "b7b856a0cf7e2304f556e985218bc698768233f7",
       "7b872544fdbd81308f98b1e2acf8c5798a549df6",
       "agello-next"
     ],
     "litert": [
+      "b7b856a0cf7e2304f556e985218bc698768233f7",
       "362759838e34e1525f1cc27daddaf663a193c059",
       "PowerBeef/LiteRT agello-next"
     ],
     "ml-drift": [
+      "b7b856a0cf7e2304f556e985218bc698768233f7",
       "15fa9e2ba632145992299e3f04786dc1f575373c",
       "PowerBeef/ml-drift agello-next"
     ],
     "litert-lm-shipped": [
+      "6da75396ece779d3c7b6b605ec8c2c06861ce1eb",
+      "82b05ea1bfd3a4f40f8f986c857c91c5de45ddac",
       "85b1a77695bc90fc8b34a1f455bbe5b2c7fdceff",
-      "agello (v0.18.0 plus Swift patches)",
-      "b2f686e2ed4718fb84ec398a61dd59ca0f0aff27"
+      "b2f686e2ed4718fb84ec398a61dd59ca0f0aff27",
+      "agello-one-20261115",
+      "0c749789100a",
+      "6ddc6b998303"
     ],
-    "repin_batch": "z-repin"
+    "models": [
+      "a1693e22a3439b0d36570cc7844d7b572336a85d",
+      "9be6e8b90982095dc05c2bd162e4b954ee4dbac7"
+    ],
+    "agello": [
+      "a691212",
+      "93122b6"
+    ],
+    "stale_text_patterns": [
+      "`agello` branch",
+      "the agello branch",
+      "\\bagello branch",
+      "doesn't run in the simulator",
+      "tests only on hardware",
+      "No Neural Engine",
+      "doesn't use the Neural Engine",
+      "vision encoder on the CPU",
+      "vision on the CPU",
+      "no binary archive",
+      "No FP32 comparison"
+    ],
+    "repin_batch": "z-repin2"
   }
 }

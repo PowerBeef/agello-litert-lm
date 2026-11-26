@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # T2: host costs per token
 
 The decode loop waits for the host between GPU runs (TELEMETRY.md: sampling 0.50 ms, parameter

@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Draft issue (LiteRT-LM): session switches on Metal cost 2× the KV cache and ~0.3 s per switch
 
 **Title:** Metal: a second conversation (session switch) snapshots the KV caches through layout

@@ -287,15 +287,73 @@ def download(url, expected_bytes):
     return folder, path, digest.hexdigest()
 
 
+def is_non_litertlm(meta, where):
+    fmt = meta.get("format")
+    if fmt and fmt != "litertlm":
+        return True
+    return not where.endswith(".litertlm")
+
+
+def analyze_non_litertlm(key, where, meta):
+    size = os.path.getsize(where) if os.path.isfile(where) else meta.get("bytes", 0)
+    bundle_files = []
+    ext_dir = meta.get("extracted_dir")
+    if ext_dir and os.path.isdir(ext_dir):
+        for root, _, files in os.walk(ext_dir):
+            for fname in sorted(files):
+                fpath = os.path.join(root, fname)
+                bundle_files.append({
+                    "path": os.path.relpath(fpath, ext_dir),
+                    "bytes": os.path.getsize(fpath),
+                })
+        bundle_files.sort(key=lambda x: x["path"])
+    return {
+        "file": os.path.basename(where),
+        "format": meta.get("format", "non-litertlm"),
+        "bytes": size,
+        **{k: v for k, v in meta.items() if k in ("sha256", "source", "note")},
+        "bundle_files": bundle_files,
+    }
+
+
+def render_non_litertlm(key, info):
+    md = [common.gen_header("gen_model_tables.py", [info.get("source", key)]), f"# Model bundle: {key}\n\n",
+          f"- File: `{info['file']}`, {info['bytes']:,} bytes"
+          + (f", sha256 `{info['sha256']}`" if info.get("sha256") else "") + "\n",
+          f"- Format: `{info['format']}` (non-`.litertlm`; documented via metadata rather than FlatBuffer graph inspection)\n",
+          f"- Source: {info.get('source', 'local')}\n"]
+    if info.get("note"):
+        md.append(f"- Note: {info['note']}\n")
+    if info.get("bundle_files"):
+        md.append("\n## Unpacked bundle files\n\n| File | Size (MB) | Bytes |\n| --- | --- | --- |\n")
+        for item in info["bundle_files"]:
+            md.append(f"| `{item['path']}` | {item['bytes'] / 1e6:,.2f} | {item['bytes']:,} |\n")
+    return "".join(md)
+
+
 def main():
     targets = {k: (LocalReader, m["path"], m, True) for k, m in common.PINS["models"].items()}
     targets.update({k: (RemoteReader, m["url"], m, m.get("graphs", True))
                     for k, m in common.PINS.get("remote_models", {}).items()})
-    if len(sys.argv) > 2 and sys.argv[1] == "--only":
+    explicit = len(sys.argv) > 2 and sys.argv[1] == "--only"
+    if explicit:
         targets = {k: targets[k] for k in sys.argv[2:]}
     out = os.path.join(common.GEN_DIR, "models")
     os.makedirs(out, exist_ok=True)
     for key, (cls, where, meta, graphs) in targets.items():
+        if cls is LocalReader and is_non_litertlm(meta, where):
+            info = analyze_non_litertlm(key, where, meta)
+            json.dump(info, open(os.path.join(out, f"{key}.json"), "w"), indent=1, default=str)
+            with open(os.path.join(out, f"{key}.md"), "w") as f:
+                f.write(render_non_litertlm(key, info))
+            print(os.path.join(out, f"{key}.md") + f"  ({info['format']})")
+            continue
+        if cls is LocalReader and not os.path.isfile(where):
+            msg = f"  {key}: local file not found at {where}"
+            if explicit:
+                sys.exit(msg)
+            print(msg + " (skipping)", file=sys.stderr)
+            continue
         folder = None
         if cls is RemoteReader and graphs:
             size = RemoteReader(where).size

@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Upstream drafts
 
 Drafts of what our fork could offer upstream. Nothing here is posted: each needs the user's OK,
@@ -5,7 +8,7 @@ and pull requests to LiteRT and ML Drift need Google's CLA signed first. Links t
 once the branches are pushed.
 
 How each project takes contributions (checked 2026-10-15; the full rules, templates and evidence
-checklist are in [../reference/contributing.md](../reference/contributing.md)):
+checklist are in [../../reference/contributing.md](../../reference/contributing.md)):
 
 | Project | Takes | Notes |
 | --- | --- | --- |

@@ -10,12 +10,17 @@ rm -rf "$SCRATCH"
 mkdir -p "$SCRATCH"
 (cd "$ROOT" && swift package --scratch-path "$SCRATCH/build" dump-symbol-graph --minimum-access-level public \
   > "$SCRATCH/dump.log" 2>&1)
-GRAPH="$(find "$SCRATCH/build" -name 'LiteRTLM.symbols.json' | head -1)"
-if [ -z "$GRAPH" ]; then
+MAIN_GRAPH="$(find "$SCRATCH/build" -name 'LiteRTLM.symbols.json' | head -1)"
+TOOLS_GRAPH="$(find "$SCRATCH/build" -name 'LiteRTLMTools.symbols.json' | head -1)"
+if [ -z "$MAIN_GRAPH" ]; then
   echo "no LiteRTLM symbol graph; see $SCRATCH/dump.log" >&2
   exit 1
 fi
-python3 "$HERE/gen_swift_api.py" "$GRAPH" "$SCRATCH/dump.log"
+if [ -n "$TOOLS_GRAPH" ]; then
+  python3 "$HERE/gen_swift_api.py" --log "$SCRATCH/dump.log" "$MAIN_GRAPH" "$TOOLS_GRAPH"
+else
+  python3 "$HERE/gen_swift_api.py" --log "$SCRATCH/dump.log" "$MAIN_GRAPH"
+fi
 status=$?
 rm -rf "$SCRATCH"
 exit $status

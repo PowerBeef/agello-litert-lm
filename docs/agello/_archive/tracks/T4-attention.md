@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # T4: attention work bounded to the filled context
 
 E4B's attention ends `runtime_bmm(Q, K) → SELECT_V2(mask, scores, −1e30) → SOFTMAX →

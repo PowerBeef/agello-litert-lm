@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # LiteRT-LM on Apple silicon: architecture audit
 
 Date: 2026-10-14. Audit by Agello for its fork `PowerBeef/agello-litert-lm`, scope Apple platforms
@@ -5,7 +8,7 @@ only (iOS 27, macOS 27, Metal 4). Model: Gemma 4 E4B (`.litertlm`).
 
 > **Dated audit.** Line numbers and code descriptions are LiteRT-LM v0.18.0 (`agello` branch), the
 > source of what Agello ships. For the documented build (`agello-next` `7b872544`) see
-> [reference/](reference/README.md); statements that changed since are listed in
+> [reference/](../reference/README.md); statements that changed since are listed in
 > `reference/_work/contradictions.md` (C9, C13, C17, N11, N24-N26, N28, N31, N36). What it says of
 > our E4B file describes the 2048-token-block revision `13d5aa4c`; Agello now uses `a1693e22`
 > (512-token blocks, same weights).

@@ -34,9 +34,47 @@ import sys
 import common
 import claims as C
 
-OLD_TEXT = re.compile(r"\b(7b872544\w*|36275983\w*|15fa9e2\w*|85b1a776\w*|agello-next|b2f686e2\w*)\b"
-                      r"|`agello` branch|the agello branch|\bagello branch")
 BLOB = re.compile(r"https://github\.com/([^/]+/[^/]+)/blob/([0-9a-f]{40})/([^#)\s]+)(?:#L(\d+)(?:-L(\d+))?)?")
+
+
+def build_old_text_pattern():
+    """Build a regex matching old pins, branches, releases, and model revisions from pins.json."""
+    prev = common.PINS.get("previous_pins", {})
+    tokens = []
+    seen = set()
+
+    def add_token(tok):
+        if not isinstance(tok, str):
+            return
+        tok = tok.strip()
+        if not tok or tok in seen:
+            return
+        seen.add(tok)
+        if re.fullmatch(r"[0-9a-f]{7,40}", tok):
+            tokens.append(rf"\b{re.escape(tok[:7])}\w*\b")
+        else:
+            tokens.append(rf"\b{re.escape(tok)}\b")
+
+    for key, val in prev.items():
+        if key in ("comment", "repin_batch", "stale_text_patterns"):
+            continue
+        if isinstance(val, list):
+            for item in val:
+                if isinstance(item, str) and " " not in item:
+                    add_token(item)
+        elif isinstance(val, str) and " " not in val:
+            add_token(val)
+
+    parts = list(tokens)
+    for pat in prev.get("stale_text_patterns", []):
+        if isinstance(pat, str) and pat:
+            parts.append(pat)
+    if not parts:
+        return re.compile(r"(?!)")
+    return re.compile("|".join(parts))
+
+
+OLD_TEXT = build_old_text_pattern()
 
 
 def sha1(lines):
@@ -54,10 +92,16 @@ def old_url_key(slug, sha, path):
         imp = r.get("imported")
         if imp and slug == imp["from"] and sha == imp["from_pin"]:
             return key, path
-        if old and sha == old[0] and slug == r["fork"] and not imp:
-            return key, path
-        if len(old) > 2 and sha == old[2] and slug == r["upstream"]:
-            return key, path
+        old_shas = [x for x in old if isinstance(x, str) and re.fullmatch(r"[0-9a-f]{40}", x)]
+        if old_shas and sha in old_shas:
+            p = common.prefix(key)
+            if slug == r["fork"]:
+                if p and path.startswith(p):
+                    return key, path[len(p):]
+                if not p:
+                    return key, path
+            if slug == r["upstream"]:
+                return key, path
     return None
 
 
@@ -145,16 +189,20 @@ def survey():
                         reasons.append(f"our tree no longer has the file: {where}")
                 else:
                     reasons.append(f"{st}: {where}")
-            batch = common.PINS.get("previous_pins", {}).get("repin_batch")
-            if not stale and batch and f".{batch}" in c.get("verified_in", ""):
+            prev = common.PINS.get("previous_pins", {})
+            batch = prev.get("repin_batch")
+            verified_in = c.get("verified_in", "")
+            in_current_repin = bool(batch and re.search(rf"\.{re.escape(batch)}(?:-|$)", verified_in))
+            if not stale and in_current_repin:
                 if reasons:
                     todo[name][c["id"]] = reasons
-                continue  # verified at these pins in the last re-pin
+                continue  # verified at these pins in the current re-pin batch
             for s in c.get("sources", []):
-                if s.get("type") == "empirical" and s.get("path") in GENERATED_BY_PIN:
-                    reasons.append(f"cites {s['path']}, regenerated at the new pin")
+                sp = s.get("path", "")
+                if s.get("type") == "empirical" and (sp in GENERATED_BY_PIN or sp.startswith("generated/models/")):
+                    reasons.append(f"cites {sp}, regenerated at the new pin")
             if OLD_TEXT.search(c.get("text", "")):
-                reasons.append("text names an old pin or branch")
+                reasons.append("text names an old pin, branch, release, or superseded condition")
             if shipped or (c.get("applies_to") or {}).get("build") == "shipped":
                 reasons.append("describes the shipped build, now our release")
             if reasons:

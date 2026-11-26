@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Parity: our source build against Google's nightly (M1.6)
 
 Our build (`agello-next`: the 0.19.0-nightly.20261013 source, the tool-call patch, LiteRT's Metal

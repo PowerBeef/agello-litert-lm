@@ -1,4 +1,21 @@
-# LiteRT-LM
+# PowerBeef/agello-litert-lm (Agello Hard Fork of LiteRT-LM)
+
+This repository (`PowerBeef/agello-litert-lm`, single branch `main`) is the hard fork of Google's
+LiteRT-LM that powers Agello on Apple silicon (iOS 27 and macOS 27, Metal 4 / MSL 4.1). LiteRT and
+ML Drift live directly in-tree under `agello/litert` and `agello/ml_drift`, and the XCFramework
+(`//agello:CLiteRTLM`) builds from open sources — static Metal GPU accelerator included.
+
+- **Shipped binary release:** [`agello-one-20261124`](https://github.com/PowerBeef/agello-litert-lm/releases/tag/agello-one-20261124) (`c819aecb`, dual-slice `ios-arm64` + `macos-arm64` Metal; earlier releases `agello-one-20261122-3`, `agello-one-20261122-2`, `agello-one-20261122`, `agello-one-20261115`, `agello-next-20261024`).
+- **Tags:** `agello-base-20261013` (upstream nightly base `df6df5b8`), `research/3913` (annotated tag for the #3913 FP16 rotary reproducer).
+- **Documentation & tools:**
+  - [Building, releasing & vendoring](docs/agello/BUILD.md) (`agello/build-xcframework.sh [--mac-only]`)
+  - [Telemetry probes & diagnostics](docs/agello/TELEMETRY.md) (`@agello_telemetry`)
+  - [Deep technical reference](docs/agello/reference/README.md) & [patch inventory](docs/agello/reference/patches.md)
+  - [Benchmark harness (`tools/agello-bench`)](tools/agello-bench/README.md) & [reference tooling (`tools/agello-docs`)](tools/agello-docs/README.md)
+
+---
+
+# LiteRT-LM (Upstream README)
 
 LiteRT-LM is Google's **production-ready** orchestration layer to run LLMs with
 LiteRT, engineered for **high-performance**, **cross-platform** execution.

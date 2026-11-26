@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Draft pull requests (LiteRT + ML Drift): attention bounded to the filled KV length and the local window
 
 Two PRs that go together: the delegate pass in LiteRT, and the kernel bounds it needs in ML

@@ -1,5 +1,19 @@
 # The Agello reference: LiteRT-LM, LiteRT, ML Drift and the models on Apple
 
+> [!IMPORTANT]
+> **Stale pin (`b7b856a0`, `agello-one-20261115`, v1 32K, 2026-11-17) — awaiting post-Phase-C repin.**
+> The runtime, models, and app have advanced substantially since `b7b856a0` (Phases 1–6, Audit
+> Waves 1–2, `agello-one-20261124` @ `c819aecb`, vendored `swift/` @ `9c8c783d`, v2 64K
+> Dual-`GATHER`/ring-KV/`verify_8` E4B, Core AI ANE `EmbeddingGemma 2`, and `AgelloSim`).
+> Superseded facts in [facts.md](facts.md) include `F-010` (Simulator/`AgelloSim`), `F-020`–`F-023`
+> & `F-029`–`F-030` (v2 E4B & Core AI ANE embeddings), `F-047` (`verify_8` default ON),
+> `F-049`–`F-053` (128K Dual-`GATHER` RoPE & 65,536 allocation), `F-057`–`F-059` & `F-063` (ring KV
+> + sparse globals + Metal 4 `copyBufferMappingsFromBuffer:` snapshots), `F-069` (Apple10 GPU
+> Vision), `F-084` (Core AI ANE & iOS 27 `SpeechAnalyzer`), `F-090`/`F-092`/`F-096` (persistent
+> `MTLBinaryArchive`, MSL 4.1 `agello_flash_attention`, `dst_window` QK skip), and `F-123` (ANE
+> INT4 vs LiteRT FP32 cosine). Cross-check Agello's `Vendor/README.md`, `docs/BACKEND.md`,
+> `docs/ROADMAP.md`, and `ModelCatalog.swift` until the next `repin.py` pass lands.
+
 > **Scope:** what this reference documents and at which commits, who should read what, a map of
 > every page, the conventions the pages share, and how to regenerate and re-verify them.
 > **Out of scope:** the facts themselves (the pages below; numbers in [facts.md](facts.md)); how

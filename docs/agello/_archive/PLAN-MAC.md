@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Archived historical record (October 2026, pre-hard-fork).** Superseded by the single-repository layout on `main`, `docs/agello/BUILD.md`, `docs/agello/TELEMETRY.md`, `docs/agello/reference/`, and Agello's `Vendor/README.md` & `docs/BACKEND.md`.
+
 # Plan: the work that doesn't need the iPhone (2026-10-15)
 
 Everything here is built and measured on the Mac (agello-bench, Agello with `PLATFORM=mac`).
