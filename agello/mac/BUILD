@@ -8,8 +8,18 @@ load("@build_bazel_rules_apple//apple:apple.bzl", "apple_xcframework")
 apple_xcframework(
     name = "CLiteRTLM",
     bundle_id = "com.patricedery.agello.CLiteRTLM",
-    features = ["exported_symbols"],
+    data = ["//agello:PrivacyInfo.xcprivacy"],
+    exported_symbols_lists = ["//agello:CLiteRTLM.exp"],
     infoplists = ["//agello:Info.plist"],
+    linkopts = [
+        "-dead_strip",
+        "-dead_strip_dylibs",
+        "-x",
+        "-current_version",
+        "0.19.0",
+        "-compatibility_version",
+        "0.19.0",
+    ],
     macos = ["arm64"],
     minimum_os_versions = {
         "macos": "27.0",

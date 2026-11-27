@@ -1,0 +1,3 @@
+# Public LiteRT-LM C ABI symbols exported by CLiteRTLM.framework.
+# All internal C++, Objective-C, Abseil, Protobuf, XNNPACK, SentencePiece, and Rust symbols stay hidden.
+_litert_lm_*

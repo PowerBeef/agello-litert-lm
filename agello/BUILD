@@ -8,7 +8,11 @@
 
 load("@build_bazel_rules_apple//apple:apple.bzl", "apple_xcframework")
 
-exports_files(["Info.plist"])
+exports_files([
+    "CLiteRTLM.exp",
+    "Info.plist",
+    "PrivacyInfo.xcprivacy",
+])
 
 # litert_lm_get_build_info's JSON, from the stamp agello/workspace_status.sh prints.
 genrule(
@@ -29,11 +33,24 @@ cc_library(
 apple_xcframework(
     name = "CLiteRTLM",
     bundle_id = "com.patricedery.agello.CLiteRTLM",
-    features = ["exported_symbols"],
+    data = ["PrivacyInfo.xcprivacy"],
+    exported_symbols_lists = ["CLiteRTLM.exp"],
+    families_required = {
+        "ios": ["iphone"],
+    },
     infoplists = ["Info.plist"],
     ios = {
         "device": ["arm64"],
     },
+    linkopts = [
+        "-dead_strip",
+        "-dead_strip_dylibs",
+        "-x",
+        "-current_version",
+        "0.19.0",
+        "-compatibility_version",
+        "0.19.0",
+    ],
     macos = ["arm64"],
     minimum_os_versions = {
         "ios": "27.0",
