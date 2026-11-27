@@ -81,6 +81,8 @@ class GpuBackendMetal : public GpuBackend {
   absl::Status AssociateGpuEvent(GpuEventHandle event, LiteRtEnvironment env,
                                  GpuTensorBufferPtr& tensor_buffer) override;
   absl::Status WaitForCompletion() override;
+  void DiscardPendingCommands() override;
+  void TrackCommittedCommandBuffer(id<MTLCommandBuffer> command_buffer);
   absl::StatusOr<GpuBufferRequirements> GetGpuBufferRequirements(
       ::ml_drift::TensorStorageType used_storage_type,
       ::ml_drift::DataType data_type) override;
@@ -208,6 +210,10 @@ class GpuBackendMetal : public GpuBackend {
   // execution mode.
   id<MTLCommandBuffer> command_buffer_ = nullptr;
   id<MTLComputeCommandEncoder> compute_command_encoder_ = nullptr;
+  // Earlier command buffers committed during the current invoke (e.g. input
+  // layout conversion before Dispatch) whose completion status is checked in
+  // WaitForCompletion().
+  std::vector<id<MTLCommandBuffer>> committed_command_buffers_;
   ::ml_drift::metal::MemoryManager memory_manager_;
   id<MTLResidencySet> residency_set_ = nil;
   std::thread heartbeat_thread_ ABSL_GUARDED_BY(residency_mutex_);
@@ -285,6 +291,23 @@ class GpuTensorWrapperMetal : public GpuTensorWrapper {
 
   // Implementation of GpuTensorWrapper.
   ::ml_drift::GpuSpatialTensor& Get() override { return tensor_; }
+  bool MatchesMemory(GpuMemoryHandle gpu_memory) const override {
+    if (gpu_memory == nullptr) return false;
+    const auto* incoming =
+        reinterpret_cast<const ::ml_drift::metal::MetalSpatialTensor*>(
+            gpu_memory);
+    id<MTLBuffer> cached_buf = tensor_.GetBufferHandle();
+    id<MTLTexture> cached_tex = tensor_.GetTextureHandle();
+    id<MTLBuffer> incoming_buf = incoming->GetBufferHandle();
+    id<MTLTexture> incoming_tex = incoming->GetTextureHandle();
+    if (incoming_buf != nil) {
+      return cached_buf == incoming_buf;
+    }
+    if (incoming_tex != nil) {
+      return cached_buf == nil && cached_tex == incoming_tex;
+    }
+    return false;
+  }
 
   // Underlying Metal spatial tensor.
   ::ml_drift::metal::MetalSpatialTensor& metal_tensor() { return tensor_; }

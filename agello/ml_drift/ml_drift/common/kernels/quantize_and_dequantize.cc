@@ -240,10 +240,10 @@ std::string GetCode(const int3& work_group_size,
     c += "  if (X >= args.src_tensor.Width()) { return; }\n";
     c += "  if (Y >= args.src_tensor.Height()) { return; }\n";
   }
-  c += "  SrcType min_value = args.src_tensor.Read(0, 0, 0).x;\n";
-  c += "  SrcType max_value = min_value;\n";
   c += "  int x_clamped = min(X, args.src_tensor.Width() - 1);\n";
   c += "  int y_clamped = min(Y, args.src_tensor.Height() - 1);\n";
+  c += "  SrcType min_value = args.src_tensor.Read(x_clamped, y_clamped, 0).x;\n";
+  c += "  SrcType max_value = min_value;\n";
   if (register_cache) {
     c += "  SrcType4 src_s[REDUCTION_GROUPS];\n";
     c += "  for (int i = 0; i < REDUCTION_GROUPS; ++i) {\n";
@@ -300,9 +300,9 @@ std::string GetCode(const int3& work_group_size,
     c += "  min_value = min_max_value.x;\n";
     c += "  max_value = min_max_value.y;\n";
   }
-  c += "  float src_range = ucl::Convert<float>(max_value - min_value);\n";
+  c += "  float src_range = ucl::Convert<float>(max_value) - ucl::Convert<float>(min_value);\n";
   c += "  float offset = ucl::Convert<float>(min_value);\n";
-  c += "  float scale = ucl::Convert<float>(args.dst_range) / src_range;\n";
+  c += "  float scale = src_range > 0.0f ? ucl::Convert<float>(args.dst_range) / src_range : 0.0f;\n";
   c += "  float inv_scale = src_range / ucl::Convert<float>(args.dst_range);\n";
   if (IsSigned(dst_type)) {
     c += "  offset += src_range * args.src_range_middle;\n";

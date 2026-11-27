@@ -103,7 +103,11 @@ InferenceContext::InferenceContext()
 InferenceContext::InferenceContext(MemoryManager* memory_manager)
     : memory_manager_(*memory_manager) {}
 
-InferenceContext::~InferenceContext() { memory_manager_.SetRebind(model_id_, nullptr); }
+InferenceContext::~InferenceContext() {
+  if (has_registered_rebind_) {
+    memory_manager_.UnregisterModel(model_id_);
+  }
+}
 
 absl::Status InferenceContext::RebindPoolTensors(const absl::flat_hash_set<ValueId>& ids) {
   for (auto& node : nodes_) {
@@ -175,6 +179,7 @@ absl::Status InferenceContext::InitFromGpuModel(
   memory_manager_.SetRebind(model_id_, [this](const absl::flat_hash_set<ValueId>& ids) {
     return RebindPoolTensors(ids);
   });
+  has_registered_rebind_ = true;
   GetMutableNodes(create_info.external_mutable_tensors);
   for (auto& node : nodes_) {
     for (int j = 0; j < node.inputs.size(); ++j) {
@@ -260,6 +265,7 @@ absl::Status InferenceContext::RestoreDeserialized(
   memory_manager_.SetRebind(model_id_, [this](const absl::flat_hash_set<ValueId>& ids) {
     return RebindPoolTensors(ids);
   });
+  has_registered_rebind_ = true;
   for (auto& node : nodes_) {
     for (int j = 0; j < node.inputs.size(); ++j) {
       if (create_info_ref.external_immutable_tensors.contains(node.inputs[j])) {

@@ -300,7 +300,7 @@ MlDriftDelegateOptionsPtr MlDriftMetalDelegateDefaultOptionsPtr() {
       // and model_token are also set.
       .serialize_program_cache = true,
       .madvise_original_shared_tensors = true,
-      .wait_type = kGpuDelegateWaitTypeActive,
+      .wait_type = kGpuDelegateWaitTypePassive,
   });
 }
 

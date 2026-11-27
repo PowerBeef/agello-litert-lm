@@ -216,6 +216,7 @@ class InferenceContext {
   std::unique_ptr<MemoryManager> owned_memory_manager_;
   MemoryManager& memory_manager_;
   MemoryManager::ModelId model_id_ = 0;
+  bool has_registered_rebind_ = false;
 
   MemoryManager::Key GetKey(ValueId id) const {
     return MemoryManager::Key(model_id_, id);

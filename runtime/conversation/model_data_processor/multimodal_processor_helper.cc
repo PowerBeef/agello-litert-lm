@@ -15,7 +15,10 @@
 #include "runtime/conversation/model_data_processor/multimodal_processor_helper.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -51,19 +54,24 @@ absl::StatusOr<std::vector<InputData>> ProcessMultimodalPrompt(
 
   // 1. Find all images and audio contained in the messages.
   for (const auto& message : messages) {
+    if (!message.is_object()) {
+      continue;
+    }
     if (message.contains("content") && message["content"].is_array()) {
       for (const auto& item : message["content"]) {
-        if (item.is_string()) {
+        if (!item.is_object() || !item.contains("type") ||
+            !item["type"].is_string()) {
           continue;
         }
-        if (!item.contains("type")) {
+        const std::string& item_type = item["type"].get_ref<const std::string&>();
+        if (item_type != "image" && item_type != "audio") {
           continue;
         }
         ABSL_ASSIGN_OR_RETURN(std::unique_ptr<MemoryMappedFile> mmap_file,
                               LoadItemData(item));
-        if (item["type"] == "image") {
+        if (item_type == "image") {
           image_files.push_back(std::move(mmap_file));
-        } else if (item["type"] == "audio") {
+        } else {
           audio_files.push_back(std::move(mmap_file));
         }
       }
@@ -97,9 +105,21 @@ absl::StatusOr<std::vector<InputData>> ProcessMultimodalPrompt(
               "Visual token budget must be positive.");
         }
         // Overwrite the max_num_patches if the visual token budget is provided.
-        max_num_patches =
-            budget * image_params->GetPatchifyConfig()->pooling_kernel_size *
+        const int64_t kernel_size =
             image_params->GetPatchifyConfig()->pooling_kernel_size;
+        if (kernel_size <= 0) {
+          return absl::InvalidArgumentError(
+              "Pooling kernel size must be positive.");
+        }
+        const int64_t max_int = std::numeric_limits<int>::max();
+        if (kernel_size > max_int / kernel_size ||
+            static_cast<int64_t>(budget) >
+                max_int / (kernel_size * kernel_size)) {
+          return absl::InvalidArgumentError(
+              "Visual token budget overflows max_num_patches.");
+        }
+        max_num_patches = static_cast<int>(static_cast<int64_t>(budget) *
+                                           kernel_size * kernel_size);
       }
       img_params.SetPatchifyConfig(ImagePreprocessParameter::PatchifyConfig{
           .patch_width = image_params->GetPatchifyConfig()->patch_width,
@@ -114,7 +134,8 @@ absl::StatusOr<std::vector<InputData>> ProcessMultimodalPrompt(
 
   // 4. Parse the rendered prompt and replace placeholders.
   while (RE2::FindAndConsume(&prompt_view, re_delimiter, &part)) {
-    absl::string_view text_part(start, prompt_view.data() - part.size());
+    absl::string_view text_part(
+        start, static_cast<size_t>(prompt_view.data() - part.size() - start));
     start = prompt_view.data();
 
     if (RE2::FullMatch(part, re_image)) {

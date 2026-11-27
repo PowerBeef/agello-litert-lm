@@ -28,6 +28,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1103,18 +1104,35 @@ DelegateKernel::TryInitializingExternalTensorsSerialization(
   }
 
   // Create a unique identifier for this subgraph.
-  uint64_t unique_model_identifier =
-      (SharedWeightCacheEnabled()
-           ? ::ml_drift::SerializationWeightCache::GenerateContentModelIdentifier
-           : ::ml_drift::SerializationWeightCache::GenerateUniqueModelIdentifier)(
-          delegate_data_->model_token, context, delegate_params,
-          absl::StrCat(backend_->GetSerializedDataPrefix(), SimulatedAppleGpu()),
-          delegate_data_->options->precision,
-          delegate_data_->options->prefer_texture_weights,
-          delegate_data_->options->allow_src_quantized_fc_conv_ops,
-          prepare_weights_in_batches,
-          delegate_data_->options->serialize_external_tensors,
-          /*ordered_by_size=*/true);
+  const std::string serialization_prefix =
+      absl::StrCat(backend_->GetSerializedDataPrefix(), SimulatedAppleGpu());
+  uint64_t unique_model_identifier = 0;
+  if (SharedWeightCacheEnabled()) {
+    const std::unordered_map<size_t, size_t>* external_buffer_id_map =
+        context->impl_ != nullptr
+            ? &(reinterpret_cast<const tflite::Subgraph*>(context->impl_)
+                    ->GetExternalTensorBufferIdentifiers())
+            : nullptr;
+    unique_model_identifier =
+        ::ml_drift::SerializationWeightCache::GenerateContentModelIdentifier(
+            delegate_data_->model_token, context, delegate_params,
+            serialization_prefix, delegate_data_->options->precision,
+            delegate_data_->options->prefer_texture_weights,
+            delegate_data_->options->allow_src_quantized_fc_conv_ops,
+            prepare_weights_in_batches,
+            delegate_data_->options->serialize_external_tensors,
+            /*ordered_by_size=*/true, external_buffer_id_map);
+  } else {
+    unique_model_identifier =
+        ::ml_drift::SerializationWeightCache::GenerateUniqueModelIdentifier(
+            delegate_data_->model_token, context, delegate_params,
+            serialization_prefix, delegate_data_->options->precision,
+            delegate_data_->options->prefer_texture_weights,
+            delegate_data_->options->allow_src_quantized_fc_conv_ops,
+            prepare_weights_in_batches,
+            delegate_data_->options->serialize_external_tensors,
+            /*ordered_by_size=*/true);
+  }
 
   // Try loading from the cache.
   absl::Status load_status;

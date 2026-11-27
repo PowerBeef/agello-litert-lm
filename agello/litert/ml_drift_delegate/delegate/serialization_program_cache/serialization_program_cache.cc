@@ -16,11 +16,30 @@
 
 #include <fcntl.h>  // IWYU pragma: keep b/332641196
 
+#if defined(_WIN32)
+#include <io.h>
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
+#if defined(__APPLE__)
+#include <sys/clonefile.h>
+#endif
+
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
@@ -48,9 +67,14 @@ namespace {
 // Other operating systems have lower alignment requirements.
 constexpr size_t kAlignment = 65536;
 
-size_t Align(size_t offset, size_t alignment) {
+bool AlignChecked(size_t offset, size_t alignment, size_t* out) {
   const size_t misalign = offset % alignment;
-  return offset + (misalign ? alignment - misalign : 0);
+  const size_t pad = misalign ? alignment - misalign : 0;
+  if (offset > std::numeric_limits<size_t>::max() - pad) {
+    return false;
+  }
+  *out = offset + pad;
+  return true;
 }
 
 std::string JoinPath(absl::string_view path1, absl::string_view path2) {
@@ -65,15 +89,130 @@ std::string JoinPath(absl::string_view path1, absl::string_view path2) {
              : absl::StrCat(path1, std::string(1, slash), path2);
 }
 
+std::string MakeSiblingTempPath(absl::string_view target_path) {
+  static std::atomic<uint64_t> counter{0};
+  const uint64_t seq = counter.fetch_add(1, std::memory_order_relaxed);
+  const size_t tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
+#if defined(_WIN32)
+  const unsigned long pid = static_cast<unsigned long>(_getpid());
+#else
+  const unsigned long pid = static_cast<unsigned long>(getpid());
+#endif
+  return absl::StrCat(target_path, ".tmp.", pid, ".", tid, ".", seq);
+}
+
+bool FsyncFile(int fd) {
+#if defined(_WIN32)
+  return _commit(fd) == 0;
+#else
+  if (fsync(fd) == 0) return true;
+  // Special file descriptors (e.g. memfd) do not support fsync.
+  return errno == EINVAL || errno == ENOTSUP;
+#endif
+}
+
+void FsyncParentDir(absl::string_view file_path) {
+#if !defined(_WIN32)
+  std::string dir_path;
+  const size_t slash = file_path.find_last_of('/');
+  if (slash == absl::string_view::npos) {
+    dir_path = ".";
+  } else if (slash == 0) {
+    dir_path = "/";
+  } else {
+    dir_path = std::string(file_path.substr(0, slash));
+  }
+  const int dir_fd = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
+  if (dir_fd >= 0) {
+    (void)fsync(dir_fd);
+    close(dir_fd);
+  }
+#endif
+}
+
+absl::Status CopyFileToNewTemp(const std::string& src_path,
+                               const std::string& tmp_path,
+                               FileDescriptor& out_fd) {
+#if defined(__APPLE__)
+  if (clonefile(src_path.c_str(), tmp_path.c_str(), 0) == 0) {
+    out_fd = FileDescriptor::Open(tmp_path.c_str(), O_RDWR, 0644);
+    if (out_fd.IsValid()) {
+      return absl::OkStatus();
+    }
+    const int err = errno;
+    std::remove(tmp_path.c_str());
+    return absl::InternalError(absl::StrCat(
+        "Failed to open cloned program cache temp file: ", strerror(err)));
+  }
+  if (errno == ENOENT) {
+    return absl::NotFoundError("Program cache file does not exist.");
+  }
+#endif
+
+  FileDescriptor src_fd = FileDescriptor::Open(src_path.c_str(), O_RDONLY);
+  if (!src_fd.IsValid()) {
+    if (errno == ENOENT) {
+      return absl::NotFoundError("Program cache file does not exist.");
+    }
+    return absl::InternalError(
+        absl::StrCat("Failed to open program cache file: ", strerror(errno)));
+  }
+
+  FileDescriptor dst_fd = FileDescriptor::Open(
+      tmp_path.c_str(), O_CREAT | O_EXCL | O_RDWR,  // NOLINT: b/332641196
+      0644);
+  if (!dst_fd.IsValid()) {
+    return absl::InternalError(absl::StrCat(
+        "Failed to create program cache temp file: ", strerror(errno)));
+  }
+
+  std::vector<uint8_t> buf(256 * 1024);
+  while (true) {
+#if defined(_WIN32)
+    const int bytes_read =
+        _read(src_fd.Value(), buf.data(), static_cast<unsigned int>(buf.size()));
+#else
+    const ssize_t bytes_read = read(src_fd.Value(), buf.data(), buf.size());
+#endif
+    if (bytes_read == 0) {
+      break;
+    }
+    if (bytes_read < 0) {
+      if (errno == EINTR) continue;
+      const int err = errno;
+      dst_fd.Close();
+      std::remove(tmp_path.c_str());
+      return absl::InternalError(
+          absl::StrCat("Failed to read program cache file: ", strerror(err)));
+    }
+    if (!dst_fd.Write(buf.data(), static_cast<size_t>(bytes_read))) {
+      const int err = errno;
+      dst_fd.Close();
+      std::remove(tmp_path.c_str());
+      return absl::InternalError(absl::StrCat(
+          "Failed to write program cache temp file: ", strerror(err)));
+    }
+  }
+  out_fd = std::move(dst_fd);
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 SerializationProgramCache::SerializationProgramCache(int fd) : fd_(fd) {}
 
 SerializationProgramCache::SerializationProgramCache(
     absl::string_view file_path)
-    : fd_(FileDescriptor::Open(std::string(file_path).c_str(),
-                               O_RDWR | O_CREAT,  // NOLINT: b/332641196
-                               0644)) {}
+    : file_path_(file_path) {
+  if (!file_path_.empty()) {
+    // Open existing cache without creating an empty file on read-only misses;
+    // Insert() creates and atomically renames from a sibling temp file.
+    fd_ = FileDescriptor::Open(file_path_.c_str(), O_RDWR, 0644);
+    if (!fd_.IsValid() && errno != ENOENT) {
+      fd_ = FileDescriptor::Open(file_path_.c_str(), O_RDONLY, 0644);
+    }
+  }
+}
 
 SerializationProgramCache::SerializationProgramCache(
     absl::string_view directory_path, absl::string_view model_token)
@@ -83,21 +222,55 @@ SerializationProgramCache::SerializationProgramCache(
 
 absl::Status SerializationProgramCache::Insert(uint64_t key,
                                                absl::string_view value) {
-  if (!fd_.IsValid()) {
+  const bool use_atomic = !file_path_.empty();
+  if (!use_atomic && !fd_.IsValid()) {
     return absl::InvalidArgumentError("Invalid file descriptor.");
   }
 
+  // For path-backed caches, stage a unique sibling temp file from the latest
+  // committed file first so metadata, file size, and data bytes stay consistent
+  // and live mappings are never mutated in place.
+  std::string tmp_path;
+  ScopeGuard cleanup_tmp([&tmp_path] {
+    if (!tmp_path.empty()) {
+      std::remove(tmp_path.c_str());
+    }
+  });
+  FileDescriptor tmp_fd;
+  if (use_atomic) {
+    tmp_path = MakeSiblingTempPath(file_path_);
+    absl::Status copy_status = CopyFileToNewTemp(file_path_, tmp_path, tmp_fd);
+    if (!copy_status.ok() &&
+        copy_status.code() != absl::StatusCode::kNotFound) {
+      return copy_status;
+    }
+    if (!tmp_fd.IsValid()) {
+      tmp_fd = FileDescriptor::Open(
+          tmp_path.c_str(), O_CREAT | O_EXCL | O_RDWR,  // NOLINT: b/332641196
+          0644);
+      if (!tmp_fd.IsValid()) {
+        return absl::InternalError(absl::StrCat(
+            "Failed to open program cache temp file: ", strerror(errno)));
+      }
+    }
+  }
+  FileDescriptor& target_fd = use_atomic ? tmp_fd : fd_;
+
   // 1. Read existing metadata if present.
   std::vector<ml_drift::program_cache::schema::CacheEntryT> entries;
-  size_t file_size = fd_.SetPosFromEnd(0);
+  const FileDescriptor::Offset raw_file_size = target_fd.SetPosFromEnd(0);
+  if (raw_file_size < 0) {
+    return absl::InternalError("Failed to determine program cache file size.");
+  }
+  const size_t file_size = static_cast<size_t>(raw_file_size);
 
   size_t header_read_size = std::min(file_size, kAlignment);
   if (header_read_size > 0) {
-    if (fd_.SetPos(0) == -1) {
+    if (target_fd.SetPos(0) == -1) {
       return absl::InternalError("Failed to seek to beginning of file.");
     }
     std::vector<uint8_t> header_data(header_read_size);
-    if (!fd_.Read(header_data.data(), header_read_size)) {
+    if (!target_fd.Read(header_data.data(), header_read_size)) {
       return absl::InternalError("Failed to read header.");
     }
 
@@ -126,19 +299,14 @@ absl::Status SerializationProgramCache::Insert(uint64_t key,
 
   // 3. Determine write location.
   // Align file size to 64KB for the new buffer.
-  size_t write_offset = Align(file_size, kAlignment);
+  size_t write_offset = 0;
+  if (!AlignChecked(file_size, kAlignment, &write_offset)) {
+    return absl::InternalError("Program cache write offset overflow.");
+  }
   // Ensure we start at least at 64KB.
   if (write_offset < kAlignment) write_offset = kAlignment;
 
-  // 4. Write data.
-  if (fd_.SetPos(write_offset) == -1) {
-    return absl::InternalError("Failed to seek to write offset.");
-  }
-  if (!fd_.Write(value.data(), value.size())) {
-    return absl::InternalError("Failed to write value.");
-  }
-
-  // 5. Update metadata structure.
+  // 4. Update metadata structure and serialize before mutating disk state.
   if (!found) {
     ml_drift::program_cache::schema::CacheEntryT new_entry;
     new_entry.key = key;
@@ -153,7 +321,6 @@ absl::Status SerializationProgramCache::Insert(uint64_t key,
     }
   }
 
-  // 6. Serialize metadata.
   flatbuffers::FlatBufferBuilder builder;
   std::vector<flatbuffers::Offset<ml_drift::program_cache::schema::CacheEntry>>
       entry_offsets;
@@ -171,12 +338,36 @@ absl::Status SerializationProgramCache::Insert(uint64_t key,
     return absl::ResourceExhaustedError("Metadata size exceeds 64KB limit.");
   }
 
-  // 7. Write metadata.
-  if (fd_.SetPos(0) == -1) {
+  // 5. Write value, metadata, fsync, and atomically rename when path-backed.
+  if (target_fd.SetPos(write_offset) == -1) {
+    return absl::InternalError("Failed to seek to write offset.");
+  }
+  if (!target_fd.Write(value.data(), value.size())) {
+    return absl::InternalError("Failed to write value.");
+  }
+  if (!use_atomic) {
+    // Raw file descriptor path: flush payload before updating offset-0 header.
+    (void)FsyncFile(target_fd.Value());
+  }
+  if (target_fd.SetPos(0) == -1) {
     return absl::InternalError("Failed to seek to beginning.");
   }
-  if (!fd_.Write(builder.GetBufferPointer(), builder.GetSize())) {
+  if (!target_fd.Write(builder.GetBufferPointer(), builder.GetSize())) {
     return absl::InternalError("Failed to write metadata.");
+  }
+  if (!FsyncFile(target_fd.Value())) {
+    return absl::InternalError(
+        absl::StrCat("Failed to fsync program cache file: ", strerror(errno)));
+  }
+
+  if (use_atomic) {
+    if (std::rename(tmp_path.c_str(), file_path_.c_str()) != 0) {
+      return absl::InternalError(absl::StrCat(
+          "Failed to rename program cache temp file: ", strerror(errno)));
+    }
+    tmp_path.clear();
+    FsyncParentDir(file_path_);
+    fd_ = std::move(tmp_fd);
   }
 
   return absl::OkStatus();
@@ -185,10 +376,24 @@ absl::Status SerializationProgramCache::Insert(uint64_t key,
 absl::StatusOr<MMapHandle> SerializationProgramCache::LookUpHandle(
     uint64_t key) {
   if (!fd_.IsValid()) {
-    return absl::InvalidArgumentError("Invalid file descriptor.");
+    if (!file_path_.empty()) {
+      fd_ = FileDescriptor::Open(file_path_.c_str(), O_RDONLY, 0644);
+      if (!fd_.IsValid()) {
+        if (errno == ENOENT) {
+          return absl::NotFoundError("Program cache file does not exist.");
+        }
+        return absl::InvalidArgumentError("Invalid file descriptor.");
+      }
+    } else {
+      return absl::InvalidArgumentError("Invalid file descriptor.");
+    }
   }
 
-  size_t file_size = fd_.SetPosFromEnd(0);
+  const FileDescriptor::Offset raw_file_size = fd_.SetPosFromEnd(0);
+  if (raw_file_size < 0) {
+    return absl::InternalError("Failed to determine program cache file size.");
+  }
+  const size_t file_size = static_cast<size_t>(raw_file_size);
 
   MMapHandle mmap_handle;
   // Map up to kAlignment, or file_size if smaller.
@@ -225,7 +430,7 @@ absl::StatusOr<MMapHandle> SerializationProgramCache::LookUpHandle(
     return absl::NotFoundError(absl::StrCat("Key ", key, " not found."));
   }
 
-  if (found_offset + found_size > file_size) {
+  if (found_offset > file_size || found_size > file_size - found_offset) {
     return absl::InternalError("Data offset/size out of bounds.");
   }
 

@@ -94,7 +94,7 @@ struct BufferLocation {
 class CacheBuilder {
  public:
   CacheBuilder() = default;
-  ~CacheBuilder() = default;
+  ~CacheBuilder();
 
   // Non-copyable.
   CacheBuilder(const CacheBuilder&) = delete;
@@ -189,6 +189,12 @@ class CacheBuilder {
   // Temporary file descriptor to write the weights to disk immediately.
   FileDescriptor fd_;
   std::string file_path_;
+  // When true, each build step writes to a unique sibling temp file and
+  // atomically renames it onto `file_path_` after fsync on StopBuildStep().
+  bool use_atomic_rename_ = false;
+  // Uncommitted sibling temp file path for the active step; unlinked on failure
+  // or destruction if never renamed.
+  std::string temp_path_;
 };
 
 }  // namespace ml_drift

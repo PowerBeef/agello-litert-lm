@@ -60,22 +60,40 @@ float ComputeTokenLogProb(const float* logits, int vocab_size, int sampled_id,
   // underflow to 0.0 and collapse the score to 0.0.
   const float temp = (temperature <= 0.0f) ? 1.0f : temperature;
 
-  float max_logit = logits[0];
-  for (int v = 1; v < vocab_size; ++v) {
-    if (logits[v] > max_logit) {
-      max_logit = logits[v];
+  auto sanitize = [](float x) {
+    return std::isnan(x) ? -std::numeric_limits<float>::infinity() : x;
+  };
+  float max_logit = -std::numeric_limits<float>::infinity();
+  for (int v = 0; v < vocab_size; ++v) {
+    const float lv = sanitize(logits[v]);
+    if (lv > max_logit) {
+      max_logit = lv;
     }
   }
 
+  const float sampled_logit = sanitize(logits[sampled_id]);
   if (!std::isfinite(max_logit)) {
-    return (logits[sampled_id] == max_logit)
+    if (max_logit > 0.0f) {
+      if (sampled_logit != max_logit) {
+        return -std::numeric_limits<float>::infinity();
+      }
+      int inf_count = 0;
+      for (int v = 0; v < vocab_size; ++v) {
+        if (sanitize(logits[v]) == max_logit) {
+          ++inf_count;
+        }
+      }
+      return inf_count > 1 ? -std::log(static_cast<float>(inf_count)) : 0.0f;
+    }
+    return (sampled_logit == max_logit)
                ? 0.0f
                : -std::numeric_limits<float>::infinity();
   }
 
   double sum_exp = 0.0;
   for (int v = 0; v < vocab_size; ++v) {
-    sum_exp += std::exp(static_cast<double>((logits[v] - max_logit) / temp));
+    sum_exp +=
+        std::exp(static_cast<double>((sanitize(logits[v]) - max_logit) / temp));
   }
 
   if (!std::isfinite(sum_exp) || sum_exp <= 0.0) {
@@ -83,7 +101,7 @@ float ComputeTokenLogProb(const float* logits, int vocab_size, int sampled_id,
   }
 
   float log_prob = static_cast<float>(
-      (static_cast<double>(logits[sampled_id] - max_logit) / temp) -
+      (static_cast<double>(sampled_logit - max_logit) / temp) -
       std::log(sum_exp));
   return std::min(0.0f, log_prob);
 }
@@ -405,7 +423,7 @@ absl::StatusOr<std::unique_ptr<TopPSampler>> TopPSampler::Create(
   if (k <= 0) {
     return absl::InvalidArgumentError("k must be positive.");
   }
-  if (p < 0.0f || p > 1.0f) {
+  if (std::isnan(p) || p < 0.0f || p > 1.0f) {
     return absl::InvalidArgumentError("p must be in [0, 1].");
   }
   if (batch_size <= 0) {
@@ -414,7 +432,7 @@ absl::StatusOr<std::unique_ptr<TopPSampler>> TopPSampler::Create(
   if (sequence_size <= 0) {
     return absl::InvalidArgumentError("sequence_size must be positive.");
   }
-  if (temperature < 0.0) {
+  if (std::isnan(temperature) || temperature < 0.0f) {
     return absl::InvalidArgumentError(
         absl::StrCat("Temperature must be >= 0, but got ", temperature));
   }

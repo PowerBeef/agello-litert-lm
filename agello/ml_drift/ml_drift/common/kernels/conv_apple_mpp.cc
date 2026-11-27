@@ -204,8 +204,14 @@ std::string ConvAppleMPP::GetKernelCode(const TensorDescriptor& src,
       params_.weights_desc.layout == WeightsLayout::kOSpatialIOGroupI4O4;
   const bool quantized_weights =
       weights_conversion && SizeInBitsOf(params_.weights_desc.type) <= 8;
+  // Route dynamic-K (src_end_ch_index) FP16 ops through manual_src_reading so
+  // K bounds and tail-lane masking are applied per tile without shrinking
+  // a_cols in metal::tensor_inline (where a_cols is also the physical row
+  // stride of the kDHWBCC4 tensor).
   const bool manual_src_reading =
       params_.softmax_input_activation ||
+      (params_.runtime_check.src_end_ch_index.has_value() &&
+       params_.weights_data_type == DataType::kFloat16) ||
       src.GetStorageType() != TensorStorageType::kBuffer ||
       !src.IsCC4Layout() || !params_.x_kernel_is_1 || !params_.y_kernel_is_1;
   const bool manual_k_tiling =
@@ -423,10 +429,15 @@ MAIN_FUNCTION($0) {
 )";
   std::string src_end_slice = "args.src.Slices()";
   if (params_.runtime_check.src_end_ch_index.has_value()) {
-    c += "  int src_slices_dynamic = " +
-         params_.runtime_check.GetRuntimeEndSlice(
-             "args.params.Read(args.src_end_ch_index)", "args.src.Slices()") +
-         ";\n";
+    c += "  int src_end_ch = max(0, args.params.Read(args.src_end_ch_index));\n";
+    if (params_.softmax_input_activation) {
+      c += "  int src_slices_dynamic = min((src_end_ch + 3) / 4, args.src.Slices());\n";
+    } else {
+      c += "  int src_slices_dynamic = " +
+           params_.runtime_check.GetRuntimeEndSlice("src_end_ch",
+                                                    "args.src.Slices()") +
+           ";\n";
+    }
     src_end_slice = "src_slices_dynamic";
   }
   if (!params_.x_kernel_is_1 || !params_.y_kernel_is_1) {
@@ -515,16 +526,15 @@ MAIN_FUNCTION($0) {
       }
     }
     if (manual_src_reading) {
-      c += R"(
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    #pragma unroll_full
-    for (uint16_t i = 0; i < K_TILE_SLICES / slices_per_wg; ++i) {
-      int tile_k_id = i * slices_per_wg + sub_slice_id;
-      int raw_slice_id = k + tile_k_id;
-      bool in_k = raw_slice_id < args.src.Slices();
-      int slice_id = min(raw_slice_id, args.src.Slices() - 1);
-      half4 src = args.src.Read(src_x, src_y, slice_id);
-)";
+      c += "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
+      c += "    #pragma unroll_full\n";
+      c += "    for (uint16_t i = 0; i < K_TILE_SLICES / slices_per_wg; ++i) {\n";
+      c += "      int tile_k_id = i * slices_per_wg + sub_slice_id;\n";
+      c += "      int raw_slice_id = k + tile_k_id;\n";
+      c += "      bool in_k = raw_slice_id < " + k_end + ";\n";
+      c += "      half4 src = half4(0.0h);\n";
+      c += "      if (in_k) {\n";
+      c += "        src = args.src.Read(src_x, src_y, raw_slice_id);\n";
       std::string check;
       if (!params_.x_kernel_is_1) {
         check += "in_x";
@@ -536,17 +546,22 @@ MAIN_FUNCTION($0) {
         check += "in_y";
       }
       if (!check.empty()) {
-        c += "      src *= ucl::Convert<half>((" + check + "));\n";
+        c += "        src *= ucl::Convert<half>((" + check + "));\n";
       }
       if (params_.softmax_input_activation) {
-        c += "      src = half4(exp(float4(src) - exp_val.y) * exp_val.x);\n";
+        c += "        src = half4(exp(float4(src) - exp_val.y) * exp_val.x);\n";
+        if (params_.runtime_check.src_end_ch_index.has_value()) {
+          c += "        int ch_base = raw_slice_id * 4;\n";
+          c += "        if (ch_base + 0 >= src_end_ch) src.x = 0.0h;\n";
+          c += "        if (ch_base + 1 >= src_end_ch) src.y = 0.0h;\n";
+          c += "        if (ch_base + 2 >= src_end_ch) src.z = 0.0h;\n";
+          c += "        if (ch_base + 3 >= src_end_ch) src.w = 0.0h;\n";
+        }
       }
-      c += "      if (!in_k) src = half4(0.0h);\n";
-      c += R"(
-      a_loc_x4[sub_spatial_id * K_TILE_SLICES + tile_k_id] = src;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-)";
+      c += "      }\n";
+      c += "      a_loc_x4[sub_spatial_id * K_TILE_SLICES + tile_k_id] = src;\n";
+      c += "    }\n";
+      c += "    threadgroup_barrier(mem_flags::mem_threadgroup);\n";
     } else {
       c += "    a_tile = a_tensor.slice(k * 4, spatial_tile_id * M_TILE);\n";
     }

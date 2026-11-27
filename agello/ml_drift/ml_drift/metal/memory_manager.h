@@ -71,6 +71,7 @@ class MemoryManager {
   // kernels re-pointed (no recompilation). Each context registers how to re-point its kernels.
   using Rebind = std::function<absl::Status(const absl::flat_hash_set<ValueId>&)>;
   void SetRebind(ModelId model_id, Rebind rebind);
+  void UnregisterModel(ModelId model_id);
   // Before a run of `model_id`: records whether it's a prefill and says whether another
   // graph's own buffers are due for release. The caller then makes sure no work that uses them
   // is in flight or pending, and calls ReleasePending.

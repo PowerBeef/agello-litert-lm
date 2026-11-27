@@ -212,6 +212,7 @@ MetalSpatialTensor::MetalSpatialTensor(MetalSpatialTensor&& tensor)
       aligned_texture_width_(tensor.aligned_texture_width_),
       buffer_offset_(tensor.buffer_offset_) {
   tensor.memory_ = nullptr;
+  tensor.texture_mem_ = nullptr;
 }
 
 MetalSpatialTensor& MetalSpatialTensor::operator=(MetalSpatialTensor&& tensor) {
@@ -383,10 +384,15 @@ absl::Status MetalSpatialTensor::SetBufferHandle(id<MTLBuffer> buffer) {
   }
   memory_ = buffer;
   if (descriptor_.GetStorageType() == TensorStorageType::kImageBuffer) {
-    @autoreleasepool {
-      id<MTLTexture> texture_buffer = nullptr;
-      ABSL_RETURN_IF_ERROR(CreateTextureBuffer(memory_, 0, descriptor_, &texture_buffer));
-      texture_mem_ = texture_buffer;
+    if (memory_ == nil) {
+      texture_mem_ = nullptr;
+    } else {
+      @autoreleasepool {
+        id<MTLTexture> texture_buffer = nullptr;
+        ABSL_RETURN_IF_ERROR(
+            CreateTextureBuffer(memory_, 0, descriptor_, &texture_buffer));
+        texture_mem_ = texture_buffer;
+      }
     }
   }
   return absl::OkStatus();
@@ -408,10 +414,18 @@ absl::Status CreateTensorSharedBuffer(id<MTLBuffer> buffer,
                                       const TensorDescriptor& descriptor,
                                       MetalSpatialTensor* result,
                                       uint64_t buffer_offset) {
+  if (result == nullptr) {
+    return absl::InvalidArgumentError(
+        "Output MetalSpatialTensor pointer is null.");
+  }
+  if (buffer == nil) {
+    return absl::InvalidArgumentError("MTLBuffer is nil.");
+  }
   @autoreleasepool {
     id<MTLTexture> texture_buffer = nullptr;
-    if (buffer && descriptor.GetStorageType() == TensorStorageType::kImageBuffer) {
-      ABSL_RETURN_IF_ERROR(CreateTextureBuffer(buffer, buffer_offset, descriptor, &texture_buffer));
+    if (descriptor.GetStorageType() == TensorStorageType::kImageBuffer) {
+      ABSL_RETURN_IF_ERROR(
+          CreateTextureBuffer(buffer, buffer_offset, descriptor, &texture_buffer));
     }
     *result =
         MetalSpatialTensor(buffer, texture_buffer, false, true, descriptor);
@@ -432,6 +446,13 @@ absl::Status CreateTensorSharedImage2DBuffer(id<MTLBuffer> buffer,
                                              int row_bytes_alignment,
                                              MetalSpatialTensor* result,
                                              uint64_t buffer_offset) {
+  if (result == nullptr) {
+    return absl::InvalidArgumentError(
+        "Output MetalSpatialTensor pointer is null.");
+  }
+  if (buffer == nil) {
+    return absl::InvalidArgumentError("MTLBuffer is nil.");
+  }
   std::vector<uint64_t> storage_dims = descriptor.GetStorageDims();
   const int width = storage_dims[0];
   const int height = storage_dims[1];

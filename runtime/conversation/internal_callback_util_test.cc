@@ -904,5 +904,38 @@ TEST_F(InternalCallbackTest, MaxNumTokensReachedTreatedAsDoneWhenFlagIsFalse) {
               })json")));
 }
 
+TEST_F(InternalCallbackTest, OnNonCancelErrorInvokesCancelCallback) {
+  auto user_callback = CreateUserMessageCallback(output_, done_, status_);
+  bool cancel_called = false;
+  auto callback = CreateInternalCallback(
+      *model_data_processor_, processor_args_, channels_,
+      std::move(user_callback), [&]() { cancel_called = true; });
+
+  callback(absl::InternalError("backend failure"));
+
+  EXPECT_TRUE(cancel_called);
+  EXPECT_TRUE(done_);
+  EXPECT_THAT(status_, StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST_F(InternalCallbackTest, OnFailedTaskStatesInvokeCancelCallback) {
+  for (TaskState state : {TaskState::kFailed, TaskState::kDependentTaskFailed}) {
+    output_.clear();
+    done_ = false;
+    status_ = absl::OkStatus();
+    auto user_callback = CreateUserMessageCallback(output_, done_, status_);
+    bool cancel_called = false;
+    auto callback = CreateInternalCallback(
+        *model_data_processor_, processor_args_, channels_,
+        std::move(user_callback), [&]() { cancel_called = true; });
+
+    callback(Responses(state));
+
+    EXPECT_TRUE(cancel_called);
+    EXPECT_TRUE(done_);
+    EXPECT_THAT(status_, StatusIs(absl::StatusCode::kInternal));
+  }
+}
+
 }  // namespace
 }  // namespace litert::lm

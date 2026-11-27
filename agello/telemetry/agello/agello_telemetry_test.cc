@@ -205,5 +205,28 @@ TEST_F(TelemetryTest, GpuWaitDeferralAndRunStateAreThreadLocal) {
   SetCurrentRun(kGpuOther);
 }
 
+bool ReturnTrueHook() { return true; }
+bool ReturnFalseHook() { return false; }
+
+TEST_F(TelemetryTest, DeferredAndMarkedWaitHooksPropagateStatus) {
+  SetDeferredWaitHook(nullptr);
+  SetMarkHooks(nullptr, nullptr);
+  EXPECT_TRUE(WaitForDeferredGpuWork());
+  EXPECT_TRUE(WaitForMarkedGpuWork());
+
+  SetDeferredWaitHook(&ReturnFalseHook);
+  SetMarkHooks(nullptr, &ReturnFalseHook);
+  EXPECT_FALSE(WaitForDeferredGpuWork());
+  EXPECT_FALSE(WaitForMarkedGpuWork());
+
+  SetDeferredWaitHook(&ReturnTrueHook);
+  SetMarkHooks(nullptr, &ReturnTrueHook);
+  EXPECT_TRUE(WaitForDeferredGpuWork());
+  EXPECT_TRUE(WaitForMarkedGpuWork());
+
+  SetDeferredWaitHook(nullptr);
+  SetMarkHooks(nullptr, nullptr);
+}
+
 }  // namespace
 }  // namespace agello::telemetry

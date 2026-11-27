@@ -140,5 +140,58 @@ TEST(ContextDraftsTest, NoRealignmentWithoutACopy) {
   EXPECT_THAT(drafts.Propose(3), IsEmpty());
 }
 
+TEST(ContextDraftsTest, NeverProposesNegativeMultimodalSentinels) {
+  ContextDrafts drafts(2);
+  // Vision (-1) and audio (-2) sentinels follow (1, 2, 3); recurring (1, 2, 3)
+  // must never propose them.
+  SyncTo(drafts, {1, 2, 3, -1, -1, -2, 7, 8, 9, 1, 2, 3});
+  EXPECT_THAT(drafts.Propose(3), IsEmpty());
+  EXPECT_THAT(drafts.Propose(1), IsEmpty());
+
+  // A candidate whose continuation contains a sentinel mid-window is also refused,
+  // while a shorter window before the sentinel remains valid.
+  ContextDrafts mid(3);
+  SyncTo(mid, {1, 2, 3, 4, -1, 6, 9, 1, 2, 3});
+  EXPECT_THAT(mid.Propose(3), IsEmpty());
+  EXPECT_THAT(mid.Propose(2), IsEmpty());
+  EXPECT_THAT(mid.Propose(1), ElementsAre(4));
+
+  // A later sentinel continuation does not clobber an earlier valid continuation.
+  ContextDrafts preserve(3);
+  SyncTo(preserve, {1, 2, 3, 4, 5, 6, 9, 1, 2, 3, -2, -2, 8, 1, 2, 3});
+  EXPECT_THAT(preserve.Propose(3), ElementsAre(4, 5, 6));
+}
+
+TEST(ContextDraftsTest, BreaksNgramIndexingAndRealignmentAtNegativeSentinels) {
+  // N-grams containing -1/-2 are not indexed and do not match.
+  ContextDrafts drafts(2);
+  SyncTo(drafts, {1, -1, 2, 4, 5, 6, 9, 1, -1, 2});
+  EXPECT_THAT(drafts.Propose(3), IsEmpty());
+
+  // Realignment stops at negative sentinels and never emits them.
+  ContextDrafts realign_boundary(3);
+  std::vector<int> context = {30, 1, 2, 3, 4, 5, -1, 6, 7, 8, 9, 40, 1, 2, 3};
+  SyncTo(realign_boundary, context);
+  EXPECT_THAT(realign_boundary.Propose(2), ElementsAre(4, 5));
+  context.insert(context.end(), {4, 50});
+  SyncTo(realign_boundary, context);
+  // Token 6 lies past the -1 sentinel after diverged_at_; must not cross it.
+  context.push_back(6);
+  SyncTo(realign_boundary, context);
+  EXPECT_THAT(realign_boundary.Propose(3), IsEmpty());
+
+  // Realignment onto a valid token whose continuation includes a sentinel is refused.
+  ContextDrafts realign_tail(3);
+  std::vector<int> tail_ctx = {30, 1, 2, 3, 4, 5, 6, 7, -2, 9, 40, 1, 2, 3};
+  SyncTo(realign_tail, tail_ctx);
+  EXPECT_THAT(realign_tail.Propose(2), ElementsAre(4, 5));
+  tail_ctx.insert(tail_ctx.end(), {4, 50});
+  SyncTo(realign_tail, tail_ctx);
+  tail_ctx.push_back(6);
+  SyncTo(realign_tail, tail_ctx);
+  EXPECT_THAT(realign_tail.Propose(3), IsEmpty());
+  EXPECT_THAT(realign_tail.Propose(1), ElementsAre(7));
+}
+
 }  // namespace
 }  // namespace litert::lm

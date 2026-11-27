@@ -158,10 +158,11 @@ absl::StatusOr<DelegateKernelLiteRt*> DelegateKernelLiteRt::Create(
 absl::Status DelegateKernelLiteRt::BindGpuMemoryToInferenceContext(
     ::ml_drift::ValueId tensor_id,
     const ::ml_drift::TensorDescriptor& tensor_desc, GpuMemoryHandle gpu_memory,
-    absl::flat_hash_map<GpuMemoryHandle, std::unique_ptr<GpuTensorWrapper>>&
+    absl::flat_hash_map<::ml_drift::ValueId, std::unique_ptr<GpuTensorWrapper>>&
         tensors) {
-  auto it = tensors.find(gpu_memory);
-  if (it != tensors.end()) {
+  auto it = tensors.find(tensor_id);
+  if (it != tensors.end() && it->second != nullptr &&
+      it->second->MatchesMemory(gpu_memory)) {
     auto* gpu_tensor = it->second.get();
     ABSL_RETURN_IF_ERROR(
         ctx_->BindSpatialTensor(tensor_id, &gpu_tensor->Get()));
@@ -170,21 +171,21 @@ absl::Status DelegateKernelLiteRt::BindGpuMemoryToInferenceContext(
                                                tensor_desc, gpu_memory));
     ABSL_RETURN_IF_ERROR(
         ctx_->BindSpatialTensor(tensor_id, &gpu_tensor->Get()));
-    tensors[gpu_memory] = std::move(gpu_tensor);
+    tensors[tensor_id] = std::move(gpu_tensor);
   }
   return absl::OkStatus();
 }
 
 absl::Status DelegateKernelLiteRt::MarkToFlushIfGlBuffer(
     TfLiteTensor* tflite_tensor, GpuTensorBufferPtr& tensor_buffer,
-    GpuMemoryHandle gpu_memory) {
+    ::ml_drift::ValueId tensor_id) {
   // Note: GetGpuMemoryAllocated has side-effect of registering memory with GL
   // interop fabric and must always be called.
   LiteRtTensorBufferType buffer_type;
   LITERT_RETURN_IF_ERROR(runtime_context_->get_tensor_buffer_type(
       tensor_buffer.get(), &buffer_type));
   if (is_opencl_backend_ && buffer_type == kLiteRtTensorBufferTypeGlBuffer) {
-    tensors_to_flush_[tflite_tensor] = gpu_memory;
+    tensors_to_flush_[tflite_tensor] = tensor_id;
   }
   return absl::OkStatus();
 }
@@ -220,7 +221,7 @@ absl::Status DelegateKernelLiteRt::BindExternalTensorBuffers(
     }
     if (is_opencl_backend_) {
       ABSL_RETURN_IF_ERROR(
-          MarkToFlushIfGlBuffer(tflite_tensor, *tensor_buffer, gpu_memory));
+          MarkToFlushIfGlBuffer(tflite_tensor, *tensor_buffer, input_ids_[i]));
     }
   }
 
@@ -244,7 +245,7 @@ absl::Status DelegateKernelLiteRt::BindExternalTensorBuffers(
     }
     if (is_opencl_backend_) {
       ABSL_RETURN_IF_ERROR(
-          MarkToFlushIfGlBuffer(tflite_tensor, *tensor_buffer, gpu_memory));
+          MarkToFlushIfGlBuffer(tflite_tensor, *tensor_buffer, output_ids_[i]));
     }
   }
   return absl::OkStatus();
@@ -257,18 +258,22 @@ absl::Status DelegateKernelLiteRt::ConvertNonExternalInputTensorsToGpuMemory(
   }
 
   ABSL_RETURN_IF_ERROR(ctx_->PreConvert(/*input=*/true));
-  // Agello (P1.3): ensure Metal compute encoders end cleanly if any tensor lookup
-  // or conversion returns early with an error.
+  // Ensure Metal compute encoders end cleanly AND any partially encoded
+  // uncommitted command buffer is discarded if any tensor lookup or conversion
+  // returns early with an error, so no dirty command buffer leaks into the
+  // next invocation.
   struct PostConvertGuard {
+    GpuBackend* backend;
     GpuInferenceContext* ctx;
     bool input;
     bool active = true;
     ~PostConvertGuard() {
       if (active) {
         (void)ctx->PostConvert(input);
+        backend->DiscardPendingCommands();
       }
     }
-  } post_convert_guard{ctx_.get(), /*input=*/true};
+  } post_convert_guard{backend_, ctx_.get(), /*input=*/true};
 
   for (int i = 0; i < input_indices_.size(); ++i) {
     if (IsExternalSharedConstantTensor(input_ids_[i]) ||
@@ -669,15 +674,15 @@ absl::Status DelegateKernelLiteRt::DownloadGpuMemoryToIntermediateCpuTensors(
 
 absl::Status DelegateKernelLiteRt::FlushBufferCacheIfNeeded(
     TfLiteContext* context) {
-  for (const auto& [tflite_tensor, gpu_memory] : tensors_to_flush_) {
+  for (const auto& [tflite_tensor, tensor_id] : tensors_to_flush_) {
     // Flush from buffer context.
     LITERT_RETURN_IF_ERROR(
         runtime_context_
             ->external_litert_buffer_context_unregister_tensor_buffer(
                 buffer_context_, tflite_tensor));
     // Flush from delegate kernel cache.
-    input_tensors_.erase(gpu_memory);
-    output_tensors_.erase(gpu_memory);
+    input_tensors_.erase(tensor_id);
+    output_tensors_.erase(tensor_id);
   }
   tensors_to_flush_.clear();
 

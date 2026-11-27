@@ -273,25 +273,34 @@ void UpdateRawHandle(MetalMemoryInfo* memory_info) {
 }
 
 // Function to read data from a Metal buffer.
-void ReadDataFromBuffer(id<MTLBuffer> buffer, int buffer_offset, id<MTLCommandQueue> command_queue,
-                        void* data, int data_size) {
+absl::Status ReadDataFromBuffer(id<MTLBuffer> buffer, size_t buffer_offset,
+                                id<MTLCommandQueue> command_queue, void* data, size_t data_size) {
+  if (data_size == 0) return absl::OkStatus();
+  if (buffer == nil || data == nullptr) {
+    return absl::InvalidArgumentError("Invalid buffer or host pointer in ReadDataFromBuffer.");
+  }
   @autoreleasepool {
     // If the buffer is already in shared storage mode, copy the data directly to
     // the host memory without creating an empty command buffer.
     if (buffer.storageMode == MTLStorageModeShared) {
       std::memcpy(data, reinterpret_cast<uint8_t*>([buffer contents]) + buffer_offset, data_size);
-      return;
+      return absl::OkStatus();
+    }
+    if (command_queue == nil) {
+      return absl::InvalidArgumentError("Missing Metal command queue in ReadDataFromBuffer.");
     }
     id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
-    // Create a temporary buffer with shared storage mode to be accessible by the
-    // CPU.
     id<MTLBuffer> temp_buffer =
         [command_queue.device newBufferWithLength:data_size options:MTLResourceStorageModeShared];
+    if (command_buffer == nil || temp_buffer == nil) {
+      return absl::ResourceExhaustedError("Failed to allocate Metal staging resources for read.");
+    }
 
     id<MTLBlitCommandEncoder> blitCommandEncoder = [command_buffer blitCommandEncoder];
+    if (blitCommandEncoder == nil) {
+      return absl::InternalError("Failed to create Metal blit encoder for read.");
+    }
 
-    // Enqueue a command to copy data from the source buffer to the temporary
-    // buffer.
     [blitCommandEncoder copyFromBuffer:buffer
                           sourceOffset:buffer_offset
                               toBuffer:temp_buffer
@@ -299,66 +308,83 @@ void ReadDataFromBuffer(id<MTLBuffer> buffer, int buffer_offset, id<MTLCommandQu
                                   size:data_size];
     [blitCommandEncoder endEncoding];
 
-    // Commit the command buffer and wait for it to complete.
     [command_buffer commit];
     [command_buffer waitUntilCompleted];
+    if (command_buffer.status != MTLCommandBufferStatusCompleted || command_buffer.error != nil) {
+      return absl::InternalError("Metal read blit command buffer failed.");
+    }
 
-    // Copy the data from the temporary buffer to the host memory (data pointer).
-    // The .contents property is accessible here because temp_buffer uses
-    // MTLResourceStorageModeShared.
     std::memcpy(data, [temp_buffer contents], data_size);
   }
+  return absl::OkStatus();
 }
 
-void WriteDataToBuffer(id<MTLBuffer> buffer, int buffer_offset, id<MTLCommandQueue> command_queue,
-                       const void* data, int data_size, bool wait_for_completion) {
+absl::Status WriteDataToBuffer(id<MTLBuffer> buffer, size_t buffer_offset,
+                               id<MTLCommandQueue> command_queue, const void* data,
+                               size_t data_size, bool wait_for_completion) {
+  if (data_size == 0) return absl::OkStatus();
+  if (buffer == nil || data == nullptr) {
+    return absl::InvalidArgumentError("Invalid buffer or host pointer in WriteDataToBuffer.");
+  }
   @autoreleasepool {
     // Check if CPU can access the memory directly.
     // Shared is always accessible. Managed (macOS) is also accessible.
     bool isAccessible = (buffer.storageMode == MTLStorageModeShared);
 
 #if TARGET_OS_OSX
-  if (buffer.storageMode == MTLStorageModeManaged) {
-    isAccessible = true;
-  }
-#endif
-
-  // Direct CPU Write
-  if (isAccessible) {
-    uint8_t* contents = (uint8_t*)[buffer contents];
-    std::memcpy(contents + buffer_offset, data, data_size);
-
-    // specific to macOS Managed buffers to inform GPU of changes
-#if TARGET_OS_OSX
     if (buffer.storageMode == MTLStorageModeManaged) {
-      [buffer didModifyRange:NSMakeRange(buffer_offset, data_size)];
+      isAccessible = true;
     }
 #endif
-    return;
+
+    // Direct CPU Write
+    if (isAccessible) {
+      uint8_t* contents = (uint8_t*)[buffer contents];
+      std::memcpy(contents + buffer_offset, data, data_size);
+
+      // specific to macOS Managed buffers to inform GPU of changes
+#if TARGET_OS_OSX
+      if (buffer.storageMode == MTLStorageModeManaged) {
+        [buffer didModifyRange:NSMakeRange(buffer_offset, data_size)];
+      }
+#endif
+      return absl::OkStatus();
+    }
+
+    if (command_queue == nil) {
+      return absl::InvalidArgumentError("Missing Metal command queue in WriteDataToBuffer.");
+    }
+    // Fallback to using a temporary buffer if the buffer is not accessible.
+    id<MTLBuffer> temp_buffer =
+        [[command_queue device] newBufferWithBytes:data
+                                            length:data_size
+                                           options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
+    if (temp_buffer == nil || command_buffer == nil) {
+      return absl::ResourceExhaustedError("Failed to allocate Metal staging resources for write.");
+    }
+    id<MTLBlitCommandEncoder> blitCommandEncoder = [command_buffer blitCommandEncoder];
+    if (blitCommandEncoder == nil) {
+      return absl::InternalError("Failed to create Metal blit encoder for write.");
+    }
+
+    [blitCommandEncoder copyFromBuffer:temp_buffer
+                          sourceOffset:0
+                              toBuffer:buffer
+                     destinationOffset:buffer_offset
+                                  size:data_size];
+
+    [blitCommandEncoder endEncoding];
+    [command_buffer commit];
+
+    if (wait_for_completion) {
+      [command_buffer waitUntilCompleted];
+      if (command_buffer.status != MTLCommandBufferStatusCompleted || command_buffer.error != nil) {
+        return absl::InternalError("Metal write blit command buffer failed.");
+      }
+    }
   }
-
-  // Fallback to using a temporary buffer if the buffer is not accessible.
-  id<MTLBuffer> temp_buffer =
-      [[command_queue device] newBufferWithBytes:data
-                                          length:data_size
-                                         options:MTLResourceStorageModeShared];
-
-  id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
-  id<MTLBlitCommandEncoder> blitCommandEncoder = [command_buffer blitCommandEncoder];
-
-  [blitCommandEncoder copyFromBuffer:temp_buffer
-                        sourceOffset:0
-                            toBuffer:buffer
-                   destinationOffset:buffer_offset
-                                size:data_size];
-
-  [blitCommandEncoder endEncoding];
-  [command_buffer commit];
-
-  if (wait_for_completion) {
-    [command_buffer waitUntilCompleted];
-  }
-  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -446,6 +472,9 @@ LiteRtStatus LiteRtImportMetalMemory(LiteRtGpuDeviceId device_id, LiteRtGpuQueue
       absl_status =
           absl::InvalidArgumentError("Passed-in HwMemoryHandle is not a valid MTLTexture");
     } else {
+      if (memory_info->metal_device == nil) {
+        memory_info->metal_device = metal_texture.device;
+      }
       absl_status = ::ml_drift::metal::CreateTensorSharedTexture(metal_texture, *tensor_desc,
                                                                  &memory_info->metal_tensor);
     }
@@ -457,6 +486,9 @@ LiteRtStatus LiteRtImportMetalMemory(LiteRtGpuDeviceId device_id, LiteRtGpuQueue
       ABSL_LOG(ERROR) << "Passed-in HwMemoryHandle is not a valid MTLBuffer.";
       absl_status = absl::InvalidArgumentError("Passed-in HwMemoryHandle is not a valid MTLBuffer");
     } else {
+      if (memory_info->metal_device == nil) {
+        memory_info->metal_device = metal_buffer.device;
+      }
       absl_status = ::ml_drift::metal::CreateTensorSharedBuffer(metal_buffer, *tensor_desc,
                                                                 &memory_info->metal_tensor);
     }
@@ -583,8 +615,9 @@ LiteRtStatus LiteRtUnlockMetalMemory(HwMemoryInfoPtr hw_memory_info) {
       CopySpan(memory_info, /*read=*/false, packed ? "" : direct ? " (direct)" : " (converted)"));
   absl::Status absl_status = absl::OkStatus();
   if (packed) {
-    WriteDataToBuffer(gpu_tensor.GetBufferHandle(), 0, command_queue, memory_info->host_memory,
-                      memory_info->packed_bytes, false);
+    absl_status = WriteDataToBuffer(gpu_tensor.GetBufferHandle(), 0, command_queue,
+                                    memory_info->host_memory, memory_info->packed_bytes,
+                                    /*wait_for_completion=*/false);
   } else if (direct) {
     WriteLinearBufferDirect(gpu_tensor, memory_info->host_memory);
     if (VerifyDirectCopies()) {
@@ -671,8 +704,8 @@ LiteRtStatus LiteRtLockMetalMemory(HwMemoryInfoPtr hw_memory_info, LiteRtTensorB
   absl::Status absl_status = absl::OkStatus();
   if (packed) {
     id<MTLCommandQueue> command_queue = memory_info->command_queue;
-    ReadDataFromBuffer(gpu_tensor.GetBufferHandle(), 0, command_queue, memory_info->host_memory,
-                       memory_info->packed_bytes);
+    absl_status = ReadDataFromBuffer(gpu_tensor.GetBufferHandle(), 0, command_queue,
+                                     memory_info->host_memory, memory_info->packed_bytes);
   } else if (direct) {
     ReadLinearBufferDirect(gpu_tensor, memory_info->host_memory);
     if (VerifyDirectCopies()) {

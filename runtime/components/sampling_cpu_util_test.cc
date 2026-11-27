@@ -14,7 +14,10 @@
 
 #include "runtime/components/sampling_cpu_util.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <limits>
 #include <memory>
 #include <random>
 #include <vector>
@@ -372,6 +375,107 @@ TEST(SamplingCpuUtilTest, BenchmarkTopKTokenIds) {
   duration = end - start;
   std::printf("[BENCHMARK] TopK=1025 (full-sort) execution took: %.3f ms\n\n",
               absl::ToDoubleMilliseconds(duration) / kIterations);
+}
+
+TEST(SamplingCpuUtilTest, SingleNaNLogitDoesNotPoisonMaxOrTopK) {
+  // Vocab > 128 exercises tiled Max<128> and MaxElement.
+  constexpr int kVocab = 300;
+  std::vector<float> logits(kVocab, -5.0f);
+  logits[0] = std::numeric_limits<float>::quiet_NaN();
+  logits[137] = std::numeric_limits<float>::quiet_NaN();
+  logits[250] = -1.25f;
+  logits[251] = -2.0f;
+
+  auto top1 = TopKTokenIds(absl::MakeConstSpan(logits), /*k=*/1,
+                           /*batch_size=*/1, /*sequence_size=*/1);
+  ASSERT_TRUE(top1.ok());
+  EXPECT_THAT((*top1)[0], ElementsAre(250));
+
+  auto top3 = TopKTokenIds(absl::MakeConstSpan(logits), /*k=*/3,
+                           /*batch_size=*/1, /*sequence_size=*/1);
+  ASSERT_TRUE(top3.ok());
+  EXPECT_EQ((*top3)[0][0], 250);
+  EXPECT_EQ((*top3)[0][1], 251);
+
+  auto rng = std::make_shared<std::default_random_engine>(0);
+  std::vector<std::vector<float>> scores;
+  auto sampled = TopKTopPSampling(absl::MakeConstSpan(logits), /*k=*/4,
+                                  /*p=*/0.9f, /*temperature=*/0.0f, rng,
+                                  /*batch_size=*/1, /*sequence_size=*/1,
+                                  scores);
+  ASSERT_TRUE(sampled.ok());
+  EXPECT_THAT((*sampled)[0], ElementsAre(250));
+  EXPECT_TRUE(std::isfinite(scores[0][0]));
+  EXPECT_GT(scores[0][0], 0.0f);
+}
+
+TEST(SamplingCpuUtilTest, LargeKWithNaNUsesStrictWeakOrdering) {
+  // k > 1024 exercises the std::nth_element path in TopKTokenIds.
+  constexpr int kVocab = 1100;
+  std::vector<float> logits(kVocab, -3.0f);
+  for (int i = 0; i < 50; ++i) {
+    logits[i * 17] = std::numeric_limits<float>::quiet_NaN();
+  }
+  logits[1099] = 4.5f;
+
+  auto topk = TopKTokenIds(absl::MakeConstSpan(logits), /*k=*/1025,
+                           /*batch_size=*/1, /*sequence_size=*/1);
+  ASSERT_TRUE(topk.ok());
+  EXPECT_NE(std::find((*topk)[0].begin(), (*topk)[0].end(), 1099),
+            (*topk)[0].end());
+}
+
+TEST(SamplingCpuUtilTest, AllNaNAndAllNegInfLogitsProduceFiniteProbabilities) {
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float neg_inf = -std::numeric_limits<float>::infinity();
+  for (float fill : {nan, neg_inf}) {
+    std::vector<float> logits(160, fill);
+    const std::vector<int> topk_indices = {0, 1, 2, 3};
+    std::vector<std::vector<float>> max_logits;
+    auto probs = Softmax(absl::MakeConstSpan(logits),
+                         absl::MakeConstSpan(topk_indices), /*temperature=*/1.0f,
+                         /*batch_size=*/1, /*sequence_size=*/1, max_logits);
+    ASSERT_TRUE(probs.ok());
+    EXPECT_THAT((*probs)[0], ElementsAre(0.25f, 0.25f, 0.25f, 0.25f));
+
+    auto rng = std::make_shared<std::default_random_engine>(7);
+    std::vector<std::vector<float>> scores;
+    for (int k : {1, 4}) {
+      auto sampled = TopKTopPSampling(absl::MakeConstSpan(logits), k,
+                                      /*p=*/0.9f, /*temperature=*/1.0f, rng,
+                                      /*batch_size=*/1, /*sequence_size=*/1,
+                                      scores);
+      ASSERT_TRUE(sampled.ok());
+      EXPECT_GE((*sampled)[0][0], 0);
+      EXPECT_LT((*sampled)[0][0], 160);
+      EXPECT_TRUE(std::isfinite(scores[0][0]));
+      EXPECT_GT(scores[0][0], 0.0f);
+    }
+  }
+}
+
+TEST(SamplingCpuUtilTest, PosInfLogitsProduceFiniteProbabilities) {
+  const float pos_inf = std::numeric_limits<float>::infinity();
+  std::vector<float> logits = {1.0f, pos_inf, 2.0f, pos_inf, -1.0f};
+  const std::vector<int> topk_indices = {1, 3, 2};
+  std::vector<std::vector<float>> max_logits;
+  auto probs = Softmax(absl::MakeConstSpan(logits),
+                       absl::MakeConstSpan(topk_indices), /*temperature=*/1.0f,
+                       /*batch_size=*/1, /*sequence_size=*/1, max_logits);
+  ASSERT_TRUE(probs.ok());
+  EXPECT_THAT((*probs)[0], ElementsAre(0.5f, 0.5f, 0.0f));
+  EXPECT_EQ(max_logits[0][0], pos_inf);
+
+  auto rng = std::make_shared<std::default_random_engine>(3);
+  std::vector<std::vector<float>> scores;
+  auto sampled = TopKTopPSampling(absl::MakeConstSpan(logits), /*k=*/3,
+                                  /*p=*/0.95f, /*temperature=*/1.0f, rng,
+                                  /*batch_size=*/1, /*sequence_size=*/1,
+                                  scores);
+  ASSERT_TRUE(sampled.ok());
+  EXPECT_TRUE((*sampled)[0][0] == 1 || (*sampled)[0][0] == 3);
+  EXPECT_TRUE(std::isfinite(scores[0][0]));
+  EXPECT_GT(scores[0][0], 0.0f);
 }
 
 }  // namespace

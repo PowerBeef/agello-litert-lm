@@ -1,5 +1,5 @@
 load("@flatbuffers//:build_defs.bzl", "flatbuffer_cc_library")
-load("@rules_cc//cc:defs.bzl", "objc_library")
+load("@rules_cc//cc:defs.bzl", "cc_test", "objc_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -29,8 +29,10 @@ objc_library(
     deps = [
         ":buffer",
         "//ml_drift/common:types",
+        "//ml_drift/common/task:buffer_desc",
         "//third_party/apple_frameworks:Metal",
         "//third_party/apple_frameworks:XCTest",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -366,6 +368,7 @@ objc_library(
         "//ml_drift/common:shape",
         "//ml_drift/common:tensor",
         "//ml_drift/common:types",
+        "//ml_drift/common/task:buffer_desc",
         "//ml_drift/common/task:tensor_desc",
         "//ml_drift/common/task:weights_layout",
         "//ml_drift/metal/testing:test_util",
@@ -410,5 +413,42 @@ objc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/types:span",
+    ],
+)
+
+objc_library(
+    name = "agello_metal_safety_test_lib",
+    testonly = 1,
+    srcs = ["agello_metal_safety_test.mm"],
+    alwayslink = True,
+    deps = [
+        ":buffer",
+        ":compute_task",
+        ":environment",
+        ":inference_context",
+        ":memory_manager",
+        ":metal_spatial_tensor",
+        "//ml_drift/common:data_type",
+        "//ml_drift/common:gpu_model",
+        "//ml_drift/common:precision",
+        "//ml_drift/common:shape",
+        "//ml_drift/common:tensor",
+        "//ml_drift/common:types",
+        "//ml_drift/common/kernels:quantize_and_dequantize",
+        "//ml_drift/common/task:buffer_desc",
+        "//ml_drift/common/task:gpu_operation",
+        "//ml_drift/common/task:tensor_desc",
+        "//third_party/apple_frameworks:Metal",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "agello_metal_safety_test",
+    deps = [
+        ":agello_metal_safety_test_lib",
+        "@com_google_googletest//:gtest_main",
     ],
 )

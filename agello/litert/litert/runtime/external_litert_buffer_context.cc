@@ -71,6 +71,16 @@ LiteRtExternalLiteRtBufferContextT::GetBufferRequirements(
 LiteRtStatus LiteRtExternalLiteRtBufferContextT::RegisterTensorBuffer(
     const TfLiteOpaqueTensor* tensor, LiteRtTensorBufferPtr tensor_buffer) {
   TfLiteTensorIdentifier tensor_id = get_tensor_identifier_fn_(tensor);
+  if (!run_registration_frames_.empty() &&
+      run_registration_frames_.back().recording) {
+    LiteRtTensorBufferPtr previous;
+    if (auto it = tensor_buffers_.find(tensor_id);
+        it != tensor_buffers_.end()) {
+      previous = std::move(it->second);
+    }
+    run_registration_frames_.back().entries.push_back(
+        RunRegistrationEntry{tensor_id, std::move(previous)});
+  }
   tensor_buffers_[tensor_id] = std::move(tensor_buffer);
   return kLiteRtStatusOk;
 }
@@ -82,6 +92,31 @@ LiteRtStatus LiteRtExternalLiteRtBufferContextT::UnregisterTensorBuffer(
     return kLiteRtStatusErrorNotFound;
   }
   return kLiteRtStatusOk;
+}
+
+void LiteRtExternalLiteRtBufferContextT::BeginRunRegistrations() {
+  run_registration_frames_.push_back(RunRegistrationFrame{});
+}
+
+void LiteRtExternalLiteRtBufferContextT::FreezeRunRegistrations() {
+  if (!run_registration_frames_.empty()) {
+    run_registration_frames_.back().recording = false;
+  }
+}
+
+void LiteRtExternalLiteRtBufferContextT::EndRunRegistrations() {
+  if (run_registration_frames_.empty()) {
+    return;
+  }
+  RunRegistrationFrame frame = std::move(run_registration_frames_.back());
+  run_registration_frames_.pop_back();
+  for (auto it = frame.entries.rbegin(); it != frame.entries.rend(); ++it) {
+    if (it->previous_buffer != nullptr) {
+      tensor_buffers_[it->tensor_id] = std::move(it->previous_buffer);
+    } else {
+      tensor_buffers_.erase(it->tensor_id);
+    }
+  }
 }
 
 litert::Expected<LiteRtTensorBufferPtr>

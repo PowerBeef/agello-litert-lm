@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <vector>
 
 #include "runtime/executor/agello_resident_round.h"
 
@@ -172,7 +173,7 @@ class MetalResidentRound : public ResidentRound {
   MetalResidentRound(id<MTLCommandQueue> queue, id<MTLComputePipelineState> gather,
                      id<MTLComputePipelineState> argmax, id<MTLComputePipelineState> gather_tables,
                      id<MTLBuffer> table, id<MTLBuffer> scales, id<MTLBuffer> ids,
-                     GatherShape shape)
+                     GatherShape shape, int max_steps)
       : queue_(queue),
         gather_(gather),
         argmax_(argmax),
@@ -180,26 +181,49 @@ class MetalResidentRound : public ResidentRound {
         table_(table),
         scales_(scales),
         ids_(ids),
-        shape_(shape) {}
+        shape_(shape),
+        max_steps_(max_steps) {}
 
   ~MetalResidentRound() override { DrainLast(); }
 
+  void DrainLast() override {
+    for (id<MTLCommandBuffer> command : commands_) {
+      if (command != nil) {
+        [command waitUntilCompleted];
+      }
+    }
+    commands_.clear();
+  }
+
   void SetFirstId(int token_id) override {
     DrainLast();
-    static_cast<int32_t*>([ids_ contents])[0] = token_id;
+    auto* ids = static_cast<int32_t*>([ids_ contents]);
+    ids[0] = token_id;
+    for (int i = 1; i <= max_steps_; ++i) {
+      ids[i] = -1;
+    }
   }
 
   bool EncodeInput(int step, void* activations, void* previous, size_t previous_offset) override {
     id<MTLBuffer> input = (__bridge id<MTLBuffer>)activations;
     id<MTLBuffer> source = (__bridge id<MTLBuffer>)previous;
     const size_t half_bytes = static_cast<size_t>(shape_.cols) * sizeof(float);
-    if (input == nil || source == nil || input.length < 2 * half_bytes ||
-        source.length < previous_offset + half_bytes) {
+    if (step < 0 || step > max_steps_ || input == nil || source == nil ||
+        input.length < 2 * half_bytes || previous_offset > source.length ||
+        source.length - previous_offset < half_bytes) {
       DrainLast();
       return false;
     }
     id<MTLCommandBuffer> command = [queue_ commandBuffer];
+    if (command == nil) {
+      DrainLast();
+      return false;
+    }
     id<MTLComputeCommandEncoder> compute = [command computeCommandEncoder];
+    if (compute == nil) {
+      DrainLast();
+      return false;
+    }
     [compute setComputePipelineState:gather_];
     [compute setBuffer:ids_ offset:static_cast<NSUInteger>(step) * sizeof(int32_t) atIndex:0];
     [compute setBuffer:table_ offset:0 atIndex:1];
@@ -211,6 +235,10 @@ class MetalResidentRound : public ResidentRound {
         threadsPerThreadgroup:MTLSizeMake(MIN(threads, gather_.maxTotalThreadsPerThreadgroup), 1, 1)];
     [compute endEncoding];
     id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+    if (blit == nil) {
+      DrainLast();
+      return false;
+    }
     [blit copyFromBuffer:source
              sourceOffset:previous_offset
                  toBuffer:input
@@ -218,18 +246,27 @@ class MetalResidentRound : public ResidentRound {
                      size:half_bytes];
     [blit endEncoding];
     [command commit];
-    last_ = command;
+    commands_.push_back(command);
     return true;
   }
 
   bool EncodeArgmax(int step, void* logits, int vocab) override {
     id<MTLBuffer> row = (__bridge id<MTLBuffer>)logits;
-    if (row == nil || row.length < static_cast<size_t>(vocab) * 2) {
+    if (step < 0 || step >= max_steps_ || vocab <= 0 || row == nil ||
+        row.length < static_cast<size_t>(vocab) * 2) {
       DrainLast();
       return false;
     }
     id<MTLCommandBuffer> command = [queue_ commandBuffer];
+    if (command == nil) {
+      DrainLast();
+      return false;
+    }
     id<MTLComputeCommandEncoder> compute = [command computeCommandEncoder];
+    if (compute == nil) {
+      DrainLast();
+      return false;
+    }
     [compute setComputePipelineState:argmax_];
     [compute setBuffer:row offset:0 atIndex:0];
     uint32_t count = static_cast<uint32_t>(vocab);
@@ -243,7 +280,7 @@ class MetalResidentRound : public ResidentRound {
     [compute dispatchThreadgroups:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(lanes, 1, 1)];
     [compute endEncoding];
     [command commit];
-    last_ = command;
+    commands_.push_back(command);
     return true;
   }
 
@@ -282,7 +319,7 @@ class MetalResidentRound : public ResidentRound {
     per_layer_ = sets[1];
     // One gather now, waited for: the first use of these buffers took 0.68 s on the M6 (making
     // them resident), which belongs in the load, not in the first reply's first round.
-    static_cast<int32_t*>([ids_ contents])[0] = 0;
+    SetFirstId(0);
     id<MTLBuffer> warm_embedding = [queue_.device
         newBufferWithLength:embedder_.tables.size() * embedder_.shape.cols * sizeof(float)
                     options:MTLResourceStorageModeShared];
@@ -294,8 +331,23 @@ class MetalResidentRound : public ResidentRound {
       per_layer_ = GpuTableSet();
       return false;
     }
-    [last_ waitUntilCompleted];
-    last_ = nil;
+    bool warm_ok = !commands_.empty();
+    for (id<MTLCommandBuffer> command : commands_) {
+      if (command == nil) {
+        warm_ok = false;
+        continue;
+      }
+      [command waitUntilCompleted];
+      if (command.status != MTLCommandBufferStatusCompleted || command.error != nil) {
+        warm_ok = false;
+      }
+    }
+    commands_.clear();
+    if (!warm_ok) {
+      embedder_ = GpuTableSet();
+      per_layer_ = GpuTableSet();
+      return false;
+    }
     NSLog(@"Agello resident round: verify's inputs on the GPU (%zu and %zu tables)",
           embedder_.tables.size(), per_layer_.tables.size());
     return true;
@@ -306,7 +358,7 @@ class MetalResidentRound : public ResidentRound {
   bool EncodeVerifyInputs(int tokens, void* embeddings, void* per_layer) override {
     id<MTLBuffer> outputs[2] = {(__bridge id<MTLBuffer>)embeddings, (__bridge id<MTLBuffer>)per_layer};
     GpuTableSet* sets[2] = {&embedder_, &per_layer_};
-    if (!HasVerifyTables()) {
+    if (!HasVerifyTables() || tokens <= 0 || tokens > max_steps_ + 1) {
       DrainLast();
       return false;
     }
@@ -318,7 +370,15 @@ class MetalResidentRound : public ResidentRound {
       }
     }
     id<MTLCommandBuffer> command = [queue_ commandBuffer];
+    if (command == nil) {
+      DrainLast();
+      return false;
+    }
     id<MTLComputeCommandEncoder> compute = [command computeCommandEncoder];
+    if (compute == nil) {
+      DrainLast();
+      return false;
+    }
     [compute setComputePipelineState:gather_tables_];
     for (int i = 0; i < 2; ++i) {
       TablesShape shape = sets[i]->shape;
@@ -334,15 +394,28 @@ class MetalResidentRound : public ResidentRound {
     }
     [compute endEncoding];
     [command commit];
-    last_ = command;
+    commands_.push_back(command);
     return true;
   }
 
   bool Finish(int count, int* ids) override {
-    if (last_ == nil) return false;
-    [last_ waitUntilCompleted];
-    const bool ok = last_.status == MTLCommandBufferStatusCompleted;
-    last_ = nil;
+    if (commands_.empty() || count < 0 || count > max_steps_ ||
+        (count > 0 && ids == nullptr)) {
+      DrainLast();
+      return false;
+    }
+    bool ok = true;
+    for (id<MTLCommandBuffer> command : commands_) {
+      if (command == nil) {
+        ok = false;
+        continue;
+      }
+      [command waitUntilCompleted];
+      if (command.status != MTLCommandBufferStatusCompleted || command.error != nil) {
+        ok = false;
+      }
+    }
+    commands_.clear();
     if (!ok) return false;
     const int32_t* drafted = static_cast<const int32_t*>([ids_ contents]);
     for (int i = 0; i < count; ++i) {
@@ -353,13 +426,6 @@ class MetalResidentRound : public ResidentRound {
   }
 
  private:
-  void DrainLast() {
-    if (last_ != nil) {
-      [last_ waitUntilCompleted];
-      last_ = nil;
-    }
-  }
-
   id<MTLCommandQueue> queue_;
   id<MTLComputePipelineState> gather_;
   id<MTLComputePipelineState> argmax_;
@@ -370,7 +436,8 @@ class MetalResidentRound : public ResidentRound {
   id<MTLBuffer> scales_;
   id<MTLBuffer> ids_;
   GatherShape shape_;
-  id<MTLCommandBuffer> last_ = nil;
+  int max_steps_;
+  std::vector<id<MTLCommandBuffer>> commands_;
 };
 
 }  // namespace
@@ -395,7 +462,7 @@ std::unique_ptr<ResidentRound> ResidentRound::Create(const void* command_queue, 
   @autoreleasepool {
     id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)command_queue;
     if (queue == nil || table.section == nullptr || table.scales == nullptr || table.rows <= 0 ||
-        table.cols <= 0 || table.cols % 4 != 0) {
+        table.cols <= 0 || table.cols % 4 != 0 || max_steps <= 0) {
       NSLog(@"Agello resident round: no queue or table; the host drafts");
       return nullptr;
     }
@@ -453,7 +520,7 @@ std::unique_ptr<ResidentRound> ResidentRound::Create(const void* command_queue, 
                       static_cast<uint32_t>(table.rows_offset)};
     NSLog(@"Agello resident round: on (%d x %d table, mul %g)", table.rows, table.cols, table.mul);
     return std::make_unique<MetalResidentRound>(queue, gather, argmax, gather_tables, rows, scales,
-                                                ids, shape);
+                                                ids, shape, max_steps);
   }
 }
 

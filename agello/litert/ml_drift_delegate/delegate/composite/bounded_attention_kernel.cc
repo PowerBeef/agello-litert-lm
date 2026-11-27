@@ -782,6 +782,7 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   auto ctS = qk0_op.get_destination_cooperative_tensor<decltype(q_lo), decltype(kv_tensor), float>();
   auto ctM = qk0_op.get_row_reduction_destination_cooperative_tensor<decltype(q_lo), decltype(kv_tensor), float>();
   auto ctL = qk0_op.get_row_reduction_destination_cooperative_tensor<decltype(q_lo), decltype(kv_tensor), float>();
+  auto ctR = qk0_op.get_row_reduction_destination_cooperative_tensor<decltype(q_lo), decltype(kv_tensor), float>();
   auto ctTileMax = qk0_op.get_row_reduction_destination_cooperative_tensor<decltype(q_lo), decltype(kv_tensor), float>();
   auto ctTileSum = qk0_op.get_row_reduction_destination_cooperative_tensor<decltype(q_lo), decltype(kv_tensor), float>();
   #pragma clang loop unroll(full)
@@ -789,6 +790,7 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
     if (ctM.is_valid_element(i)) {
       ctM[i] = -1e38f;
       ctL[i] = 0.0f;
+      ctR[i] = 1.0f;
     }
   }
   constexpr auto pv_desc = mpp::tensor_ops::matmul2d_descriptor(
@@ -981,23 +983,37 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   c += "        }\n";
   c += "      }\n";
   c += "      mpp::tensor_ops::reduce_rows(ctS, ctTileSum, mpp::tensor_ops::reduction_operation::sum, 0.0f);\n";
-  c += "      bool has_prev = false;\n";
+  c += "      bool has_rescale = false;\n";
   c += "      #pragma clang loop unroll(full)\n";
   c += "      for (uint16_t i = 0; i < ctL.get_capacity(); ++i) {\n";
   c += "        if (ctL.is_valid_element(i)) {\n";
   c += "          auto rc = ctL.get_multidimensional_index(i);\n";
   c += "          float l_old_s = ctL[i];\n";
-  c += "          float l_new = l_old_s + ctTileSum[i];\n";
+  c += "          float tile_sum = ctTileSum[i];\n";
+  c += "          float l_new = l_old_s + tile_sum;\n";
   c += "          ctL[i] = l_new;\n";
   c += "          float inv_l = (l_new > 0.0f) ? (1.0f / l_new) : 0.0f;\n";
-  c += "          float os = l_old_s * inv_l;\n";
   c += "          bool had_prev = (had_prev_mask & (1u << i)) != 0u;\n";
-  c += "          has_prev = has_prev || (had_prev && os < 1.0f);\n";
-  c += "          tg_o_scale[sg_r0 + rc[0]] = os;\n";
-  c += "          tg_m[sg_r0 + rc[0]] = 16.0f * inv_l;\n";
+  c += "          float d_f = 1.0f;\n";
+  c += "          float r_new = ctR[i];\n";
+  c += "          if (had_prev) {\n";
+  c += "            float os = (tile_sum > 0.0f) ? (l_old_s * inv_l) : 1.0f;\n";
+  c += "            float r_cand = r_new * os;\n";
+  c += "            if (r_cand <= 0.5f) {\n";
+  c += "              half d_h = half(r_cand);\n";
+  c += "              d_f = float(d_h);\n";
+  c += "              r_new = (d_f > 0.0f) ? (r_cand / d_f) : 1.0f;\n";
+  c += "              has_rescale = true;\n";
+  c += "            } else {\n";
+  c += "              r_new = r_cand;\n";
+  c += "            }\n";
+  c += "          }\n";
+  c += "          ctR[i] = r_new;\n";
+  c += "          tg_o_scale[sg_r0 + rc[0]] = d_f;\n";
+  c += "          tg_m[sg_r0 + rc[0]] = (16.0f * inv_l) / r_new;\n";
   c += "        }\n";
   c += "      }\n";
-  c += "      need_rescale = simd_any(has_prev);\n";
+  c += "      need_rescale = simd_any(has_rescale);\n";
   c += "      simdgroup_barrier(mem_flags::mem_threadgroup);\n";
   c += "      #pragma clang loop unroll(full)\n";
   c += "      for (uint16_t i = 0; i < ctS.get_capacity(); ++i) {\n";
@@ -1052,9 +1068,18 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   c += "  }\n";  // end K-loop
 
   // Multi-pass coalesced epilogue reusing kv_loc_u32 (16 KiB).
-  // ctO already holds running-normalized 16x-scaled sums; multiply by scale_v / 16.
+  // ctO holds 16x-scaled sums normalized up to per-row residual ctR;
+  // multiply by ctR * scale_v / 16.
   c += "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
-  c += "  float final_scale = args.scale_v * 0.0625f;\n";
+  c += "  float base_scale = args.scale_v * 0.0625f;\n";
+  c += "  #pragma clang loop unroll(full)\n";
+  c += "  for (uint16_t i = 0; i < ctR.get_capacity(); ++i) {\n";
+  c += "    if (ctR.is_valid_element(i)) {\n";
+  c += "      auto rc = ctR.get_multidimensional_index(i);\n";
+  c += "      tg_o_scale[sg_r0 + rc[0]] = ctR[i] * base_scale;\n";
+  c += "    }\n";
+  c += "  }\n";
+  c += "  threadgroup_barrier(mem_flags::mem_threadgroup);\n";
   absl::StrAppend(&c, "  threadgroup ", scalar, "* o_stage = reinterpret_cast<threadgroup ",
                   scalar, "*>(kv_loc_u32);\n");
   absl::StrAppend(&c, "  threadgroup ", vec4, "* o_stage4 = reinterpret_cast<threadgroup ",
@@ -1071,10 +1096,11 @@ std::string GenerateFlashAttentionD512Code(const FlashAttentionAttributes& attr,
   c += "          auto coord = ctO0.get_multidimensional_index(i);\n";
   c += "          int lr = (sg_r0 + coord[1]) - pass_r0;\n";
   c += "          if (lr >= 0 && lr < PASS_ROWS) {\n";
+  c += "            float row_scale = tg_o_scale[sg_r0 + coord[1]];\n";
   c += "            int base = lr * 512 + coord[0];\n";
   for (int t = 0; t < 8; ++t) {
     absl::StrAppend(&c, "            o_stage[base + ", t * 64, "] = ", scalar,
-                    "(float(ctO", t, "[i]) * final_scale);\n");
+                    "(float(ctO", t, "[i]) * row_scale);\n");
   }
   c += "          }\n";
   c += "        }\n";
@@ -1108,6 +1134,10 @@ absl::Status CreateFlashAttentionFromNode(const std::vector<::ml_drift::Value*>&
   if (attr->head_dim != 256 && attr->head_dim != 512) {
     return absl::InvalidArgumentError("Flash attention supports head_dim 256 or 512.");
   }
+  if (attr->row_end && attr->window_pos_index.has_value()) {
+    return absl::InvalidArgumentError(
+        "Flash attention does not support combining row_end bounds with sliding window.");
+  }
 
   ABSL_ASSIGN_OR_RETURN(auto q, model_builder->GetTensor(inputs[0]->id));
   ABSL_ASSIGN_OR_RETURN(auto cache_k, model_builder->GetTensor(inputs[1]->id));
@@ -1115,15 +1145,23 @@ absl::Status CreateFlashAttentionFromNode(const std::vector<::ml_drift::Value*>&
   ABSL_ASSIGN_OR_RETURN(auto mask, model_builder->GetTensor(inputs[3]->id));
   ABSL_ASSIGN_OR_RETURN(auto params, model_builder->GetTensor(inputs[4]->id));
 
+  const ::ml_drift::DataType q_type = q.tensor_desc.GetDataType();
+  if (q_type != ::ml_drift::DataType::kFloat16 && q_type != ::ml_drift::DataType::kFloat32) {
+    return absl::InvalidArgumentError("Flash attention requires float16 or float32 Q tensor.");
+  }
+  const ::ml_drift::BHWC mask_shape = mask.tensor_desc.GetBHWCShape();
+  if (mask_shape.b != 1 || mask_shape.h <= 0 || mask_shape.w <= 0 || mask_shape.c <= 0 ||
+      (!attr->row_end && mask_shape.c != attr->cache_size)) {
+    return absl::InvalidArgumentError("Flash attention received incompatible mask tensor shape.");
+  }
+
   ::ml_drift::TensorDescriptor q_lin_desc(
-      q.tensor_desc.GetDataType(), ::ml_drift::TensorStorageType::kBuffer,
-      q.tensor_desc.GetLayout(),
+      q_type, ::ml_drift::TensorStorageType::kBuffer, q.tensor_desc.GetLayout(),
       ::ml_drift::TensorDescriptor::PhysicalLayout1D::kDHWBCC4);
   q_lin_desc.SetBHWCShape(q.tensor_desc.GetBHWCShape());
   auto q_lin = model_builder->AddTensor(q_lin_desc);
   model_builder->Copy(q, q_lin);
   const ::ml_drift::BHWC q_shape = q_lin.tensor_desc.GetBHWCShape();
-  const ::ml_drift::DataType q_type = q_lin.tensor_desc.GetDataType();
   auto dst = model_builder->AddTensor(q_shape, q_type);
 
   constexpr int kSimdGroups = 4;
@@ -1158,7 +1196,6 @@ absl::Status CreateFlashAttentionFromNode(const std::vector<::ml_drift::Value*>&
     op.args_.AddFloat("clamp_low", *attr->clamp_low, ::ml_drift::DataType::kFloat32);
     op.args_.AddFloat("clamp_high", *attr->clamp_high, ::ml_drift::DataType::kFloat32);
   }
-  const ::ml_drift::BHWC mask_shape = mask.tensor_desc.GetBHWCShape();
   op.args_.AddInt("mask_w", mask_shape.w);
   op.args_.AddInt("mask_h", mask_shape.h);
   op.args_.AddInt("mask_slices", ::ml_drift::DivideRoundUp(mask_shape.c, 4));

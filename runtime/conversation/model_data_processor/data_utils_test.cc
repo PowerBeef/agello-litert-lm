@@ -191,6 +191,41 @@ TEST(DataUtilsTest, NormalizeMessageContent_ObjectContent) {
   EXPECT_EQ(NormalizeMessageContent(msg), expected);
 }
 
+TEST(DataUtilsTest, NormalizeMessageContent_ToolStringContentPreservesName) {
+  const ordered_json msg = {
+      {"role", "tool"},
+      {"name", "get_weather"},
+      {"content", "Sunny 20C"},
+  };
+  const ordered_json expected = {
+      {"role", "tool"},
+      {"name", "get_weather"},
+      {"content",
+       {{{"type", "tool_response"},
+         {"response", "Sunny 20C"},
+         {"name", "get_weather"}}}},
+  };
+  EXPECT_EQ(NormalizeMessageContent(msg), expected);
+}
+
+TEST(DataUtilsTest, LoadItemData_MalformedFieldsReturnInvalidArgument) {
+  EXPECT_THAT(
+      LoadItemData({{"type", 123}}).status(),
+      testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(
+      LoadItemData({{"type", "text"}}).status(),
+      testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(
+      LoadItemData({{"type", "text"}, {"text", 42}}).status(),
+      testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(
+      LoadItemData({{"type", "image"}, {"path", 99}}).status(),
+      testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(
+      LoadItemData({{"type", "audio"}, {"blob", false}}).status(),
+      testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
 TEST(DataUtilsTest, ResponseTextToMessage_WithoutTools) {
   ASSERT_OK_AND_ASSIGN(
       const ordered_json message,

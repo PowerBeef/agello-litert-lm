@@ -112,7 +112,7 @@ class MetalSpatialTensor : public GPUObject, public GpuSpatialTensor {
   bool texture_mem_owner_;
   TensorDescriptor descriptor_;
   // for use with TEXTURE_2D and when texture created from buffer.
-  int aligned_texture_width_;
+  int aligned_texture_width_ = 0;
   // used when created from shared buffer
   uint64_t buffer_offset_ = 0;
 };

@@ -18,6 +18,7 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -300,12 +301,45 @@ class ThreadedExecutionManager : public ExecutionManager {
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
-  // Queues the task with the given task ID.
-  // - task_id: The task ID of the task.
-  // Note: QueueTask expects the callers to acquire the task lookup mutex before
-  // calling it.
-  absl::Status QueueTask(TaskId task_id)
+  struct PendingCallback {
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback;
+    absl::StatusOr<Responses> payload;
+  };
+
+  struct ReadyToQueueTask {
+    TaskId task_id;
+    absl::AnyInvocable<void()> task;
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback;
+  };
+
+  static void InvokePendingCallbacks(
+      std::vector<PendingCallback>& pending_callbacks);
+
+  // Resolves `dependent_tasks` against `task_lookup_` and `pending_end_states_`,
+  // erasing already-finished dependencies.
+  absl::StatusOr<TaskState> ResolveDependenciesLocked(
+      absl::flat_hash_set<TaskId>& dependent_tasks)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(session_and_task_lookup_mutex_);
+
+  // Transitions a ready task to kQueued and appends it to `ready_to_queue` so
+  // its kQueued callback and thread-pool scheduling happen outside the mutex.
+  absl::Status QueueTask(TaskId task_id,
+                         std::vector<PendingCallback>& pending_callbacks,
+                         std::vector<ReadyToQueueTask>& ready_to_queue)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(session_and_task_lookup_mutex_);
+
+  // Invokes kQueued callbacks and schedules `ready_to_queue` tasks outside
+  // `session_and_task_lookup_mutex_`.
+  absl::Status DispatchReadyTasks(
+      std::vector<ReadyToQueueTask>& ready_to_queue)
+      ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
+
+  // Finalizes callback-thread tracking and transitions `task_id` to
+  // `next_state` after a terminal callback finishes (or fails to schedule).
+  void CompleteFinalCallback(std::optional<std::thread::id> tid,
+                             SessionId session_id, TaskId task_id,
+                             TaskState next_state)
+      ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
   // Starts the task with the given task ID, and returns the session info and
   // callback function of the task.
@@ -352,18 +386,22 @@ class ThreadedExecutionManager : public ExecutionManager {
   // Updates the task state with the given task ID and task state.
   // - task_id: The task ID of the task.
   // - task_state: The state of the task.
+  // - pending_callbacks: receives any error callbacks to invoke after unlocking.
   // Note: UpdateTaskState expects the callers to acquire the task lookup mutex
   // before calling it.
-  absl::Status UpdateTaskState(TaskId task_id, TaskState task_state)
+  absl::Status UpdateTaskState(TaskId task_id, TaskState task_state,
+                               std::vector<PendingCallback>& pending_callbacks)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(session_and_task_lookup_mutex_);
 
   // Updates all tasks to the given state.
   // - task_ids: The task IDs of the tasks.
   // - task_state: The state of the tasks.
+  // - pending_callbacks: receives callbacks to invoke after unlocking.
   // Note: UpdateAllTasksToState expects the callers to acquire the task lookup
   // mutex before calling it.
   absl::Status UpdateAllTasksToState(
-      const absl::flat_hash_set<TaskId>& task_ids, TaskState task_state)
+      const absl::flat_hash_set<TaskId>& task_ids, TaskState task_state,
+      std::vector<PendingCallback>& pending_callbacks)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(session_and_task_lookup_mutex_);
 
   // Processes and combines the contents of the preprocessed contents.
@@ -392,6 +430,20 @@ class ThreadedExecutionManager : public ExecutionManager {
   // The key is the task ID.
   // The value is the task info.
   absl::flat_hash_map<TaskId, TaskInfo> task_lookup_
+      ABSL_GUARDED_BY(session_and_task_lookup_mutex_) = {};
+  // Pending end states for tasks currently in TaskState::kLastCallbackQueued so
+  // CreateTask() propagates failure/cancellation while the final callback runs.
+  absl::flat_hash_map<TaskId, TaskState> pending_end_states_
+      ABSL_GUARDED_BY(session_and_task_lookup_mutex_) = {};
+  // Tasks currently executing their terminal callback on callback_thread_pool_
+  // per session, so external WaitUntilSessionDone() calls still wait for
+  // callbacks to finish while reentrant callback calls do not self-deadlock.
+  absl::flat_hash_map<SessionId, absl::flat_hash_set<TaskId>>
+      pending_callback_tasks_ ABSL_GUARDED_BY(session_and_task_lookup_mutex_) =
+          {};
+  // Maps active callback_thread_pool_ thread IDs to the TaskId currently
+  // invoking its terminal callback on that thread.
+  absl::flat_hash_map<std::thread::id, TaskId> running_callbacks_by_thread_
       ABSL_GUARDED_BY(session_and_task_lookup_mutex_) = {};
   // The last prefill token ID.
   int last_prefill_token_id_ = 0;

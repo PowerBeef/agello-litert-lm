@@ -289,7 +289,8 @@ absl::StatusOr<std::unique_ptr<LitertState>> LitertState::Create(
                                                      *executor_metadata, allocation_policy,
                                                      batch_size, clear_kv_cache_before_prefill));
   }
-  ABSL_RETURN_IF_ERROR(state->ConvertToSparseKv(MetalCommandQueueOf(env)));
+  ABSL_RETURN_IF_ERROR(state->ConvertToSparseKv(MetalCommandQueueOf(env),
+                                                clear_kv_cache_before_prefill));
   return state;
 }
 
@@ -344,14 +345,33 @@ LitertState::~LitertState() {
   sparse_kv_.reset();
 }
 
-absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
+absl::Status LitertState::ConvertToSparseKv(const void* command_queue,
+                                            bool clear_buffer) {
   if (GetSparseKvMode() == SparseKvMode::kOff) return absl::OkStatus();
+  auto sparse = std::make_shared<SparseKv>();
+  auto clear_unreplaced_candidates = [&]() -> absl::Status {
+    if (!clear_buffer) return absl::OkStatus();
+    for (auto& [name, state_buffer] : bank_1_state_buffers_) {
+      if (!SparseKvCandidate(name, state_buffer.buffer)) continue;
+      bool replaced = false;
+      for (const SparseKv::Buffer& b : sparse->buffers) {
+        if (b.name == name) {
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) {
+        LITERT_RETURN_IF_ERROR(state_buffer.buffer.Clear());
+        ABSL_RETURN_IF_ERROR(PoisonIfAsked(state_buffer.buffer));
+      }
+    }
+    return absl::OkStatus();
+  };
   if (bank_2_state_buffers_.has_value() || command_queue == nullptr) {
     fprintf(stderr, "Agello sparse KV: off (%s)\n",
             command_queue == nullptr ? "no Metal command queue" : "ping-pong caches");
-    return absl::OkStatus();
+    return clear_unreplaced_candidates();
   }
-  auto sparse = std::make_shared<SparseKv>();
   const size_t tile = SparseKvTileBytes();
   for (auto& [name, state_buffer] : bank_1_state_buffers_) {
     TensorBuffer& buffer = state_buffer.buffer;
@@ -360,7 +380,7 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
     void* device = MetalDeviceOfBuffer(mtl_buffer);
     if (!PlacementSparseBuffersSupported(device)) {
       fprintf(stderr, "Agello sparse KV: this GPU has no placement sparse buffers\n");
-      return absl::OkStatus();
+      return clear_unreplaced_candidates();
     }
     LITERT_ASSIGN_OR_RETURN(auto tensor_type, buffer.TensorType());
     LITERT_ASSIGN_OR_RETURN(auto buffer_type, buffer.BufferType());
@@ -382,7 +402,7 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
       sparse->mapper = std::make_unique<SparseKvMapper>(device, command_queue);
       if (!sparse->mapper->ok()) {
         fprintf(stderr, "Agello sparse KV: no Metal 4 mapping queue\n");
-        return absl::OkStatus();
+        return clear_unreplaced_candidates();
       }
     }
     entry.mtl_buffer = CreateSparseMetalBuffer(device, (size + tile - 1) / tile * tile);
@@ -401,6 +421,7 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
     sparse->slots = std::max(sparse->slots, entry.slots);
     sparse->buffers.push_back(std::move(entry));
   }
+  ABSL_RETURN_IF_ERROR(clear_unreplaced_candidates());
   if (sparse->buffers.empty()) return absl::OkStatus();
   sparse_kv_ = std::move(sparse);
   if (LogSparseKv()) {
@@ -415,6 +436,7 @@ absl::Status LitertState::ConvertToSparseKv(const void* command_queue) {
 absl::Status LitertState::EnsureKvMapped(int last_position) {
   if (sparse_kv_ == nullptr) return absl::OkStatus();
   SparseKvMapper& mapper = *sparse_kv_->mapper;
+  RET_CHECK(mapper.ok()) << "Sparse KV mapper is poisoned or unavailable";
   const int total_steps =
       (sparse_kv_->slots + kSparseStepPositions - 1) / kSparseStepPositions;
   const int needed = std::min(total_steps, std::max(last_position, 0) / kSparseStepPositions + 1);
@@ -435,6 +457,7 @@ absl::Status LitertState::TrimKvMapping(int last_position) {
     return absl::OkStatus();
   }
   SparseKvMapper& mapper = *sparse_kv_->mapper;
+  RET_CHECK(mapper.ok()) << "Sparse KV mapper is poisoned or unavailable";
   const int keep = std::max(last_position, 0) / kSparseStepPositions + 1;
   while (mapper.steps() > keep) {
     RET_CHECK(mapper.UnmapLastStep()) << "Sparse KV: unmapping failed";
@@ -726,10 +749,14 @@ absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DeepCopyFilled(
 }
 
 absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DetachSnapshot(int positions) {
-  if (sparse_kv_ == nullptr || !sparse_kv_->mapper || !sparse_kv_->mapper->ok() ||
+  if (sparse_kv_ == nullptr || !sparse_kv_->mapper ||
       bank_2_state_buffers_.has_value() || !KvBlitsEnabled() ||
       !SparseMappingSnapshotEnabled()) {
     return DeepCopyFilled(positions);
+  }
+  if (!sparse_kv_->mapper->ok()) {
+    return absl::InternalError(
+        "Sparse KV mapper is poisoned; refusing fallback snapshot over live sparse buffers.");
   }
   const void* command_queue = MetalCommandQueueOf(env_);
   if (command_queue == nullptr) return DeepCopyFilled(positions);
@@ -783,7 +810,11 @@ absl::StatusOr<std::unique_ptr<StateInterface>> LitertState::DetachSnapshot(int 
   }
 
   std::optional<SparseKvMappingSnapshot> detached = sparse_kv_->mapper->DetachMappings();
-  if (!detached.has_value()) return DeepCopyFilled(positions);
+  if (!detached.has_value()) {
+    return absl::InternalError(
+        "Sparse KV DetachMappings failed; refusing to fall back to DeepCopyFilled "
+        "over sparse live buffers.");
+  }
   if (LogSparseKv()) {
     fprintf(stderr, "Agello sparse KV: detached %.1f MB mappings (blitted %.1f MB non-sparse)\n",
             detached->mapped_bytes() / 1048576.0, copied_bytes / 1048576.0);

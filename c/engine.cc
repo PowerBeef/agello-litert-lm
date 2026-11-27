@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <memory>
 #if defined(_WIN32)
 #include <io.h>
@@ -60,42 +61,58 @@ absl::AnyInvocable<void(absl::StatusOr<litert::lm::Responses>)> CreateCallback(
     LiteRtLmStreamCallback callback, void* callback_data) {
   return [callback,
           callback_data](absl::StatusOr<litert::lm::Responses> responses) {
-    if (!responses.ok()) {
-      LiteRtLmStreamChunk chunk;
-      chunk.text = nullptr;
-      chunk.is_final = true;
-      std::string error_str = responses.status().ToString();
-      chunk.error_msg = error_str.c_str();
-      callback(callback_data, &chunk);
-      return;
-    }
-    if (responses->GetTaskState() == litert::lm::TaskState::kDone) {
-      LiteRtLmStreamChunk chunk;
-      chunk.text = nullptr;
-      chunk.is_final = true;
-      chunk.error_msg = nullptr;
-      callback(callback_data, &chunk);
-    } else if (responses->GetTaskState() ==
-               litert::lm::TaskState::kMaxNumTokensReached) {
-      LiteRtLmStreamChunk chunk;
-      chunk.text = nullptr;
-      chunk.is_final = true;
-      chunk.error_msg = "Max number of tokens reached.";
-      callback(callback_data, &chunk);
-    } else if (responses->GetTaskState() == litert::lm::TaskState::kCancelled) {
-      LiteRtLmStreamChunk chunk;
-      chunk.text = nullptr;
-      chunk.is_final = true;
-      chunk.error_msg = "CANCELLED.";
-      callback(callback_data, &chunk);
-    } else {
-      for (const auto& text : responses->GetTexts()) {
+    try {
+      if (!responses.ok()) {
         LiteRtLmStreamChunk chunk;
-        chunk.text = text.data();
-        chunk.is_final = false;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        std::string error_str = responses.status().ToString();
+        chunk.error_msg = error_str.c_str();
+        callback(callback_data, &chunk);
+        return;
+      }
+      if (responses->GetTaskState() == litert::lm::TaskState::kDone) {
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
         chunk.error_msg = nullptr;
         callback(callback_data, &chunk);
+      } else if (responses->GetTaskState() ==
+                 litert::lm::TaskState::kMaxNumTokensReached) {
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        chunk.error_msg = "Max number of tokens reached.";
+        callback(callback_data, &chunk);
+      } else if (responses->GetTaskState() ==
+                 litert::lm::TaskState::kCancelled) {
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        chunk.error_msg = "CANCELLED.";
+        callback(callback_data, &chunk);
+      } else {
+        for (const auto& text : responses->GetTexts()) {
+          LiteRtLmStreamChunk chunk;
+          chunk.text = text.data();
+          chunk.is_final = false;
+          chunk.error_msg = nullptr;
+          callback(callback_data, &chunk);
+        }
       }
+    } catch (const std::exception& e) {
+      std::string error_str = e.what();
+      LiteRtLmStreamChunk chunk;
+      chunk.text = nullptr;
+      chunk.is_final = true;
+      chunk.error_msg = error_str.c_str();
+      callback(callback_data, &chunk);
+    } catch (...) {
+      LiteRtLmStreamChunk chunk;
+      chunk.text = nullptr;
+      chunk.is_final = true;
+      chunk.error_msg = "Unknown C++ exception in engine callback.";
+      callback(callback_data, &chunk);
     }
   };
 }
@@ -1042,18 +1059,28 @@ LiteRtLmStatusCode litert_lm_engine_create(
                                       "Invalid engine settings.");
   }
 
-  absl::StatusOr<std::unique_ptr<Engine>> engine =
-      EngineFactory::CreateDefault(*settings->settings);
+  try {
+    absl::StatusOr<std::unique_ptr<Engine>> engine =
+        EngineFactory::CreateDefault(*settings->settings);
 
-  if (!engine.ok()) {
-    ABSL_LOG(ERROR) << "Failed to create engine: " << engine.status();
-    return litert::lm::c::ToCStatus(engine.status());
+    if (!engine.ok()) {
+      ABSL_LOG(ERROR) << "Failed to create engine: " << engine.status();
+      return litert::lm::c::ToCStatus(engine.status());
+    }
+
+    auto c_engine = std::make_unique<LiteRtLmEngine>();
+    c_engine->engine = *std::move(engine);
+    *out_engine = c_engine.release();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception creating engine: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception creating engine.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_engine_create.");
   }
-
-  auto c_engine = std::make_unique<LiteRtLmEngine>();
-  c_engine->engine = *std::move(engine);
-  *out_engine = c_engine.release();
-  return kLiteRtLmStatusOk;
 }
 
 void litert_lm_engine_delete(LiteRtLmEngine* engine) { delete engine; }
@@ -1068,31 +1095,41 @@ LiteRtLmStatusCode litert_lm_engine_create_session(
                                       "Invalid engine.");
   }
 
-  SessionConfig session_config = config && config->config
-                                     ? *config->config
-                                     : SessionConfig::CreateDefault();
-  if (engine->engine->GetEngineSettings()
-          .GetAudioExecutorSettings()
-          .has_value()) {
-    session_config.SetAudioModalityEnabled(true);
-  }
-  if (engine->engine->GetEngineSettings()
-          .GetVisionExecutorSettings()
-          .has_value()) {
-    session_config.SetVisionModalityEnabled(true);
-  }
+  try {
+    SessionConfig session_config = config && config->config
+                                       ? *config->config
+                                       : SessionConfig::CreateDefault();
+    if (engine->engine->GetEngineSettings()
+            .GetAudioExecutorSettings()
+            .has_value()) {
+      session_config.SetAudioModalityEnabled(true);
+    }
+    if (engine->engine->GetEngineSettings()
+            .GetVisionExecutorSettings()
+            .has_value()) {
+      session_config.SetVisionModalityEnabled(true);
+    }
 
-  absl::StatusOr<std::unique_ptr<Engine::Session>> session =
-      engine->engine->CreateSession(session_config);
-  if (!session.ok()) {
-    ABSL_LOG(ERROR) << "Failed to create session: " << session.status();
-    return litert::lm::c::ToCStatus(session.status());
-  }
+    absl::StatusOr<std::unique_ptr<Engine::Session>> session =
+        engine->engine->CreateSession(session_config);
+    if (!session.ok()) {
+      ABSL_LOG(ERROR) << "Failed to create session: " << session.status();
+      return litert::lm::c::ToCStatus(session.status());
+    }
 
-  auto c_session = std::make_unique<LiteRtLmSession>();
-  c_session->session = *std::move(session);
-  *out_session = c_session.release();
-  return kLiteRtLmStatusOk;
+    auto c_session = std::make_unique<LiteRtLmSession>();
+    c_session->session = *std::move(session);
+    *out_session = c_session.release();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception creating session: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception creating session.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_engine_create_session.");
+  }
 }
 
 void litert_lm_session_delete(LiteRtLmSession* session) { delete session; }
@@ -1158,32 +1195,41 @@ LiteRtLmStatusCode litert_lm_session_run_text_scoring(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid session or target texts.");
   }
-  std::vector<absl::string_view> target_text_views;
-  target_text_views.reserve(num_targets);
-  for (size_t i = 0; i < num_targets; ++i) {
-    if (target_text[i] == nullptr) {
-      return litert::lm::c::ReturnError(
-          absl::StatusCode::kInvalidArgument,
-          "target_text elements must not be NULL.");
-    }
-    target_text_views.push_back(target_text[i]);
-  }
-  auto responses =
-      session->session->RunTextScoring(target_text_views, store_token_lengths);
-  if (!responses.ok()) {
-    ABSL_LOG(ERROR) << "Failed to run text scoring: " << responses.status();
-    return litert::lm::c::ToCStatus(responses.status());
-  }
-  auto c_responses = std::make_unique<LiteRtLmResponses>(std::move(*responses));
-  if (c_responses->responses.GetTexts().empty()) {
-    auto& mutable_texts = c_responses->responses.GetMutableTexts();
-    mutable_texts.reserve(num_targets);
+  try {
+    std::vector<absl::string_view> target_text_views;
+    target_text_views.reserve(num_targets);
     for (size_t i = 0; i < num_targets; ++i) {
-      mutable_texts.emplace_back(target_text[i]);
+      if (target_text[i] == nullptr) {
+        return litert::lm::c::ReturnError(
+            absl::StatusCode::kInvalidArgument,
+            "target_text elements must not be NULL.");
+      }
+      target_text_views.push_back(target_text[i]);
     }
+    auto responses = session->session->RunTextScoring(target_text_views,
+                                                      store_token_lengths);
+    if (!responses.ok()) {
+      ABSL_LOG(ERROR) << "Failed to run text scoring: " << responses.status();
+      return litert::lm::c::ToCStatus(responses.status());
+    }
+    auto c_responses =
+        std::make_unique<LiteRtLmResponses>(std::move(*responses));
+    if (c_responses->responses.GetTexts().empty()) {
+      auto& mutable_texts = c_responses->responses.GetMutableTexts();
+      mutable_texts.reserve(num_targets);
+      for (size_t i = 0; i < num_targets; ++i) {
+        mutable_texts.emplace_back(target_text[i]);
+      }
+    }
+    *out_responses = c_responses.release();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_session_run_text_scoring.");
   }
-  *out_responses = c_responses.release();
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_session_run_prefill(
@@ -1193,17 +1239,25 @@ LiteRtLmStatusCode litert_lm_session_run_prefill(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid session or inputs.");
   }
-  auto engine_inputs = ToEngineInputData(inputs, num_inputs);
-  if (!engine_inputs.ok()) {
-    ABSL_LOG(ERROR) << "Failed to copy inputs: " << engine_inputs.status();
-    return litert::lm::c::ToCStatus(engine_inputs.status());
+  try {
+    auto engine_inputs = ToEngineInputData(inputs, num_inputs);
+    if (!engine_inputs.ok()) {
+      ABSL_LOG(ERROR) << "Failed to copy inputs: " << engine_inputs.status();
+      return litert::lm::c::ToCStatus(engine_inputs.status());
+    }
+    auto status = session->session->RunPrefill(*engine_inputs);
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to run prefill: " << status;
+      return litert::lm::c::ToCStatus(status);
+    }
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_session_run_prefill.");
   }
-  auto status = session->session->RunPrefill(*engine_inputs);
-  if (!status.ok()) {
-    ABSL_LOG(ERROR) << "Failed to run prefill: " << status;
-    return litert::lm::c::ToCStatus(status);
-  }
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_session_run_decode(
@@ -1214,13 +1268,21 @@ LiteRtLmStatusCode litert_lm_session_run_decode(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid session.");
   }
-  auto responses = session->session->RunDecode();
-  if (!responses.ok()) {
-    ABSL_LOG(ERROR) << "Failed to run decode: " << responses.status();
-    return litert::lm::c::ToCStatus(responses.status());
+  try {
+    auto responses = session->session->RunDecode();
+    if (!responses.ok()) {
+      ABSL_LOG(ERROR) << "Failed to run decode: " << responses.status();
+      return litert::lm::c::ToCStatus(responses.status());
+    }
+    *out_responses = new LiteRtLmResponses{std::move(*responses)};
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_session_run_decode.");
   }
-  *out_responses = new LiteRtLmResponses{std::move(*responses)};
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_session_run_decode_async(
@@ -1231,13 +1293,21 @@ LiteRtLmStatusCode litert_lm_session_run_decode_async(
                                       "Invalid session.");
   }
   LITERT_LM_C_RETURN_IF_NULL(callback);
-  auto status =
-      session->session->RunDecodeAsync(CreateCallback(callback, callback_data));
-  if (!status.ok()) {
-    ABSL_LOG(ERROR) << "Failed to start decode stream: " << status.status();
-    return litert::lm::c::ToCStatus(status.status());
+  try {
+    auto status = session->session->RunDecodeAsync(
+        CreateCallback(callback, callback_data));
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to start decode stream: " << status.status();
+      return litert::lm::c::ToCStatus(status.status());
+    }
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_session_run_decode_async.");
   }
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_session_generate_content(
@@ -1249,19 +1319,28 @@ LiteRtLmStatusCode litert_lm_session_generate_content(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid session.");
   }
-  auto engine_inputs = ToEngineInputData(inputs, num_inputs);
-  if (!engine_inputs.ok()) {
-    ABSL_LOG(ERROR) << "Failed to copy inputs: " << engine_inputs.status();
-    return litert::lm::c::ToCStatus(engine_inputs.status());
-  }
-  auto responses = session->session->GenerateContent(std::move(*engine_inputs));
-  if (!responses.ok()) {
-    ABSL_LOG(ERROR) << "Failed to generate content: " << responses.status();
-    return litert::lm::c::ToCStatus(responses.status());
-  }
+  try {
+    auto engine_inputs = ToEngineInputData(inputs, num_inputs);
+    if (!engine_inputs.ok()) {
+      ABSL_LOG(ERROR) << "Failed to copy inputs: " << engine_inputs.status();
+      return litert::lm::c::ToCStatus(engine_inputs.status());
+    }
+    auto responses =
+        session->session->GenerateContent(std::move(*engine_inputs));
+    if (!responses.ok()) {
+      ABSL_LOG(ERROR) << "Failed to generate content: " << responses.status();
+      return litert::lm::c::ToCStatus(responses.status());
+    }
 
-  *out_responses = new LiteRtLmResponses{std::move(*responses)};
-  return kLiteRtLmStatusOk;
+    *out_responses = new LiteRtLmResponses{std::move(*responses)};
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_session_generate_content.");
+  }
 }
 
 LiteRtLmStatusCode litert_lm_session_generate_content_stream(
@@ -1272,22 +1351,30 @@ LiteRtLmStatusCode litert_lm_session_generate_content_stream(
                                       "Invalid session.");
   }
   LITERT_LM_C_RETURN_IF_NULL(callback);
-  auto engine_inputs = ToEngineInputData(inputs, num_inputs);
-  if (!engine_inputs.ok()) {
-    ABSL_LOG(ERROR) << "Failed to copy inputs: " << engine_inputs.status();
-    return litert::lm::c::ToCStatus(engine_inputs.status());
-  }
+  try {
+    auto engine_inputs = ToEngineInputData(inputs, num_inputs);
+    if (!engine_inputs.ok()) {
+      ABSL_LOG(ERROR) << "Failed to copy inputs: " << engine_inputs.status();
+      return litert::lm::c::ToCStatus(engine_inputs.status());
+    }
 
-  absl::Status status = session->session->GenerateContentStream(
-      std::move(*engine_inputs), CreateCallback(callback, callback_data));
+    absl::Status status = session->session->GenerateContentStream(
+        std::move(*engine_inputs), CreateCallback(callback, callback_data));
 
-  if (!status.ok()) {
-    ABSL_LOG(ERROR) << "Failed to start content stream: " << status;
-    // No need to delete callbacks, unique_ptr handles it if not moved.
-    return litert::lm::c::ToCStatus(status);
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to start content stream: " << status;
+      // No need to delete callbacks, unique_ptr handles it if not moved.
+      return litert::lm::c::ToCStatus(status);
+    }
+    // The call is non-blocking and returns immediately.
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_session_generate_content_stream.");
   }
-  // The call is non-blocking and returns immediately.
-  return kLiteRtLmStatusOk;
 }
 
 void litert_lm_responses_delete(LiteRtLmResponses* responses) {
@@ -1521,15 +1608,23 @@ LiteRtLmStatusCode litert_lm_engine_tokenize(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid engine or text.");
   }
-  const auto& tokenizer = engine->engine->GetTokenizer();
-  auto token_ids =
-      const_cast<litert::support::Tokenizer&>(tokenizer).TextToTokenIds(text);
-  if (!token_ids.ok()) {
-    ABSL_LOG(ERROR) << "Failed to tokenize: " << token_ids.status();
-    return litert::lm::c::ToCStatus(token_ids.status());
+  try {
+    const auto& tokenizer = engine->engine->GetTokenizer();
+    auto token_ids =
+        const_cast<litert::support::Tokenizer&>(tokenizer).TextToTokenIds(text);
+    if (!token_ids.ok()) {
+      ABSL_LOG(ERROR) << "Failed to tokenize: " << token_ids.status();
+      return litert::lm::c::ToCStatus(token_ids.status());
+    }
+    *out_result = new LiteRtLmTokenizeResult{std::move(*token_ids)};
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_engine_tokenize.");
   }
-  *out_result = new LiteRtLmTokenizeResult{std::move(*token_ids)};
-  return kLiteRtLmStatusOk;
 }
 
 void litert_lm_tokenize_result_delete(LiteRtLmTokenizeResult* result) {
@@ -1562,16 +1657,25 @@ LiteRtLmStatusCode litert_lm_engine_detokenize(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid engine or tokens.");
   }
-  const auto& tokenizer = engine->engine->GetTokenizer();
-  std::vector<int> token_ids(tokens, tokens + num_tokens);
-  auto text = const_cast<litert::support::Tokenizer&>(tokenizer).TokenIdsToText(
-      token_ids);
-  if (!text.ok()) {
-    ABSL_LOG(ERROR) << "Failed to detokenize: " << text.status();
-    return litert::lm::c::ToCStatus(text.status());
+  try {
+    const auto& tokenizer = engine->engine->GetTokenizer();
+    std::vector<int> token_ids(tokens, tokens + num_tokens);
+    auto text =
+        const_cast<litert::support::Tokenizer&>(tokenizer).TokenIdsToText(
+            token_ids);
+    if (!text.ok()) {
+      ABSL_LOG(ERROR) << "Failed to detokenize: " << text.status();
+      return litert::lm::c::ToCStatus(text.status());
+    }
+    *out_result = new LiteRtLmDetokenizeResult{std::move(*text)};
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_engine_detokenize.");
   }
-  *out_result = new LiteRtLmDetokenizeResult{std::move(*text)};
-  return kLiteRtLmStatusOk;
 }
 
 void litert_lm_detokenize_result_delete(LiteRtLmDetokenizeResult* result) {

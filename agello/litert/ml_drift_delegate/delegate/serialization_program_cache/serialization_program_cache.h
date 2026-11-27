@@ -60,6 +60,7 @@ class SerializationProgramCache {
 
  private:
   FileDescriptor fd_;
+  std::string file_path_;
 };
 
 }  // namespace ml_drift

@@ -534,7 +534,8 @@ uint64_t SerializationWeightCache::GenerateContentModelIdentifier(
     absl::string_view serialization_prefix,
     const MlDriftDelegatePrecision& precision, bool prefer_texture_weights,
     bool allow_src_quantized_fc_conv_ops, bool prepare_weights_in_batches,
-    bool serialize_external_tensors, bool ordered_by_size) {
+    bool serialize_external_tensors, bool ordered_by_size,
+    const std::unordered_map<size_t, size_t>* external_buffer_id_map) {
   // The model token and the options alone.
   const uint64_t base = GenerateUniqueModelIdentifier(
       model_token, /*context=*/nullptr, /*delegate_params=*/nullptr,
@@ -542,30 +543,147 @@ uint64_t SerializationWeightCache::GenerateContentModelIdentifier(
       allow_src_quantized_fc_conv_ops, prepare_weights_in_batches,
       serialize_external_tensors, ordered_by_size);
   if (context == nullptr || delegate_params == nullptr) return base;
-  // Each delegated node, its op, and its constant inputs (index, size, type).
+
+  // Each delegated node, its op, its constant/external-weight inputs (index,
+  // size, type, dims, quantization parameters, external buffer id), and
+  // non-KV/non-mask subgraph I/O tensor shapes (which influence weight packing
+  // such as ConvInt8/weights_sum_i while still letting T11 share caches across
+  // KV context sizes).
   std::vector<int64_t> data;
-  const TfLiteIntArray* nodes = delegate_params->nodes_to_replace;
-  for (int i = 0; i < nodes->size; ++i) {
-    const int node_index = nodes->data[i];
-    data.push_back(node_index);
-    TfLiteNode* node = nullptr;
-    TfLiteRegistration* registration = nullptr;
-    if (context->GetNodeAndRegistration(context, node_index, &node,
-                                        &registration) != kTfLiteOk) {
+  auto push_float_bits = [&data](float v) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+    data.push_back(static_cast<int64_t>(bits));
+  };
+  auto push_dims = [&data](const TfLiteIntArray* dims) {
+    if (dims != nullptr) {
+      data.push_back(dims->size);
+      for (int d = 0; d < dims->size; ++d) {
+        data.push_back(dims->data[d]);
+      }
+    } else {
       data.push_back(-1);
-      continue;
     }
-    data.push_back(registration->builtin_code);
-    for (int j = 0; j < node->inputs->size; ++j) {
-      const int tensor_index = node->inputs->data[j];
-      if (tensor_index < 0) continue;
-      const TfLiteTensor& tensor = context->tensors[tensor_index];
-      if (tensor.allocation_type != kTfLiteMmapRo) continue;
-      data.push_back(tensor_index);
-      data.push_back(static_cast<int64_t>(tensor.bytes));
-      data.push_back(static_cast<int64_t>(tensor.type));
+  };
+  auto push_quantization = [&](const TfLiteTensor& tensor) {
+    data.push_back(static_cast<int64_t>(tensor.quantization.type));
+    if (tensor.quantization.type == kTfLiteAffineQuantization &&
+        tensor.quantization.params != nullptr) {
+      const auto* aq = static_cast<const TfLiteAffineQuantization*>(
+          tensor.quantization.params);
+      data.push_back(aq->quantized_dimension);
+      if (aq->scale != nullptr) {
+        data.push_back(aq->scale->size);
+        for (int s = 0; s < aq->scale->size; ++s) {
+          push_float_bits(aq->scale->data[s]);
+        }
+      } else {
+        data.push_back(-1);
+      }
+      if (aq->zero_point != nullptr) {
+        data.push_back(aq->zero_point->size);
+        for (int z = 0; z < aq->zero_point->size; ++z) {
+          data.push_back(aq->zero_point->data[z]);
+        }
+      } else {
+        data.push_back(-1);
+      }
+    } else if (tensor.quantization.type == kTfLiteBlockwiseQuantization &&
+               tensor.quantization.params != nullptr) {
+      const auto* bq = static_cast<const TfLiteBlockwiseQuantization*>(
+          tensor.quantization.params);
+      data.push_back(bq->scale);
+      data.push_back(bq->zero_point);
+      data.push_back(bq->blocksize);
+      data.push_back(bq->quantized_dimension);
+    } else if (tensor.quantization.type == kTfLiteBlockwiseQuantizationV2 &&
+               tensor.quantization.params != nullptr) {
+      const auto* bq2 = static_cast<const TfLiteBlockwiseQuantizationV2*>(
+          tensor.quantization.params);
+      data.push_back(bq2->scale);
+      data.push_back(bq2->zero_point);
+      data.push_back(bq2->blocksize);
+      data.push_back(bq2->quantized_dimension);
+      push_dims(bq2->block_shape);
+    } else {
+      data.push_back(tensor.params.zero_point);
+      push_float_bits(tensor.params.scale);
+    }
+  };
+
+  const TfLiteIntArray* nodes = delegate_params->nodes_to_replace;
+  if (nodes != nullptr) {
+    for (int i = 0; i < nodes->size; ++i) {
+      const int node_index = nodes->data[i];
+      data.push_back(node_index);
+      TfLiteNode* node = nullptr;
+      TfLiteRegistration* registration = nullptr;
+      if (context->GetNodeAndRegistration(context, node_index, &node,
+                                          &registration) != kTfLiteOk ||
+          node == nullptr || registration == nullptr) {
+        data.push_back(-1);
+        continue;
+      }
+      data.push_back(registration->builtin_code);
+      if (node->inputs == nullptr) continue;
+      for (int j = 0; j < node->inputs->size; ++j) {
+        const int tensor_index = node->inputs->data[j];
+        if (tensor_index < 0 ||
+            static_cast<size_t>(tensor_index) >= context->tensors_size) {
+          continue;
+        }
+        const TfLiteTensor& tensor = context->tensors[tensor_index];
+        bool has_ext_id = false;
+        size_t ext_id = 0;
+        if (external_buffer_id_map != nullptr) {
+          if (auto it = external_buffer_id_map->find(
+                  static_cast<size_t>(tensor_index));
+              it != external_buffer_id_map->end()) {
+            has_ext_id = true;
+            ext_id = it->second;
+          }
+        }
+        if (tensor.allocation_type != kTfLiteMmapRo && !has_ext_id) continue;
+        data.push_back(tensor_index);
+        data.push_back(static_cast<int64_t>(tensor.bytes));
+        data.push_back(static_cast<int64_t>(tensor.type));
+        push_dims(tensor.dims);
+        push_quantization(tensor);
+        data.push_back(has_ext_id ? 1 : 0);
+        if (has_ext_id) {
+          data.push_back(static_cast<int64_t>(ext_id));
+        }
+      }
     }
   }
+
+  auto push_io_tensors = [&](int64_t section_tag,
+                             const TfLiteIntArray* io_tensors) {
+    data.push_back(section_tag);
+    if (io_tensors == nullptr) return;
+    for (int i = 0; i < io_tensors->size; ++i) {
+      const int tensor_index = io_tensors->data[i];
+      if (tensor_index < 0 ||
+          static_cast<size_t>(tensor_index) >= context->tensors_size) {
+        continue;
+      }
+      const TfLiteTensor& tensor = context->tensors[tensor_index];
+      if (tensor.name != nullptr) {
+        absl::string_view name(tensor.name);
+        if (absl::StartsWith(name, "kv_cache_") ||
+            absl::StrContains(name, "mask")) {
+          continue;
+        }
+      }
+      data.push_back(tensor_index);
+      data.push_back(static_cast<int64_t>(tensor.type));
+      push_dims(tensor.dims);
+    }
+  };
+  push_io_tensors(/*section_tag=*/0x494F494ELL, delegate_params->input_tensors);
+  push_io_tensors(/*section_tag=*/0x494F4F54LL,
+                  delegate_params->output_tensors);
+
   return CombineFingerprints(
       base, Fingerprint64(reinterpret_cast<const char*>(data.data()),
                           data.size() * sizeof(int64_t)));

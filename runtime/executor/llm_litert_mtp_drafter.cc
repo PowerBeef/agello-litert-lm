@@ -300,12 +300,32 @@ absl::Status ChainDraftConstraintStates(
 
 struct DeferredGpuWaits {
   DeferredGpuWaits() { ::agello::telemetry::DeferGpuWaits(true); }
-  ~DeferredGpuWaits() {
+  bool Finish() {
+    if (finished_) return ok_;
+    finished_ = true;
     ::agello::telemetry::DeferGpuWaits(false);
-    ::agello::telemetry::WaitForDeferredGpuWork();
+    ok_ = ::agello::telemetry::WaitForDeferredGpuWork();
+    return ok_;
   }
+  ~DeferredGpuWaits() { Finish(); }
   DeferredGpuWaits(const DeferredGpuWaits&) = delete;
   DeferredGpuWaits& operator=(const DeferredGpuWaits&) = delete;
+
+ private:
+  bool finished_ = false;
+  bool ok_ = true;
+};
+
+// Drains any committed ResidentRound Metal command buffers on early error exit
+// so CPU fallback never races in-flight GPU work on shared LocksInPlace buffers.
+struct ResidentDrainGuard {
+  explicit ResidentDrainGuard(ResidentRound* r) : resident(r) {}
+  ResidentRound* resident = nullptr;
+  ~ResidentDrainGuard() {
+    if (resident != nullptr) resident->DrainLast();
+  }
+  ResidentDrainGuard(const ResidentDrainGuard&) = delete;
+  ResidentDrainGuard& operator=(const ResidentDrainGuard&) = delete;
 };
 
 #define MTP_DRAFTER_LOG() \
@@ -1018,9 +1038,20 @@ absl::StatusOr<LlmLiteRtMtpDrafter::DraftingResult>
 LlmLiteRtMtpDrafter::RunResidentDraftingLoop(int token_id,
                                              std::optional<TensorBuffer>& activations) {
   if (num_draft_steps_ > 8) return absl::FailedPreconditionError("more than 8 draft steps");
+  if (!activations.has_value() && last_verified_token_id_idx_ < 0) {
+    return absl::FailedPreconditionError("no activations");
+  }
   TensorBuffer& input = active_drafter_input_buffers_["activations"];
   TensorBuffer& logits = active_drafter_output_buffers_["logits"];
   TensorBuffer& projected = active_drafter_output_buffers_["projected_activations"];
+  TensorBuffer& previous_activations =
+      activations.has_value() ? *activations : verifier_output_buffers_["activations"];
+  for (TensorBuffer* buffer : {&input, &projected, &previous_activations}) {
+    LITERT_ASSIGN_OR_RETURN(auto type, buffer->BufferType());
+    if (type != TensorBufferType::kMetalBufferPacked) {
+      return absl::FailedPreconditionError("activations aren't packed Metal buffers");
+    }
+  }
   LITERT_ASSIGN_OR_RETURN(void* input_mtl, input.GetMetalBuffer());
   LITERT_ASSIGN_OR_RETURN(void* logits_mtl, logits.GetMetalBuffer());
   LITERT_ASSIGN_OR_RETURN(void* projected_mtl, projected.GetMetalBuffer());
@@ -1031,11 +1062,8 @@ LlmLiteRtMtpDrafter::RunResidentDraftingLoop(int token_id,
   // Step 0 continues from decode's activations, or from verify's row of the last accepted token.
   void* previous_mtl = nullptr;
   size_t previous_offset = 0;
-  if (activations.has_value()) {
-    LITERT_ASSIGN_OR_RETURN(previous_mtl, activations->GetMetalBuffer());
-  } else {
-    if (last_verified_token_id_idx_ < 0) return absl::FailedPreconditionError("no activations");
-    LITERT_ASSIGN_OR_RETURN(previous_mtl, verifier_output_buffers_["activations"].GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(previous_mtl, previous_activations.GetMetalBuffer());
+  if (!activations.has_value()) {
     LITERT_ASSIGN_OR_RETURN(auto projected_type, projected.TensorType());
     LITERT_ASSIGN_OR_RETURN(size_t row_bytes, projected_type.Bytes());
     previous_offset = static_cast<size_t>(last_verified_token_id_idx_) * row_bytes;
@@ -1043,6 +1071,8 @@ LlmLiteRtMtpDrafter::RunResidentDraftingLoop(int token_id,
   resident_->SetFirstId(token_id);
   int drafted[8] = {0};
   bool encoded = true;
+  bool deferred_ok = true;
+  ResidentDrainGuard drain_guard{resident_.get()};
   {
     // The three runs and the kernels between them committed back to back on one queue.
     DeferredGpuWaits deferred;
@@ -1062,10 +1092,11 @@ LlmLiteRtMtpDrafter::RunResidentDraftingLoop(int token_id,
       }
       encoded = resident_->EncodeArgmax(i, logits_mtl, vocab_size_);
     }
+    deferred_ok = deferred.Finish();
   }
-  // Waits for the last kernel in every case, so the host path never races it.
+  // Waits for every kernel in the round, so the host path never races GPU work.
   const bool finished = resident_->Finish(num_draft_steps_, drafted);
-  if (!encoded || !finished) {
+  if (!encoded || !deferred_ok || !finished) {
     return absl::InternalError("the GPU round didn't finish (or met a NaN maximum)");
   }
   DraftingResult result;
@@ -1079,6 +1110,9 @@ LlmLiteRtMtpDrafter::RunResidentRound(
     absl::flat_hash_map<absl::string_view, TensorBuffer>& input_kv_cache_buffers,
     absl::flat_hash_map<absl::string_view, TensorBuffer>& output_kv_cache_buffers) {
   if (num_draft_steps_ > 7) return absl::FailedPreconditionError("more than 7 draft steps");
+  if (!activations.has_value() && last_verified_token_id_idx_ < 0) {
+    return absl::FailedPreconditionError("no activations");
+  }
   if (!verifier_signatures_.input_embeddings.has_value() ||
       !verifier_signatures_.input_per_layer_embeddings.has_value() || !ple_manager_.has_value()) {
     return absl::FailedPreconditionError("verify takes no per-layer embeddings");
@@ -1086,19 +1120,23 @@ LlmLiteRtMtpDrafter::RunResidentRound(
   TensorBuffer& embeddings = active_verifier_input_buffers_[*verifier_signatures_.input_embeddings];
   TensorBuffer& per_layer =
       active_verifier_input_buffers_[*verifier_signatures_.input_per_layer_embeddings];
+  TensorBuffer& input = active_drafter_input_buffers_["activations"];
+  TensorBuffer& logits = active_drafter_output_buffers_["logits"];
+  TensorBuffer& projected = active_drafter_output_buffers_["projected_activations"];
+  TensorBuffer& previous_activations =
+      activations.has_value() ? *activations : verifier_output_buffers_["activations"];
   // Packed buffers hold plain rows, which the run's input conversion rearranges; another layout
   // would need the kernels to write ML Drift's.
-  for (TensorBuffer* buffer : {&embeddings, &per_layer}) {
+  for (TensorBuffer* buffer :
+       {&embeddings, &per_layer, &input, &projected, &previous_activations}) {
     LITERT_ASSIGN_OR_RETURN(auto type, buffer->BufferType());
     if (type != TensorBufferType::kMetalBufferPacked) {
-      return absl::FailedPreconditionError("verify's embeddings aren't packed Metal buffers");
+      return absl::FailedPreconditionError(
+          "verify's embeddings or activations aren't packed Metal buffers");
     }
   }
   LITERT_ASSIGN_OR_RETURN(void* embeddings_mtl, embeddings.GetMetalBuffer());
   LITERT_ASSIGN_OR_RETURN(void* per_layer_mtl, per_layer.GetMetalBuffer());
-  TensorBuffer& input = active_drafter_input_buffers_["activations"];
-  TensorBuffer& logits = active_drafter_output_buffers_["logits"];
-  TensorBuffer& projected = active_drafter_output_buffers_["projected_activations"];
   LITERT_ASSIGN_OR_RETURN(void* input_mtl, input.GetMetalBuffer());
   LITERT_ASSIGN_OR_RETURN(void* logits_mtl, logits.GetMetalBuffer());
   LITERT_ASSIGN_OR_RETURN(void* projected_mtl, projected.GetMetalBuffer());
@@ -1108,11 +1146,8 @@ LlmLiteRtMtpDrafter::RunResidentRound(
   }
   void* previous_mtl = nullptr;
   size_t previous_offset = 0;
-  if (activations.has_value()) {
-    LITERT_ASSIGN_OR_RETURN(previous_mtl, activations->GetMetalBuffer());
-  } else {
-    if (last_verified_token_id_idx_ < 0) return absl::FailedPreconditionError("no activations");
-    LITERT_ASSIGN_OR_RETURN(previous_mtl, verifier_output_buffers_["activations"].GetMetalBuffer());
+  LITERT_ASSIGN_OR_RETURN(previous_mtl, previous_activations.GetMetalBuffer());
+  if (!activations.has_value()) {
     LITERT_ASSIGN_OR_RETURN(auto projected_type, projected.TensorType());
     LITERT_ASSIGN_OR_RETURN(size_t row_bytes, projected_type.Bytes());
     previous_offset = static_cast<size_t>(last_verified_token_id_idx_) * row_bytes;
@@ -1125,6 +1160,8 @@ LlmLiteRtMtpDrafter::RunResidentRound(
   ABSL_RETURN_IF_ERROR(PrepareVerifierOutputBuffers(output_kv_cache_buffers));
   resident_->SetFirstId(token_id);
   bool encoded = true;
+  bool deferred_ok = true;
+  ResidentDrainGuard drain_guard{resident_.get()};
   {
     // The drafter's runs, the kernels between them, verify's inputs and verify, back to back.
     DeferredGpuWaits deferred;
@@ -1156,10 +1193,11 @@ LlmLiteRtMtpDrafter::RunResidentRound(
                                                   active_verifier_input_buffers_,
                                                   active_verifier_output_buffers_, async));
     }
+    deferred_ok = deferred.Finish();
   }
   int drafted[8] = {0};
   const bool finished = resident_->Finish(num_draft_steps_, drafted);
-  if (!encoded || !finished) {
+  if (!encoded || !deferred_ok || !finished) {
     return absl::InternalError("the GPU round didn't finish (or met a NaN maximum)");
   }
   // Verify's greedy picks, on the host as before.
@@ -1308,10 +1346,35 @@ absl::StatusOr<std::vector<int>> LlmLiteRtMtpDrafter::RunVerification(
   return id_vector;
 }
 
+absl::Status LlmLiteRtMtpDrafter::AdvanceConstraintState(int token_id) {
+  if (constraint_ == nullptr || constraint_state_ == nullptr) {
+    return absl::FailedPreconditionError(
+        "MTP drafter has no active constraint state to advance.");
+  }
+  ABSL_ASSIGN_OR_RETURN(constraint_state_,
+                        constraint_->ComputeNext(*constraint_state_, token_id));
+  if (constraint_->IsEnded(*constraint_state_)) {
+    constraint_state_ = constraint_->Start();
+  }
+  return absl::OkStatus();
+}
+
+absl::Status LlmLiteRtMtpDrafter::ApplyConstraintMask(TensorBuffer& logits) {
+  if (constraint_ == nullptr || constraint_state_ == nullptr ||
+      drafter_mask_runner_ == nullptr) {
+    return absl::FailedPreconditionError(
+        "MTP drafter has no active constraint state to apply.");
+  }
+  ABSL_ASSIGN_OR_RETURN(auto mask,
+                        constraint_->ComputeMask(*constraint_state_));
+  return drafter_mask_runner_->Apply(logits, mask.get());
+}
+
 absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     int position, int token_id, std::optional<TensorBuffer> activations,
     StateInterface& state, const Constraint* constraint,
-    absl::Span<const int> context, const std::atomic<bool>* cancelled) {
+    absl::Span<const int> context, const std::atomic<bool>* cancelled,
+    bool reset_constraint) {
   ::agello::telemetry::ScopedSpan round_span(::agello::telemetry::kMtpRound);
   if (cancelled != nullptr && cancelled->load(std::memory_order_relaxed)) {
     return absl::CancelledError("Process cancelled.");
@@ -1338,8 +1401,8 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
   if (constraint == nullptr) {
     constraint_ = nullptr;
     constraint_state_.reset();
-  } else if (constraint != constraint_ || activations.has_value() ||
-             constraint_state_ == nullptr) {
+  } else if (constraint != constraint_ || constraint_state_ == nullptr ||
+             (activations.has_value() && reset_constraint)) {
     constraint_ = constraint;
     constraint_state_ = constraint_->Start();
     // Compute mask on the initial state so the underlying grammar engine (e.g.
@@ -1351,6 +1414,10 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
     if (constraint_->IsEnded(*constraint_state_)) {
       constraint_state_ = constraint_->Start();
     }
+  } else if (activations.has_value()) {
+    // Re-primed mid-turn while constraint_state_ was kept in sync through plain
+    // decode steps; advance past the priming token without resetting to Start().
+    ABSL_RETURN_IF_ERROR(AdvanceConstraintState(token_id));
   }
 
   if (verify8_probe_ == '1' && verify8_signature_.has_value()) {
@@ -1546,9 +1613,14 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
       LITERT_RETURN_IF_ERROR(mtp_drafter_model_.RunAsync(
           drafter_signature_.Key(), active_drafter_input_buffers_,
           active_drafter_output_buffers_, async));
-      if (mode == 'c') ::agello::telemetry::WaitForDeferredGpuWork();
+      if (mode == 'c' && !::agello::telemetry::WaitForDeferredGpuWork()) {
+        return absl::InternalError("deferred Metal command buffer failed during MTP replay");
+      }
     }
-    if (mode == 'a' || mode == 'b') ::agello::telemetry::WaitForDeferredGpuWork();
+    if ((mode == 'a' || mode == 'b') &&
+        !::agello::telemetry::WaitForDeferredGpuWork()) {
+      return absl::InternalError("deferred Metal command buffer failed during MTP replay");
+    }
     if (mode == 'b') ABSL_RETURN_IF_ERROR(prepare_verify());
     // Mode e: on every way out, a hold still pending is dropped and a held run released, so
     // the queue never waits on an event nobody signals (declared after `deferred`, so it runs
@@ -1572,9 +1644,14 @@ absl::StatusOr<std::vector<std::vector<int>>> LlmLiteRtMtpDrafter::Draft(
         verify_signature_.Key(), active_verifier_input_buffers_,
         active_verifier_output_buffers_, async));
     if (mode == 'e') {
-      ::agello::telemetry::WaitForMarkedGpuWork();
+      if (!::agello::telemetry::WaitForMarkedGpuWork()) {
+        return absl::InternalError("marked Metal command buffer failed during MTP replay");
+      }
       ABSL_RETURN_IF_ERROR(prepare_verify());
       ::agello::telemetry::ReleaseHeldGpuRun();
+    }
+    if (!deferred.Finish()) {
+      return absl::InternalError("deferred Metal command buffer failed during MTP replay");
     }
   }
 

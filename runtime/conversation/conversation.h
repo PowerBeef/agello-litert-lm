@@ -520,6 +520,8 @@ class Conversation {
   static absl::StatusOr<std::unique_ptr<Conversation>> Create(
       Engine& engine, const ConversationConfig& config);
 
+  ~Conversation();
+
   // Sends a message to the LLM and returns the complete message.
   // Args:
   // - `message`: The message to be sent to the LLM. If `message` is an array,
@@ -741,7 +743,14 @@ class Conversation {
   static bool HasToolCalls(const Message& message);
   absl::flat_hash_set<int> ToolAnswerFirstTokenBans() const;
 
-  absl::StatusOr<DecodeConfig> CreateDecodeConfig(
+  struct PreparedDecodeConfig {
+    DecodeConfig decode_config = DecodeConfig::CreateDefault();
+    // Keeps per-turn decoding constraints alive for the full lifetime of any
+    // async decode task referencing `decode_config.GetConstraint()`.
+    std::shared_ptr<Constraint> turn_constraint;
+  };
+
+  absl::StatusOr<PreparedDecodeConfig> CreateDecodeConfig(
       std::optional<RepetitionPenaltyConfig> repetition_penalty_config =
           std::nullopt,
       std::optional<NoRepeatNgramConfig> no_repeat_ngram_config = std::nullopt,
@@ -783,7 +792,8 @@ class Conversation {
       absl::Span<const Message> old_messages,
       absl::Span<const Message> new_messages,
       const OptionalArgs& optional_args = OptionalArgs(),
-      bool include_preface = true, bool add_generation_prompt_to_old = false);
+      bool include_preface = true, bool add_generation_prompt_to_old = false,
+      bool add_generation_prompt_to_new = false);
 
   // Returns the input data vector for the given messages.
   //
@@ -799,11 +809,14 @@ class Conversation {
   // - `add_generation_prompt_to_old`: Whether to set `add_generation_prompt`
   //   when rendering `old_messages` into the prefix subtracted from
   //   `new_string`.
+  // - `add_generation_prompt_to_new`: Whether to set `add_generation_prompt`
+  //   when rendering `new_messages` into `new_string`.
   absl::StatusOr<std::vector<InputData>> GetInputDataVectorForMessages(
       absl::Span<const Message> old_messages,
       absl::Span<const Message> new_messages,
       const OptionalArgs& optional_args = OptionalArgs(),
-      bool include_preface = true, bool add_generation_prompt_to_old = false);
+      bool include_preface = true, bool add_generation_prompt_to_old = false,
+      bool add_generation_prompt_to_new = false);
 
   // Rewinds the session to the checkpoint after the most recent channel content
   // and return the input data vector for all messages from that point onward.
@@ -821,11 +834,15 @@ class Conversation {
   std::unique_ptr<ModelDataProcessor> model_data_processor_;
   Preface preface_;
   PromptTemplate prompt_template_;
-  // The constraint is currently created from the tools defined in the preface,
-  // if any.
-  std::unique_ptr<Constraint> constraint_;
   const ConversationConfig config_;
+  // Declared before any constraints created from it so the provider always
+  // outlives constraints owned by this conversation or its in-flight tasks.
   std::unique_ptr<ConstraintProvider> constraint_provider_ = nullptr;
+  mutable absl::Mutex constraint_mutex_;
+  // Long-lived constraint created from the tools defined in the preface, if
+  // any. Per-turn decoding constraints are owned by their async decode tasks.
+  std::unique_ptr<Constraint> preface_tool_constraint_
+      ABSL_GUARDED_BY(constraint_mutex_);
   mutable absl::Mutex history_mutex_;
   std::vector<Message> history_ ABSL_GUARDED_BY(history_mutex_);
 
@@ -839,11 +856,6 @@ class Conversation {
       std::string,
       std::vector<std::unique_ptr<Engine::Session::TaskController>>>
       task_controllers_ ABSL_GUARDED_BY(task_controllers_mutex_);
-
-  // Declare the session after model_data_processor_ and other members it
-  // depends on so that the session is destroyed before them. This is to avoid
-  // memory corruption and null-pointer deference issues.
-  std::unique_ptr<Engine::Session> session_;
 
   // The index of the message you have to rewind to in order to remove channel
   // content from the KV cache. nullopt means no rewind is needed.
@@ -870,6 +882,11 @@ class Conversation {
   // Set by CancelProcess() so deferred post-decode channel rewinds don't launch
   // a fresh GPU prefill after cancellation.
   std::atomic<bool> process_cancelled_{false};
+
+  // Declare `session_` strictly LAST so that it (and all callbacks/per-turn
+  // constraints held by its async tasks) is destroyed BEFORE every other member
+  // of Conversation.
+  std::unique_ptr<Engine::Session> session_;
 };
 }  // namespace litert::lm
 

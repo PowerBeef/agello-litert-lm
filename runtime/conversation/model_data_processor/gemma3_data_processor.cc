@@ -313,7 +313,9 @@ Gemma3DataProcessor::CreateConstraint(
       .open_quote = nullptr,
       .close_quote = nullptr,
       .function_response_start = nullptr};
-  std::string functions_str = functions.dump();
+  std::string functions_str = functions.dump(
+      /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+      nlohmann::json::error_handler_t::replace);
   LiteRtLmConstraint* constraint =
       LiteRtLmGemmaModelConstraintProvider_CreateConstraintFromTools(
           constraint_provider_c_.get(), functions_str.c_str(), &gemma_options);

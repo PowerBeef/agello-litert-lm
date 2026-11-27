@@ -727,7 +727,8 @@ TEST_P(ConversationTest, SendSingleMessage) {
             return nullptr;
           });
   EXPECT_CALL(*mock_session_ptr, WaitUntilDone())
-      .WillOnce(Return(absl::OkStatus()));
+      .WillOnce(Return(absl::OkStatus()))
+      .WillRepeatedly(Return(absl::OkStatus()));
 
   ASSERT_OK_AND_ASSIGN(const Message response,
                        conversation->SendMessage(user_message));
@@ -814,7 +815,8 @@ TEST_P(ConversationTest, SendMessageWithPrefaceAndImage) {
             return nullptr;
           });
   EXPECT_CALL(*mock_session_ptr, WaitUntilDone())
-      .WillOnce(Return(absl::OkStatus()));
+      .WillOnce(Return(absl::OkStatus()))
+      .WillRepeatedly(Return(absl::OkStatus()));
 
   ASSERT_OK_AND_ASSIGN(const Message response,
                        conversation->SendMessage(user_message));
@@ -1525,7 +1527,8 @@ TEST_P(ConversationTest, SendMessageWithParserErrorSoftError) {
             return nullptr;
           });
   EXPECT_CALL(*mock_session_ptr, WaitUntilDone())
-      .WillOnce(Return(absl::OkStatus()));
+      .WillOnce(Return(absl::OkStatus()))
+      .WillRepeatedly(Return(absl::OkStatus()));
   auto response = conversation->SendMessage(user_message);
   ASSERT_OK(response);
   EXPECT_TRUE(response->contains("content"));
@@ -1538,7 +1541,9 @@ TEST_P(ConversationTest, WaitUntilDoneForwardsToSession) {
   ASSERT_OK_AND_ASSIGN(MockConversation mock_conv,
                        CreateMockConversation(std::move(mock_session)));
 
-  EXPECT_CALL(session, WaitUntilDone()).WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(session, WaitUntilDone())
+      .WillOnce(Return(absl::OkStatus()))
+      .WillRepeatedly(Return(absl::OkStatus()));
 
   EXPECT_OK(mock_conv.conversation->WaitUntilDone());
 }
@@ -1550,7 +1555,8 @@ TEST_P(ConversationTest, WaitUntilDonePropagatesSessionError) {
                        CreateMockConversation(std::move(mock_session)));
 
   EXPECT_CALL(session, WaitUntilDone())
-      .WillOnce(Return(absl::InternalError("session failed")));
+      .WillOnce(Return(absl::InternalError("session failed")))
+      .WillRepeatedly(Return(absl::OkStatus()));
 
   EXPECT_THAT(mock_conv.conversation->WaitUntilDone(),
               StatusIs(absl::StatusCode::kInternal,
@@ -3395,11 +3401,13 @@ TEST_P(ConversationTest, CancelProcessDuringSendMessageAsync) {
       }));
 
   // Expect CancelProcess to be called on the mock session.
-  EXPECT_CALL(*mock_session_ptr, CancelProcess()).WillOnce([&]() {
-    if (stored_callback) {
-      stored_callback(Responses(TaskState::kCancelled));
-    }
-  });
+  EXPECT_CALL(*mock_session_ptr, CancelProcess())
+      .WillOnce([&]() {
+        if (stored_callback) {
+          stored_callback(Responses(TaskState::kCancelled));
+        }
+      })
+      .WillRepeatedly(testing::Return());
 
   conversation->CancelProcess();
 
@@ -4717,11 +4725,13 @@ TEST(AppendMessageTest, CancelProcessDuringSendMessageAsyncWithPendingMessage) {
                                      {.has_pending_message = true}));
 
   // Expect CancelProcess to be called on the mock session.
-  EXPECT_CALL(*mock_session_ptr, CancelProcess()).WillOnce([&]() {
-    if (stored_callback) {
-      stored_callback(Responses(TaskState::kCancelled));
-    }
-  });
+  EXPECT_CALL(*mock_session_ptr, CancelProcess())
+      .WillOnce([&]() {
+        if (stored_callback) {
+          stored_callback(Responses(TaskState::kCancelled));
+        }
+      })
+      .WillRepeatedly(testing::Return());
 
   conversation->CancelProcess();
 
@@ -4882,11 +4892,13 @@ TEST(AppendMessageTest, CancelProcessDuringSendMessageAsyncWithArray) {
                                      {.has_pending_message = true}));
 
   // Expect CancelProcess to be called on the mock session.
-  EXPECT_CALL(*mock_session_ptr, CancelProcess()).WillOnce([&]() {
-    if (stored_callback) {
-      stored_callback(Responses(TaskState::kCancelled));
-    }
-  });
+  EXPECT_CALL(*mock_session_ptr, CancelProcess())
+      .WillOnce([&]() {
+        if (stored_callback) {
+          stored_callback(Responses(TaskState::kCancelled));
+        }
+      })
+      .WillRepeatedly(testing::Return());
 
   conversation->CancelProcess();
 
@@ -5427,6 +5439,220 @@ TEST_P(ConversationTest,
           testing::HasSubstr(
               "Visual token budget (300) cannot be larger than the engine's "
               "max vision tokens per image (200).")));
+}
+
+TEST_P(ConversationTest, DestructorCancelsAndWaitsBeforeSessionDestruction) {
+  class TrackingMockSession : public MockSession {
+   public:
+    explicit TrackingMockSession(std::vector<std::string>* events)
+        : events_(events) {}
+    ~TrackingMockSession() override { events_->push_back("session_destroyed"); }
+
+   private:
+    std::vector<std::string>* events_;
+  };
+
+  std::vector<std::string> events;
+  auto mock_session = std::make_unique<TrackingMockSession>(&events);
+  TrackingMockSession* mock_session_ptr = mock_session.get();
+  ON_CALL(*mock_session_ptr, GetSessionConfig())
+      .WillByDefault(testing::ReturnRef(session_config_));
+  EXPECT_CALL(*mock_session_ptr, CancelProcess()).WillOnce([&events]() {
+    events.push_back("cancel");
+  });
+  EXPECT_CALL(*mock_session_ptr, WaitUntilDone()).WillOnce([&events]() {
+    events.push_back("wait");
+    return absl::OkStatus();
+  });
+
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  conversation.reset();
+  EXPECT_THAT(events,
+              testing::ElementsAre("cancel", "wait", "session_destroyed"));
+}
+
+TEST_P(ConversationTest, PerTurnConstraintDoesNotLeakToNextTurn) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetConstraintProviderConfig(ExternalConstraintConfig())
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  auto mock_constraint = std::make_unique<MockConstraint>();
+  Constraint* mock_constraint_ptr = mock_constraint.get();
+  ExternalConstraintArg constraint_arg;
+  constraint_arg.constraint = std::move(mock_constraint);
+
+  EXPECT_CALL(*mock_session_ptr, RunPrefillAsync(testing::_, testing::_))
+      .Times(2)
+      .WillRepeatedly(
+          [](const std::vector<InputData>&,
+             absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+            cb(Responses(TaskState::kDone));
+            return nullptr;
+          });
+
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(
+        *mock_session_ptr,
+        RunDecodeAsync(testing::_, testing::Property(&DecodeConfig::GetConstraint,
+                                                     mock_constraint_ptr)))
+        .WillOnce(
+            [](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+               const DecodeConfig&) {
+              cb(Responses(TaskState::kProcessing, {"Turn 1"}));
+              cb(Responses(TaskState::kDone));
+              return nullptr;
+            });
+    EXPECT_CALL(
+        *mock_session_ptr,
+        RunDecodeAsync(testing::_,
+                       testing::Property(&DecodeConfig::GetConstraint,
+                                         static_cast<Constraint*>(nullptr))))
+        .WillOnce(
+            [](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+               const DecodeConfig&) {
+              cb(Responses(TaskState::kProcessing, {"Turn 2"}));
+              cb(Responses(TaskState::kDone));
+              return nullptr;
+            });
+  }
+
+  ASSERT_OK(conversation->SendMessage(
+      Message{{"role", "user"}, {"content", "First"}},
+      {.decoding_constraint = std::move(constraint_arg)}));
+  ASSERT_OK(
+      conversation->SendMessage(Message{{"role", "user"}, {"content", "Next"}}));
+}
+
+TEST_P(ConversationTest, PerTurnConstraintOutlivesSubsequentTurnCreation) {
+  class DestructionTrackingConstraint : public MockConstraint {
+   public:
+    explicit DestructionTrackingConstraint(bool* destroyed)
+        : destroyed_(destroyed) {}
+    ~DestructionTrackingConstraint() override { *destroyed_ = true; }
+
+   private:
+    bool* destroyed_;
+  };
+
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetConstraintProviderConfig(ExternalConstraintConfig())
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  bool constraint1_destroyed = false;
+  auto constraint1 =
+      std::make_unique<DestructionTrackingConstraint>(&constraint1_destroyed);
+  Constraint* constraint1_ptr = constraint1.get();
+  ExternalConstraintArg arg1;
+  arg1.constraint = std::move(constraint1);
+
+  bool constraint2_destroyed = false;
+  auto constraint2 =
+      std::make_unique<DestructionTrackingConstraint>(&constraint2_destroyed);
+  Constraint* constraint2_ptr = constraint2.get();
+  ExternalConstraintArg arg2;
+  arg2.constraint = std::move(constraint2);
+
+  absl::AnyInvocable<void(absl::StatusOr<Responses>)> pending_decode_cb_1;
+  absl::AnyInvocable<void(absl::StatusOr<Responses>)> pending_decode_cb_2;
+
+  EXPECT_CALL(*mock_session_ptr, RunPrefillAsync(testing::_, testing::_))
+      .Times(2)
+      .WillRepeatedly(
+          [](const std::vector<InputData>&,
+             absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+            cb(Responses(TaskState::kDone));
+            return nullptr;
+          });
+  EXPECT_CALL(
+      *mock_session_ptr,
+      RunDecodeAsync(testing::_, testing::Property(&DecodeConfig::GetConstraint,
+                                                   constraint1_ptr)))
+      .WillOnce(
+          [&](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+              const DecodeConfig&) {
+            pending_decode_cb_1 = std::move(cb);
+            return nullptr;
+          });
+  EXPECT_CALL(
+      *mock_session_ptr,
+      RunDecodeAsync(testing::_, testing::Property(&DecodeConfig::GetConstraint,
+                                                   constraint2_ptr)))
+      .WillOnce(
+          [&](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+              const DecodeConfig&) {
+            pending_decode_cb_2 = std::move(cb);
+            return nullptr;
+          });
+
+  absl::Notification turn1_done;
+  ASSERT_OK(conversation->SendMessageAsync(
+      Message{{"role", "user"}, {"content", "Turn 1"}},
+      [&](absl::StatusOr<Message> msg) {
+        if (!msg.ok() || msg->is_null()) {
+          turn1_done.Notify();
+        }
+      },
+      {.decoding_constraint = std::move(arg1)}));
+  ASSERT_TRUE(pending_decode_cb_1 != nullptr);
+  EXPECT_FALSE(constraint1_destroyed);
+
+  // Pipelining a second turn with a different constraint must NOT destroy
+  // turn 1's in-flight constraint while turn 1's decode callback is still live.
+  absl::Notification turn2_done;
+  ASSERT_OK(conversation->SendMessageAsync(
+      Message{{"role", "user"}, {"content", "Turn 2"}},
+      [&](absl::StatusOr<Message> msg) {
+        if (!msg.ok() || msg->is_null()) {
+          turn2_done.Notify();
+        }
+      },
+      {.decoding_constraint = std::move(arg2)}));
+  ASSERT_TRUE(pending_decode_cb_2 != nullptr);
+  EXPECT_FALSE(constraint1_destroyed);
+  EXPECT_FALSE(constraint2_destroyed);
+
+  pending_decode_cb_1(Responses(TaskState::kProcessing, {"Reply 1"}));
+  pending_decode_cb_1(Responses(TaskState::kDone));
+  pending_decode_cb_1 = nullptr;
+  turn1_done.WaitForNotification();
+  EXPECT_TRUE(constraint1_destroyed);
+  EXPECT_FALSE(constraint2_destroyed);
+
+  pending_decode_cb_2(Responses(TaskState::kProcessing, {"Reply 2"}));
+  pending_decode_cb_2(Responses(TaskState::kDone));
+  pending_decode_cb_2 = nullptr;
+  turn2_done.WaitForNotification();
+  EXPECT_TRUE(constraint2_destroyed);
 }
 
 }  // namespace

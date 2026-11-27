@@ -68,6 +68,9 @@ class Gemma4DataProcessor
   // Returns the end of tool call blocks.
   absl::string_view CodeFenceEnd() const override;
 
+  absl::StatusOr<nlohmann::ordered_json> MessageToTemplateInput(
+      const nlohmann::ordered_json& message) const override;
+
  private:
 #if defined(LITERT_LM_FST_CONSTRAINTS_DISABLED)
   explicit Gemma4DataProcessor(

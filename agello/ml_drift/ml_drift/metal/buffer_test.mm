@@ -66,4 +66,20 @@ using ml_drift::half;
   }
 }
 
+- (void)testCreateBufferRejectsOversizedAllocation {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  const size_t huge_size = static_cast<size_t>(1) << 50;
+
+  ml_drift::metal::Buffer buffer;
+  absl::Status status = ml_drift::metal::CreateBuffer(huge_size, nullptr, device, &buffer);
+  XCTAssertEqual(status.code(), absl::StatusCode::kResourceExhausted);
+  XCTAssertNil(buffer.GetMemoryPtr());
+
+  ml_drift::BufferDescriptor desc;
+  desc.size = -1;
+  status = buffer.CreateFromBufferDescriptor(desc, device);
+  XCTAssertEqual(status.code(), absl::StatusCode::kInvalidArgument);
+  XCTAssertNil(buffer.GetMemoryPtr());
+}
+
 @end

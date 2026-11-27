@@ -231,7 +231,17 @@ void MemoryManager::SetRebind(ModelId model_id, Rebind rebind) {
     rebind_[model_id] = std::move(rebind);
   } else {
     rebind_.erase(model_id);
+    if (pending_release_ == model_id) {
+      pending_release_.reset();
+    }
+    if (last_run_model_ == model_id) {
+      last_run_model_.reset();
+    }
   }
+}
+
+void MemoryManager::UnregisterModel(ModelId model_id) {
+  SetRebind(model_id, nullptr);
 }
 
 std::vector<const Buffer*> MemoryManager::OwnBuffers(ModelId model_id) const {
@@ -266,86 +276,147 @@ absl::Status MemoryManager::ReleasePending() {
   if (!pending_release_.has_value()) return absl::OkStatus();
   const ModelId model_id = *pending_release_;
   pending_release_.reset();
+  auto rebind_it = rebind_.find(model_id);
+  if (rebind_it == rebind_.end() || !rebind_it->second) {
+    return absl::OkStatus();
+  }
   const int64_t before = LogPool() ? FootprintMegabytes() : 0;
   const std::vector<const Buffer*> own = OwnBuffers(model_id);
   const absl::flat_hash_set<const Buffer*> own_set(own.begin(), own.end());
   absl::flat_hash_set<ValueId> ids;
+  absl::Status rebind_status = absl::OkStatus();
   @autoreleasepool {
     for (const PoolView& view : pool_views_) {
       if (view.key.first != model_id || !own_set.contains(view.buffer)) continue;
       // A view on no buffer keeps its descriptor; a 2D texture view's texture goes with it.
-      ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(nil, tensors_descs_[view.key],
-                                                    &value_id_to_buffer_[view.key], view.offset));
+      value_id_to_buffer_[view.key] = MetalSpatialTensor(
+          nil, nil, /*memory_owner=*/false, /*texture_mem_owner=*/false,
+          tensors_descs_[view.key]);
       ids.insert(view.key.second);
     }
+    // Record released state atomically with unbinding tensor views so EnsureBuffers always
+    // restores views and kernel bindings even if rebind returns an error.
+    released_.insert(model_id);
     // The kernels drop their references to the buffers, then the pool does.
-    ABSL_RETURN_IF_ERROR(rebind_[model_id](ids));
+    rebind_status = rebind_it->second(ids);
     uint64_t bytes = 0;
-    for (const Buffer* buffer : own) {
-      bytes += buffer->GetMemorySizeInBytes();
-      if (LogPool() && buffer->GetMemorySizeInBytes() >= (64ull << 20)) {
-        // The pool's own reference is one: more means a kernel or a texture still holds it.
-        const long retains = CFGetRetainCount((__bridge CFTypeRef)buffer->GetMemoryPtr());
-        int views = 0, image2d = 0;
-        std::string ids_text;
-        for (const PoolView& view : pool_views_) {
-          if (view.key.first != model_id || view.buffer != buffer) continue;
-          ++views;
-          image2d += view.image2d;
-          if (ids_text.size() < 120) absl::StrAppend(&ids_text, " ", view.key.second, view.image2d ? "t" : "");
+    if (rebind_status.ok()) {
+      for (const Buffer* buffer : own) {
+        bytes += buffer->GetMemorySizeInBytes();
+        id<MTLBuffer> handle = buffer->GetMemoryPtr();
+        if (handle != nil) {
+          if (LogPool() && buffer->GetMemorySizeInBytes() >= (64ull << 20)) {
+            // The pool's own reference is one: more means a kernel or a texture still holds it.
+            const long retains = CFGetRetainCount((__bridge CFTypeRef)handle);
+            int views = 0, image2d = 0;
+            std::string ids_text;
+            for (const PoolView& view : pool_views_) {
+              if (view.key.first != model_id || view.buffer != buffer) continue;
+              ++views;
+              image2d += view.image2d;
+              if (ids_text.size() < 120) {
+                absl::StrAppend(&ids_text, " ", view.key.second, view.image2d ? "t" : "");
+              }
+            }
+            fprintf(stderr, "Agello pool: freeing %llu MB, retain count %ld, %d views (%d 2D textures):%s\n",
+                    static_cast<unsigned long long>(buffer->GetMemorySizeInBytes() >> 20), retains, views,
+                    image2d, ids_text.c_str());
+          }
+          // A few buffers stay referenced from outside the pool after the rebind (a retain count of 3,
+          // not 2: both 256 MB score buffers of the 1,024-token prefill at 64K and one more), so the
+          // object outlives the pool's reference. Nothing runs on them any more (the queue drained),
+          // so their pages are discarded first: an empty buffer holds no memory whoever keeps it.
+          [handle setPurgeableState:MTLPurgeableStateEmpty];
         }
-        fprintf(stderr, "Agello pool: freeing %llu MB, retain count %ld, %d views (%d 2D textures):%s\n",
-                static_cast<unsigned long long>(buffer->GetMemorySizeInBytes() >> 20), retains, views,
-                image2d, ids_text.c_str());
+        *const_cast<Buffer*>(buffer) = Buffer(nil, buffer->GetMemorySizeInBytes());
       }
-      // A few buffers stay referenced from outside the pool after the rebind (a retain count of 3,
-      // not 2: both 256 MB score buffers of the 1,024-token prefill at 64K and one more), so the
-      // object outlives the pool's reference. Nothing runs on them any more (the queue drained),
-      // so their pages are discarded first: an empty buffer holds no memory whoever keeps it.
-      [buffer->GetMemoryPtr() setPurgeableState:MTLPurgeableStateEmpty];
-      *const_cast<Buffer*>(buffer) = Buffer(nil, buffer->GetMemorySizeInBytes());
-    }
-    if (LogPool()) {
-      fprintf(stderr, "Agello pool: freed model %u's %zu own buffers (%llu MB, %zu tensors);"
-              " footprint %lld -> %lld MB\n", model_id, own.size(),
-              static_cast<unsigned long long>(bytes >> 20), ids.size(),
-              static_cast<long long>(before), static_cast<long long>(FootprintMegabytes()));
+      if (LogPool()) {
+        fprintf(stderr, "Agello pool: freed model %u's %zu own buffers (%llu MB, %zu tensors);"
+                " footprint %lld -> %lld MB\n", model_id, own.size(),
+                static_cast<unsigned long long>(bytes >> 20), ids.size(),
+                static_cast<long long>(before), static_cast<long long>(FootprintMegabytes()));
+      }
     }
   }
-  released_.insert(model_id);
-  return absl::OkStatus();
+  return rebind_status;
 }
 
 absl::Status MemoryManager::EnsureBuffers(ModelId model_id) {
   if (!released_.contains(model_id)) return absl::OkStatus();
-  released_.erase(model_id);
+  auto rebind_it = rebind_.find(model_id);
+  if (rebind_it == rebind_.end() || !rebind_it->second) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("No rebind callback registered for model ", model_id, "."));
+  }
   const std::vector<const Buffer*> own = OwnBuffers(model_id);
-  const absl::flat_hash_set<const Buffer*> own_set(own.begin(), own.end());
+  absl::flat_hash_map<const Buffer*, size_t> own_index;
+  own_index.reserve(own.size());
+  for (size_t i = 0; i < own.size(); ++i) {
+    own_index[own[i]] = i;
+  }
+
+  std::vector<Buffer> new_buffers(own.size());
+  std::vector<std::pair<Key, MetalSpatialTensor>> new_views;
   absl::flat_hash_set<ValueId> ids;
   @autoreleasepool {
-    for (const Buffer* buffer : own) {
-      ABSL_RETURN_IF_ERROR(CreateBuffer(buffer->GetMemorySizeInBytes(), /*data=*/nullptr, device_,
-                                        const_cast<Buffer*>(buffer)));
+    for (size_t i = 0; i < own.size(); ++i) {
+      ABSL_RETURN_IF_ERROR(CreateBuffer(own[i]->GetMemorySizeInBytes(), /*data=*/nullptr, device_,
+                                        &new_buffers[i]));
     }
     for (const PoolView& view : pool_views_) {
-      if (view.key.first != model_id || !own_set.contains(view.buffer)) continue;
+      if (view.key.first != model_id) continue;
+      auto idx_it = own_index.find(view.buffer);
+      if (idx_it == own_index.end()) continue;
+      id<MTLBuffer> mtl_buf = new_buffers[idx_it->second].GetMemoryPtr();
+      MetalSpatialTensor new_tensor;
       if (view.image2d) {
         ABSL_RETURN_IF_ERROR(CreateTensorSharedImage2DBuffer(
-            view.buffer->GetMemoryPtr(), tensors_descs_[view.key], view.row_alignment,
-            &value_id_to_buffer_[view.key], view.offset));
+            mtl_buf, tensors_descs_[view.key], view.row_alignment, &new_tensor, view.offset));
       } else {
-        ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(view.buffer->GetMemoryPtr(),
-                                                      tensors_descs_[view.key],
-                                                      &value_id_to_buffer_[view.key], view.offset));
+        ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(mtl_buf, tensors_descs_[view.key],
+                                                      &new_tensor, view.offset));
       }
       ids.insert(view.key.second);
+      new_views.emplace_back(view.key, std::move(new_tensor));
     }
   }
+
+  // Commit buffers and views, then rebind kernels before clearing released_.
+  // If rebind fails, roll back to clean unbound state so no partial allocations leak.
+  for (size_t i = 0; i < own.size(); ++i) {
+    *const_cast<Buffer*>(own[i]) = std::move(new_buffers[i]);
+  }
+  for (auto& [key, tensor] : new_views) {
+    value_id_to_buffer_[key] = std::move(tensor);
+  }
+
+  absl::Status status = rebind_it->second(ids);
+  if (!status.ok()) {
+    @autoreleasepool {
+      for (const PoolView& view : pool_views_) {
+        if (view.key.first != model_id || !own_index.contains(view.buffer)) continue;
+        value_id_to_buffer_[view.key] = MetalSpatialTensor(
+            nil, nil, /*memory_owner=*/false, /*texture_mem_owner=*/false,
+            tensors_descs_[view.key]);
+      }
+      rebind_it->second(ids).IgnoreError();
+      for (const Buffer* buffer : own) {
+        id<MTLBuffer> handle = buffer->GetMemoryPtr();
+        if (handle != nil) {
+          [handle setPurgeableState:MTLPurgeableStateEmpty];
+        }
+        *const_cast<Buffer*>(buffer) = Buffer(nil, buffer->GetMemorySizeInBytes());
+      }
+    }
+    return status;
+  }
+
+  released_.erase(model_id);
   if (LogPool()) {
     fprintf(stderr, "Agello pool: allocated model %u's %zu own buffers again (%zu tensors)\n",
             model_id, own.size(), ids.size());
   }
-  return rebind_[model_id](ids);
+  return absl::OkStatus();
 }
 
 MetalSpatialTensor* MemoryManager::GetSpatialTensor(Key key) {

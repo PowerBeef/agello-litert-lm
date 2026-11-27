@@ -663,8 +663,10 @@ absl::StatusOr<bool> TryFuseFlashAttention(GraphFloat32* graph, const Tail& tail
   const int head_dim = q_shape.c;
   const int kv_heads = q_shape.h;
   const int cache_size = tail.selected->tensor.shape.c;
-  if (q_shape.b != 1 || out->tensor.shape != q_shape || rows < 256 ||
-      (rows % 64) != 0 ||
+  const bool q_is_float = q->tensor.type == ::ml_drift::DataType::kFloat16 ||
+                          q->tensor.type == ::ml_drift::DataType::kFloat32;
+  if (!q_is_float || out->tensor.type != q->tensor.type || q_shape.b != 1 ||
+      out->tensor.shape != q_shape || rows < 256 || (rows % 64) != 0 ||
       (head_dim != 256 && head_dim != 512) || kv_heads < 1 || cache_size < 4 ||
       (cache_size % 4) != 0) {
     return false;
@@ -680,6 +682,18 @@ absl::StatusOr<bool> TryFuseFlashAttention(GraphFloat32* graph, const Tail& tail
       std::any_cast<BoundedSoftmaxReduceAttributes>(&tail.softmax->operation.attributes);
   if (qk_attr == nullptr || pv_attr == nullptr || mask_attr == nullptr ||
       reduce_attr == nullptr) {
+    return false;
+  }
+  const ::ml_drift::BHWC& mask_shape = mask->tensor.shape;
+  if (mask_shape.b != 1 || mask_shape.h <= 0 || mask_shape.w <= 0 ||
+      mask_shape.c <= 0 || (!mask_attr->row_end && mask_shape.c != cache_size)) {
+    return false;
+  }
+  // Row-end bounds encode [0, bound) prefixes; sliding windows need per-key masks.
+  if (mask_attr->row_end && reduce_attr->window_pos_index.has_value()) {
+    return false;
+  }
+  if (reduce_attr->window_pos_index.has_value() && reduce_attr->window_size <= 0) {
     return false;
   }
   if (!qk_attr->external_weights.has_value() || !pv_attr->external_weights.has_value()) {

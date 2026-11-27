@@ -14,6 +14,7 @@
 
 #include "runtime/conversation/conversation.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -70,6 +71,21 @@ namespace {
 constexpr absl::string_view kChannelsKey = "channels";
 constexpr absl::string_view kChannelContentCheckpoint =
     "channel_content_checkpoint";
+
+// Tracks whether the current thread is synchronously inside
+// `session_->RunPrefillAsync` or `session_->RunDecodeAsync` (where
+// `SessionAdvanced::mutex_` may be held) so a synchronously-delivered failure
+// callback can defer `RewindToCheckpoint` until after the submit returns.
+thread_local const Conversation* g_submitting_conversation = nullptr;
+
+struct SubmitGuard {
+  const Conversation* prev;
+  explicit SubmitGuard(const Conversation* self)
+      : prev(g_submitting_conversation) {
+    g_submitting_conversation = self;
+  }
+  ~SubmitGuard() { g_submitting_conversation = prev; }
+};
 
 bool IsEmptyInputError(const absl::Status& status) {
   return absl::IsInvalidArgument(status) &&
@@ -311,6 +327,18 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnTextFromFullHistory(
   ABSL_ASSIGN_OR_RETURN(const std::string& new_string,
                         ApplyTemplate(new_tmpl_input));
   if (new_string.substr(0, old_string.size()) != old_string) {
+    // When an assistant tool-call turn is abandoned (followed by a non-tool
+    // message instead of a tool response), Gemma 4's template closes the turn
+    // with `<turn|>\n` instead of keeping `<|tool_response>` open.
+    constexpr absl::string_view kPendingToolResponse = "<|tool_response>";
+    if (absl::EndsWith(old_string, kPendingToolResponse)) {
+      const size_t base_len = old_string.size() - kPendingToolResponse.size();
+      if (new_string.size() >= base_len &&
+          absl::string_view(new_string).substr(0, base_len) ==
+              absl::string_view(old_string).substr(0, base_len)) {
+        return new_string.substr(base_len);
+      }
+    }
     return absl::InternalError(absl::StrCat(
         "The new rendered template string does not start with the previous "
         "rendered template string. \nold_string: ",
@@ -336,7 +364,15 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   return GetSingleTurnTextFromFullHistory(message, optional_args);
 }
 
-absl::StatusOr<DecodeConfig> Conversation::CreateDecodeConfig(
+Conversation::~Conversation() {
+  CancelProcess();
+  if (session_) {
+    session_->WaitUntilDone().IgnoreError();
+  }
+}
+
+absl::StatusOr<Conversation::PreparedDecodeConfig>
+Conversation::CreateDecodeConfig(
     std::optional<RepetitionPenaltyConfig> repetition_penalty_config,
     std::optional<NoRepeatNgramConfig> no_repeat_ngram_config,
     std::optional<SuppressTokensConfig> suppress_tokens_config,
@@ -344,7 +380,8 @@ absl::StatusOr<DecodeConfig> Conversation::CreateDecodeConfig(
     std::optional<int> max_output_tokens,
     std::optional<ThinkingConfig> thinking_config,
     std::optional<absl::string_view> open_channel_name) {
-  auto decode_config = DecodeConfig::CreateDefault();
+  PreparedDecodeConfig prepared;
+  auto& decode_config = prepared.decode_config;
 
   if (repetition_penalty_config.has_value()) {
     decode_config.SetRepetitionPenaltyConfig(
@@ -392,25 +429,35 @@ absl::StatusOr<DecodeConfig> Conversation::CreateDecodeConfig(
     decode_config.SetThinkingTokenBudget(0);
   }
   if (decoding_constraint.has_value() && constraint_provider_ != nullptr) {
-    ABSL_ASSIGN_OR_RETURN(constraint_,
-                          constraint_provider_->CreateConstraint(
-                              std::move(decoding_constraint).value()));
-  } else if (config_.constrained_decoding_enabled() && constraint_ == nullptr &&
+    ABSL_ASSIGN_OR_RETURN(
+        std::unique_ptr<Constraint> per_turn_constraint,
+        constraint_provider_->CreateConstraint(
+            std::move(decoding_constraint).value()));
+    prepared.turn_constraint =
+        std::shared_ptr<Constraint>(std::move(per_turn_constraint));
+    decode_config.SetConstraint(prepared.turn_constraint.get());
+  } else if (config_.constrained_decoding_enabled() &&
              std::holds_alternative<JsonPreface>(preface_)) {
-    // Create a constraint from the tools defined in the preface, if any.
-    auto json_preface = std::get<JsonPreface>(preface_);
-    if (!json_preface.tools.is_null()) {
-      auto constraint =
-          model_data_processor_->CreateConstraint(json_preface.tools);
-      if (constraint.ok()) {
-        constraint_ = std::move(constraint.value());
-      } else if (!absl::IsUnimplemented(constraint.status())) {
-        return constraint.status();
+    absl::MutexLock lock(constraint_mutex_);
+    if (preface_tool_constraint_ == nullptr) {
+      // Create a long-lived constraint from the tools defined in the preface,
+      // if any.
+      auto json_preface = std::get<JsonPreface>(preface_);
+      if (!json_preface.tools.is_null()) {
+        auto constraint =
+            model_data_processor_->CreateConstraint(json_preface.tools);
+        if (constraint.ok()) {
+          preface_tool_constraint_ = std::move(constraint.value());
+        } else if (!absl::IsUnimplemented(constraint.status())) {
+          return constraint.status();
+        }
       }
     }
+    decode_config.SetConstraint(preface_tool_constraint_.get());
+  } else {
+    decode_config.SetConstraint(nullptr);
   }
-  decode_config.SetConstraint(constraint_.get());
-  return decode_config;
+  return prepared;
 }
 
 absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
@@ -607,20 +654,117 @@ absl::Status Conversation::SendMessageAsync(
         *optional_args.args,
         *engine_.GetEngineSettings().GetMaxVisionTokensPerImage()));
   }
+  if (!prompt_template_.GetCapabilities().supports_single_turn &&
+      optional_args.has_pending_message) {
+    return absl::InvalidArgumentError(
+        "The prompt template does not support single turn template, but "
+        "has_pending_message is true. `has_pending_message` is only valid for "
+        "model templates and ModelDataProcessor that supports single turn "
+        "prompt rendering.");
+  }
+
+  const bool is_tool_response_message = IsToolResponse(message);
+  const std::optional<ThinkingConfig> resolved_thinking_for_turn =
+      ResolveThinkingConfig(config_, optional_args);
+  const std::optional<nlohmann::ordered_json> turn_extra_context =
+      optional_args.extra_context;
 
   bool prev_is_appending_message = false;
+  bool rewind_abandoned_tool_turn = false;
+  size_t abandoned_ckpt_index = 0;
+  bool abandoned_ckpt_after_user_prefill = false;
+  std::optional<ThinkingConfig> abandoned_ckpt_thinking_config = std::nullopt;
+  std::optional<nlohmann::ordered_json> abandoned_ckpt_extra_context =
+      std::nullopt;
+  std::vector<Message> abandoned_old_messages;
+  std::vector<Message> abandoned_new_messages;
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     prev_is_appending_message = is_appending_message_;
+    // If a prior tool-call turn kept `<thought>` in KV and a fresh non-tool
+    // message arrives (abandoned tool turn / maxToolRounds /
+    // automaticToolCalling == false), rewind the prior `<thought>` out of KV
+    // and refill from the saved checkpoint together with the new message.
+    if (!is_tool_response_message && !optional_args.has_pending_message &&
+        !is_appending_message_ &&
+        config_.filter_channel_content_from_kv_cache() &&
+        pending_thought_in_kv_ && checkpoint_message_index_.has_value() &&
+        *checkpoint_message_index_ >= 0 &&
+        static_cast<size_t>(*checkpoint_message_index_) <= history_.size()) {
+      rewind_abandoned_tool_turn = true;
+      abandoned_ckpt_index = static_cast<size_t>(*checkpoint_message_index_);
+      abandoned_ckpt_after_user_prefill = checkpoint_after_user_prefill_;
+      abandoned_ckpt_thinking_config = checkpoint_thinking_config_;
+      abandoned_ckpt_extra_context = checkpoint_extra_context_;
+      abandoned_old_messages.assign(history_.begin(),
+                                    history_.begin() + abandoned_ckpt_index);
+      abandoned_new_messages.assign(history_.begin() + abandoned_ckpt_index,
+                                    history_.end());
+    }
   }
-  ABSL_ASSIGN_OR_RETURN(std::string single_turn_text,
-                        GetSingleTurnText(message, optional_args));
-  auto open_channel_name =
-      GetOpenChannelName(single_turn_text, config_.GetChannels());
+
+  std::string single_turn_text;
+  std::optional<std::string> open_channel_name;
+  std::vector<InputData> session_inputs;
+  bool is_appending_message = false;
+
+  if (rewind_abandoned_tool_turn) {
+    if (message.is_array()) {
+      for (const auto& msg : message) {
+        abandoned_new_messages.push_back(msg);
+      }
+    } else {
+      abandoned_new_messages.push_back(message);
+    }
+    OptionalArgs abandoned_render_args;
+    abandoned_render_args.args = optional_args.args;
+    abandoned_render_args.thinking_config =
+        abandoned_ckpt_thinking_config.has_value()
+            ? abandoned_ckpt_thinking_config
+            : resolved_thinking_for_turn;
+    abandoned_render_args.extra_context =
+        abandoned_ckpt_extra_context.has_value() ? abandoned_ckpt_extra_context
+                                                 : optional_args.extra_context;
+    ABSL_ASSIGN_OR_RETURN(
+        single_turn_text,
+        GetPrefillTextForMessages(
+            abandoned_old_messages, abandoned_new_messages,
+            abandoned_render_args,
+            /*include_preface=*/!config_.prefill_preface_on_init(),
+            /*add_generation_prompt_to_old=*/abandoned_ckpt_after_user_prefill,
+            /*add_generation_prompt_to_new=*/true));
+    open_channel_name =
+        GetOpenChannelName(single_turn_text, config_.GetChannels());
+
+    nlohmann::ordered_json messages_for_conversion =
+        nlohmann::ordered_json::array();
+    if (abandoned_ckpt_index == 0 && !config_.prefill_preface_on_init() &&
+        std::holds_alternative<JsonPreface>(preface_)) {
+      const auto& json_preface = std::get<JsonPreface>(preface_);
+      if (json_preface.messages.is_array()) {
+        messages_for_conversion = json_preface.messages;
+      } else if (!json_preface.messages.is_null()) {
+        messages_for_conversion.push_back(json_preface.messages);
+      }
+    }
+    for (const auto& msg : abandoned_new_messages) {
+      messages_for_conversion.push_back(msg);
+    }
+    ABSL_ASSIGN_OR_RETURN(
+        session_inputs,
+        model_data_processor_->ToInputDataVector(
+            single_turn_text, messages_for_conversion,
+            optional_args.args.value_or(std::monostate())));
+  } else {
+    ABSL_ASSIGN_OR_RETURN(single_turn_text,
+                          GetSingleTurnText(message, optional_args));
+    open_channel_name =
+        GetOpenChannelName(single_turn_text, config_.GetChannels());
+  }
 
   size_t num_messages_added = 0;
+  size_t history_size_before = 0;
   bool was_history_empty = false;
-  bool is_appending_message = false;
   bool preserve_turn_checkpoint = false;
   bool prev_pending_thought_in_kv = false;
   std::optional<int> prev_checkpoint_index = std::nullopt;
@@ -628,13 +772,9 @@ absl::Status Conversation::SendMessageAsync(
   std::optional<ThinkingConfig> prev_checkpoint_thinking_config = std::nullopt;
   std::optional<nlohmann::ordered_json> prev_checkpoint_extra_context =
       std::nullopt;
-  const bool is_tool_response_message = IsToolResponse(message);
-  const std::optional<ThinkingConfig> resolved_thinking_for_turn =
-      ResolveThinkingConfig(config_, optional_args);
-  const std::optional<nlohmann::ordered_json> turn_extra_context =
-      optional_args.extra_context;
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
+    history_size_before = history_.size();
     was_history_empty = history_.empty();
     prev_pending_thought_in_kv = pending_thought_in_kv_;
     prev_checkpoint_index = checkpoint_message_index_;
@@ -649,8 +789,8 @@ absl::Status Conversation::SendMessageAsync(
         is_tool_response_message && pending_thought_in_kv_ &&
         checkpoint_message_index_.has_value();
     if (message.is_array()) {
-      for (const auto& message : message) {
-        history_.push_back(message);
+      for (const auto& msg : message) {
+        history_.push_back(msg);
         num_messages_added++;
       }
     } else {
@@ -663,9 +803,12 @@ absl::Status Conversation::SendMessageAsync(
   // Roll back history & checkpoint metadata if SendMessageAsync returns early
   // with a synchronous error before RunPrefillAsync is scheduled (R-21).
   bool async_scheduled = false;
+  bool kv_rewound_for_abandoned_tool = false;
   struct HistoryRollbackGuard {
     Conversation* self;
     bool& scheduled;
+    bool& kv_rewound;
+    size_t abandoned_ckpt;
     size_t added;
     bool prev_appending;
     bool prev_pending_thought;
@@ -676,6 +819,18 @@ absl::Status Conversation::SendMessageAsync(
     ~HistoryRollbackGuard() {
       if (scheduled) return;
       absl::MutexLock lock(self->history_mutex_);
+      if (kv_rewound) {
+        if (self->history_.size() > abandoned_ckpt) {
+          self->history_.resize(abandoned_ckpt);
+        }
+        self->is_appending_message_ = prev_appending;
+        self->pending_thought_in_kv_ = false;
+        self->checkpoint_message_index_ = std::nullopt;
+        self->checkpoint_after_user_prefill_ = false;
+        self->checkpoint_thinking_config_ = std::nullopt;
+        self->checkpoint_extra_context_ = std::nullopt;
+        return;
+      }
       for (size_t i = 0; i < added && !self->history_.empty(); ++i) {
         self->history_.pop_back();
       }
@@ -688,6 +843,8 @@ absl::Status Conversation::SendMessageAsync(
     }
   } rollback_guard{this,
                    async_scheduled,
+                   kv_rewound_for_abandoned_tool,
+                   abandoned_ckpt_index,
                    num_messages_added,
                    prev_is_appending_message,
                    prev_pending_thought_in_kv,
@@ -696,107 +853,135 @@ absl::Status Conversation::SendMessageAsync(
                    prev_checkpoint_thinking_config,
                    prev_checkpoint_extra_context};
 
-  absl::AnyInvocable<void()> cancel_callback = [this, num_messages_added,
-                                                prev_is_appending_message]() {
-    absl::MutexLock lock(history_mutex_);
-    for (size_t i = 0; i < num_messages_added && !history_.empty(); ++i) {
-      history_.pop_back();
-    }
-    is_appending_message_ = prev_is_appending_message;
-    checkpoint_message_index_ = std::nullopt;
-    checkpoint_after_user_prefill_ = false;
-    pending_thought_in_kv_ = false;
-    checkpoint_thinking_config_ = std::nullopt;
-    checkpoint_extra_context_ = std::nullopt;
-  };
+  auto rolled_back = std::make_shared<std::atomic<bool>>(false);
+  auto deferred_rewind_kv = std::make_shared<std::atomic<bool>>(false);
+  auto shared_cancel_callback =
+      std::make_shared<absl::AnyInvocable<void()>>(
+          [this, history_size_before, prev_is_appending_message, rolled_back,
+           deferred_rewind_kv, rewind_abandoned_tool_turn,
+           abandoned_ckpt_index]() {
+            if (rolled_back->exchange(true, std::memory_order_acq_rel)) {
+              return;
+            }
+            bool should_rewind_kv = false;
+            {
+              absl::MutexLock lock(history_mutex_);
+              size_t target_history_size = history_size_before;
+              if (checkpoint_message_index_.has_value()) {
+                should_rewind_kv = true;
+                if (*checkpoint_message_index_ >= 0) {
+                  target_history_size = std::min(
+                      target_history_size,
+                      static_cast<size_t>(*checkpoint_message_index_));
+                }
+              } else if (rewind_abandoned_tool_turn) {
+                should_rewind_kv = true;
+                target_history_size =
+                    std::min(target_history_size, abandoned_ckpt_index);
+              }
+              if (history_.size() > target_history_size) {
+                history_.resize(target_history_size);
+              }
+              is_appending_message_ = prev_is_appending_message;
+              checkpoint_message_index_ = std::nullopt;
+              checkpoint_after_user_prefill_ = false;
+              pending_thought_in_kv_ = false;
+              checkpoint_thinking_config_ = std::nullopt;
+              checkpoint_extra_context_ = std::nullopt;
+            }
+            if (should_rewind_kv && session_ != nullptr) {
+              if (g_submitting_conversation == this) {
+                deferred_rewind_kv->store(true, std::memory_order_release);
+              } else if (config_.enable_rewinding()) {
+                session_->RewindToCheckpoint(kChannelContentCheckpoint)
+                    .IgnoreError();
+              } else {
+                session_->RestoreContext(kChannelContentCheckpoint)
+                    .IgnoreError();
+              }
+            }
+          });
 
-  // If the prompt template itself opens a channel at the end of the user
-  // prefill (e.g. `<think>\n`), save the checkpoint before prefilling the user
-  // message so that the open channel start tag can also be stripped on rewind.
-  // Otherwise, the checkpoint is saved after prefilling the user message
-  // (PostUserPrefill) right before decoding starts.
-  if (config_.filter_channel_content_from_kv_cache() && !is_appending_message &&
-      !preserve_turn_checkpoint && open_channel_name.has_value()) {
-    if (config_.enable_rewinding()) {
-      ABSL_RETURN_IF_ERROR(session_->SaveCheckpoint(kChannelContentCheckpoint));
-    } else {
-      ABSL_RETURN_IF_ERROR(session_->SaveContext(kChannelContentCheckpoint));
+  if (!rewind_abandoned_tool_turn) {
+    nlohmann::ordered_json messages_for_conversion;
+    if (was_history_empty && !config_.prefill_preface_on_init()) {
+      if (std::holds_alternative<JsonPreface>(preface_)) {
+        const auto& json_preface = std::get<JsonPreface>(preface_);
+        if (json_preface.messages.is_array()) {
+          messages_for_conversion = json_preface.messages;
+        } else {
+          messages_for_conversion =
+              nlohmann::ordered_json::array({json_preface.messages});
+        }
+      }
     }
-    absl::MutexLock lock(history_mutex_);
-    checkpoint_message_index_ = history_.size() - num_messages_added;
-    checkpoint_after_user_prefill_ = false;
-    checkpoint_thinking_config_ = resolved_thinking_for_turn;
-    checkpoint_extra_context_ = turn_extra_context;
-  }
-
-  nlohmann::ordered_json messages_for_conversion;
-  if (was_history_empty && !config_.prefill_preface_on_init()) {
-    if (std::holds_alternative<JsonPreface>(preface_)) {
-      const auto& json_preface = std::get<JsonPreface>(preface_);
-      if (json_preface.messages.is_array()) {
-        messages_for_conversion = json_preface.messages;
+    if (messages_for_conversion.is_array()) {
+      if (message.is_array()) {
+        for (const auto& msg : message) {
+          messages_for_conversion.push_back(msg);
+        }
       } else {
-        messages_for_conversion =
-            nlohmann::ordered_json::array({json_preface.messages});
-      }
-    }
-  }
-  if (messages_for_conversion.is_array()) {
-    if (message.is_array()) {
-      for (const auto& msg : message) {
-        messages_for_conversion.push_back(msg);
+        messages_for_conversion.push_back(message);
       }
     } else {
-      messages_for_conversion.push_back(message);
+      if (message.is_array()) {
+        messages_for_conversion = message;
+      } else {
+        messages_for_conversion = nlohmann::ordered_json::array({message});
+      }
     }
-  } else {
-    if (message.is_array()) {
-      messages_for_conversion = message;
-    } else {
-      messages_for_conversion = nlohmann::ordered_json::array({message});
-    }
-  }
 
-  ABSL_ASSIGN_OR_RETURN(auto session_inputs,
-                        model_data_processor_->ToInputDataVector(
-                            single_turn_text, messages_for_conversion,
-                            optional_args.args.value_or(std::monostate())));
+    ABSL_ASSIGN_OR_RETURN(session_inputs,
+                          model_data_processor_->ToInputDataVector(
+                              single_turn_text, messages_for_conversion,
+                              optional_args.args.value_or(std::monostate())));
+  }
 
   if (is_appending_message) {
-    ABSL_ASSIGN_OR_RETURN(
-        auto task_controller,
-        session_->RunPrefillAsync(
-            session_inputs, [callback = std::move(user_callback),
-                             cancel_callback = std::move(cancel_callback)](
-                                absl::StatusOr<Responses> responses) mutable {
-              if (!responses.ok()) {
-                auto status = IgnoreEmptyInputError(responses.status());
-                if (!status.ok()) {
-                  if (absl::IsCancelled(status)) {
-                    cancel_callback();
-                  }
-                  callback(status);
-                } else {
-                  callback(Message());
-                }
-                return;
-              }
-              if (responses->GetTaskState() == TaskState::kDone) {
+    absl::StatusOr<std::unique_ptr<Engine::Session::TaskController>>
+        task_controller;
+    {
+      SubmitGuard submit_guard(this);
+      task_controller = session_->RunPrefillAsync(
+          session_inputs,
+          [callback = std::move(user_callback),
+           shared_cancel_callback](absl::StatusOr<Responses> responses) mutable {
+            if (!responses.ok()) {
+              auto status = IgnoreEmptyInputError(responses.status());
+              if (!status.ok()) {
+                (*shared_cancel_callback)();
+                callback(status);
+              } else {
                 callback(Message());
-              } else if (responses->GetTaskState() == TaskState::kCancelled ||
-                         responses->GetTaskState() ==
-                             TaskState::kDependentTaskCancelled) {
-                cancel_callback();
-                callback(absl::CancelledError("Task cancelled"));
-              } else if (IsTaskEndState(responses->GetTaskState())) {
-                cancel_callback();
-                callback(absl::InternalError(absl::StrCat(
-                    "Prefill failed with task state: ",
-                    TaskStateToString(responses->GetTaskState()))));
               }
-            }));
+              return;
+            }
+            if (responses->GetTaskState() == TaskState::kDone) {
+              callback(Message());
+            } else if (responses->GetTaskState() == TaskState::kCancelled ||
+                       responses->GetTaskState() ==
+                           TaskState::kDependentTaskCancelled) {
+              (*shared_cancel_callback)();
+              callback(absl::CancelledError("Task cancelled"));
+            } else if (IsTaskEndState(responses->GetTaskState())) {
+              (*shared_cancel_callback)();
+              callback(absl::InternalError(absl::StrCat(
+                  "Prefill failed with task state: ",
+                  TaskStateToString(responses->GetTaskState()))));
+            }
+          });
+    }
+    if (deferred_rewind_kv->exchange(false, std::memory_order_acq_rel) &&
+        session_ != nullptr) {
+      if (config_.enable_rewinding()) {
+        session_->RewindToCheckpoint(kChannelContentCheckpoint).IgnoreError();
+      } else {
+        session_->RestoreContext(kChannelContentCheckpoint).IgnoreError();
+      }
+    }
+    ABSL_RETURN_IF_ERROR(task_controller.status());
     async_scheduled = true;
-    AddTaskController(optional_args.task_group_id, std::move(task_controller));
+    AddTaskController(optional_args.task_group_id, std::move(*task_controller));
     return absl::OkStatus();
   }
 
@@ -811,7 +996,7 @@ absl::Status Conversation::SendMessageAsync(
   }
 
   ABSL_ASSIGN_OR_RETURN(
-      auto decode_config,
+      auto prepared_decode_config,
       CreateDecodeConfig(std::move(optional_args.repetition_penalty_config),
                          std::move(optional_args.no_repeat_ngram_config),
                          std::move(optional_args.suppress_tokens_config),
@@ -819,6 +1004,39 @@ absl::Status Conversation::SendMessageAsync(
                          optional_args.max_output_tokens,
                          ResolveThinkingConfig(config_, optional_args),
                          open_channel_name));
+
+  // Mutate session checkpoint/KV state only after template rendering,
+  // multimodal input construction, and decode-config creation have succeeded.
+  if (rewind_abandoned_tool_turn) {
+    if (config_.enable_rewinding()) {
+      ABSL_RETURN_IF_ERROR(
+          session_->RewindToCheckpoint(kChannelContentCheckpoint));
+    } else {
+      ABSL_RETURN_IF_ERROR(session_->RestoreContext(kChannelContentCheckpoint));
+      if (open_channel_name.has_value()) {
+        ABSL_RETURN_IF_ERROR(session_->SaveContext(kChannelContentCheckpoint));
+      }
+    }
+    kv_rewound_for_abandoned_tool = true;
+  } else if (config_.filter_channel_content_from_kv_cache() &&
+             !preserve_turn_checkpoint && open_channel_name.has_value()) {
+    // If the prompt template itself opens a channel at the end of the user
+    // prefill (e.g. `<think>\n`), save the checkpoint before prefilling the
+    // user message so that the open channel start tag can also be stripped on
+    // rewind. Otherwise, the checkpoint is saved after prefilling the user
+    // message (PostUserPrefill) right before decoding starts.
+    if (config_.enable_rewinding()) {
+      ABSL_RETURN_IF_ERROR(session_->SaveCheckpoint(kChannelContentCheckpoint));
+    } else {
+      ABSL_RETURN_IF_ERROR(session_->SaveContext(kChannelContentCheckpoint));
+    }
+    absl::MutexLock lock(history_mutex_);
+    checkpoint_message_index_ = history_.size() - num_messages_added;
+    checkpoint_after_user_prefill_ = false;
+    checkpoint_thinking_config_ = resolved_thinking_for_turn;
+    checkpoint_extra_context_ =
+        turn_extra_context.value_or(nlohmann::ordered_json::object());
+  }
 
   auto shared_user_callback =
       std::make_shared<absl::AnyInvocable<void(absl::StatusOr<Message>)>>(
@@ -847,57 +1065,77 @@ absl::Status Conversation::SendMessageAsync(
   auto task_group_id = optional_args.task_group_id;
 
   absl::AnyInvocable<void(Message)> complete_message_callback =
-      [this, shared_user_callback, defer_completion,
+      [this, shared_user_callback, shared_cancel_callback, defer_completion,
        optional_args =
            std::move(optional_args)](const Message& complete_message) {
+        if (process_cancelled_.load(std::memory_order_acquire)) {
+          *defer_completion = true;
+          (*shared_cancel_callback)();
+          (*shared_user_callback)(absl::CancelledError("Task cancelled"));
+          return;
+        }
         absl::StatusOr<std::vector<InputData>> refill_session_inputs;
+        std::optional<int> saved_checkpoint_index = std::nullopt;
+        bool cancelled_before_push = false;
         {
           absl::MutexLock lock(history_mutex_);
-          history_.push_back(complete_message);
-          const bool has_channels = complete_message.contains(kChannelsKey);
-          if (!config_.filter_channel_content_from_kv_cache()) {
-            checkpoint_message_index_ = std::nullopt;
-            checkpoint_after_user_prefill_ = false;
-            pending_thought_in_kv_ = false;
-            return;
-          }
-
-          // Agello: preserve `<thought>` traces in KV across intermediate
-          // tool-call steps within the same turn, stripping them only once the
-          // turn's final user-visible answer completes.
-          if (HasToolCalls(complete_message)) {
-            if (has_channels) {
-              pending_thought_in_kv_ = true;
-            }
-            if (!pending_thought_in_kv_) {
+          if (process_cancelled_.load(std::memory_order_acquire)) {
+            cancelled_before_push = true;
+          } else {
+            const size_t history_size_before_complete = history_.size();
+            history_.push_back(complete_message);
+            const bool has_channels = complete_message.contains(kChannelsKey);
+            if (!config_.filter_channel_content_from_kv_cache()) {
               checkpoint_message_index_ = std::nullopt;
               checkpoint_after_user_prefill_ = false;
+              pending_thought_in_kv_ = false;
+              checkpoint_thinking_config_ = std::nullopt;
+              checkpoint_extra_context_ = std::nullopt;
+              return;
             }
-            return;
-          }
 
-          if (!has_channels && !pending_thought_in_kv_) {
-            checkpoint_message_index_ = std::nullopt;
-            checkpoint_after_user_prefill_ = false;
-            return;
-          }
+            // Agello: preserve `<thought>` traces in KV across intermediate
+            // tool-call steps within the same turn, stripping them only once
+            // the turn's final user-visible answer completes.
+            if (HasToolCalls(complete_message)) {
+              if (has_channels) {
+                pending_thought_in_kv_ = true;
+              }
+              if (!pending_thought_in_kv_) {
+                checkpoint_message_index_ = std::nullopt;
+                checkpoint_after_user_prefill_ = false;
+                checkpoint_thinking_config_ = std::nullopt;
+                checkpoint_extra_context_ = std::nullopt;
+              }
+              return;
+            }
 
-          if (process_cancelled_.load(std::memory_order_acquire)) {
-            checkpoint_message_index_ = std::nullopt;
-            checkpoint_after_user_prefill_ = false;
-            pending_thought_in_kv_ = false;
+            if (!has_channels && !pending_thought_in_kv_) {
+              checkpoint_message_index_ = std::nullopt;
+              checkpoint_after_user_prefill_ = false;
+              checkpoint_thinking_config_ = std::nullopt;
+              checkpoint_extra_context_ = std::nullopt;
+              return;
+            }
+
+            // Eagerly rewind to the checkpoint and refill the model response(s)
+            // without channel content before signaling completion to the
+            // caller.
             *defer_completion = true;
-            (*shared_user_callback)(absl::CancelledError("Task cancelled"));
-            return;
+            saved_checkpoint_index = checkpoint_message_index_;
+            const bool prev_pending_thought = pending_thought_in_kv_;
+            refill_session_inputs = RewindAndGetInputDataVector(optional_args);
+            if (!refill_session_inputs.ok()) {
+              if (history_.size() > history_size_before_complete) {
+                history_.resize(history_size_before_complete);
+              }
+              pending_thought_in_kv_ = prev_pending_thought;
+            }
           }
-
-          // Eagerly rewind to the checkpoint and refill the model response(s)
-          // without channel content before signaling completion to the caller.
-          *defer_completion = true;
-          pending_thought_in_kv_ = false;
-          refill_session_inputs = RewindAndGetInputDataVector(optional_args);
         }
-        if (process_cancelled_.load(std::memory_order_acquire)) {
+        if (cancelled_before_push) {
+          *defer_completion = true;
+          (*shared_cancel_callback)();
           (*shared_user_callback)(absl::CancelledError("Task cancelled"));
           return;
         }
@@ -910,12 +1148,43 @@ absl::Status Conversation::SendMessageAsync(
           return;
         }
 
+        auto refill_rolled_back = std::make_shared<std::atomic<bool>>(false);
+        auto rollback_refill_history = [this, saved_checkpoint_index,
+                                        refill_rolled_back]() {
+          if (refill_rolled_back->exchange(true, std::memory_order_acq_rel)) {
+            return;
+          }
+          if (!saved_checkpoint_index.has_value() ||
+              *saved_checkpoint_index < 0) {
+            return;
+          }
+          absl::MutexLock lock(history_mutex_);
+          const size_t target_size =
+              static_cast<size_t>(*saved_checkpoint_index);
+          if (history_.size() > target_size) {
+            history_.resize(target_size);
+          }
+          checkpoint_message_index_ = std::nullopt;
+          checkpoint_after_user_prefill_ = false;
+          pending_thought_in_kv_ = false;
+          checkpoint_thinking_config_ = std::nullopt;
+          checkpoint_extra_context_ = std::nullopt;
+        };
+
+        if (process_cancelled_.load(std::memory_order_acquire)) {
+          rollback_refill_history();
+          (*shared_user_callback)(absl::CancelledError("Task cancelled"));
+          return;
+        }
+
         auto refill_task_controller = session_->RunPrefillAsync(
             *refill_session_inputs,
-            [shared_user_callback](absl::StatusOr<Responses> responses) {
+            [shared_user_callback,
+             rollback_refill_history](absl::StatusOr<Responses> responses) {
               if (!responses.ok()) {
                 auto status = IgnoreEmptyInputError(responses.status());
                 if (!status.ok()) {
+                  rollback_refill_history();
                   (*shared_user_callback)(status);
                 } else {
                   (*shared_user_callback)(Message());
@@ -927,8 +1196,10 @@ absl::Status Conversation::SendMessageAsync(
               } else if (responses->GetTaskState() == TaskState::kCancelled ||
                          responses->GetTaskState() ==
                              TaskState::kDependentTaskCancelled) {
+                rollback_refill_history();
                 (*shared_user_callback)(absl::CancelledError("Task cancelled"));
               } else if (IsTaskEndState(responses->GetTaskState())) {
+                rollback_refill_history();
                 (*shared_user_callback)(absl::InternalError(absl::StrCat(
                     "Prefill failed with task state: ",
                     TaskStateToString(responses->GetTaskState()))));
@@ -944,9 +1215,14 @@ absl::Status Conversation::SendMessageAsync(
           AddTaskController(optional_args.task_group_id,
                             std::move(*refill_task_controller));
         } else {
+          rollback_refill_history();
           (*shared_user_callback)(refill_task_controller.status());
         }
       };
+
+  absl::AnyInvocable<void()> cancel_callback = [shared_cancel_callback]() {
+    (*shared_cancel_callback)();
+  };
 
   auto internal_callback =
       std::make_shared<absl::AnyInvocable<void(absl::StatusOr<Responses>)>>(
@@ -958,104 +1234,131 @@ absl::Status Conversation::SendMessageAsync(
               config_.stream_tool_calls(),
               config_.stream_tool_calls_channel_name()));
 
-  ABSL_ASSIGN_OR_RETURN(
-      auto prefill_task_controller,
-      session_->RunPrefillAsync(
-          session_inputs,
-          [this, callback = internal_callback, decode_config,
-           open_channel_name = std::move(open_channel_name),
-           preserve_turn_checkpoint, resolved_thinking_for_turn,
-           turn_extra_context,
-           task_group_id](absl::StatusOr<Responses> responses) mutable {
-            // First, check if prefill returned an error. Ignore errors
-            // caused by empty input, as this is a valid case for triggering
-            // decode only.
-            auto status = IgnoreEmptyInputError(responses.status());
-            // Scenario 1: Prefill failed with an unexpected error.
-            if (!status.ok()) {
-              // If prefill failed, invoke the callback with the error
-              // status and do not proceed to decode.
-              {
-                absl::MutexLock lock(history_mutex_);
-                pending_thought_in_kv_ = false;
-              }
-              (*callback)(responses.status());
-            } else if (responses.ok() &&
-                       IsTaskEndState(responses->GetTaskState()) &&
-                       responses->GetTaskState() != TaskState::kDone) {
-              {
-                absl::MutexLock lock(history_mutex_);
-                pending_thought_in_kv_ = false;
-              }
-              (*callback)(responses);
-            } else if (IsEmptyInputError(responses.status()) ||
-                       (responses.ok() &&
-                        responses->GetTaskState() == TaskState::kDone)) {
-              if (process_cancelled_.load(std::memory_order_acquire)) {
-                (*callback)(absl::CancelledError("Task cancelled"));
+  absl::StatusOr<std::unique_ptr<Engine::Session::TaskController>>
+      prefill_task_controller;
+  {
+    SubmitGuard submit_guard(this);
+    prefill_task_controller = session_->RunPrefillAsync(
+        session_inputs,
+        [this, callback = internal_callback,
+         decode_config = std::move(prepared_decode_config.decode_config),
+         turn_constraint = std::move(prepared_decode_config.turn_constraint),
+         open_channel_name = std::move(open_channel_name),
+         preserve_turn_checkpoint, resolved_thinking_for_turn,
+         turn_extra_context, task_group_id,
+         deferred_rewind_kv](absl::StatusOr<Responses> responses) mutable {
+          // First, check if prefill returned an error. Ignore errors
+          // caused by empty input, as this is a valid case for triggering
+          // decode only.
+          auto status = IgnoreEmptyInputError(responses.status());
+          // Scenario 1: Prefill failed with an unexpected error.
+          if (!status.ok()) {
+            // If prefill failed, invoke the callback with the error
+            // status and do not proceed to decode.
+            (*callback)(responses.status());
+          } else if (responses.ok() &&
+                     IsTaskEndState(responses->GetTaskState()) &&
+                     responses->GetTaskState() != TaskState::kDone) {
+            (*callback)(responses);
+          } else if (IsEmptyInputError(responses.status()) ||
+                     (responses.ok() &&
+                      responses->GetTaskState() == TaskState::kDone)) {
+            if (process_cancelled_.load(std::memory_order_acquire)) {
+              (*callback)(absl::CancelledError("Task cancelled"));
+              return;
+            }
+            // Scenario 2: Prefill was skipped due to empty input, or
+            // prefill completed successfully. In either case, we can now
+            // start the decode process.
+            if (config_.filter_channel_content_from_kv_cache() &&
+                !preserve_turn_checkpoint &&
+                !open_channel_name.has_value()) {
+              auto save_status =
+                  config_.enable_rewinding()
+                      ? session_->SaveCheckpoint(kChannelContentCheckpoint)
+                      : session_->SaveContext(kChannelContentCheckpoint);
+              if (!save_status.ok()) {
+                (*callback)(save_status);
                 return;
               }
-              // Scenario 2: Prefill was skipped due to empty input, or
-              // prefill completed successfully. In either case, we can now
-              // start the decode process.
-              if (config_.filter_channel_content_from_kv_cache() &&
-                  !preserve_turn_checkpoint &&
-                  !open_channel_name.has_value()) {
-                auto save_status =
-                    config_.enable_rewinding()
-                        ? session_->SaveCheckpoint(kChannelContentCheckpoint)
-                        : session_->SaveContext(kChannelContentCheckpoint);
-                if (!save_status.ok()) {
-                  (*callback)(save_status);
-                  return;
-                }
-                absl::MutexLock lock(history_mutex_);
-                checkpoint_message_index_ = history_.size();
-                checkpoint_after_user_prefill_ = true;
-                checkpoint_thinking_config_ = resolved_thinking_for_turn;
-                checkpoint_extra_context_ = turn_extra_context;
-              }
+              absl::MutexLock lock(history_mutex_);
+              checkpoint_message_index_ = history_.size();
+              checkpoint_after_user_prefill_ = true;
+              checkpoint_thinking_config_ = resolved_thinking_for_turn;
+              checkpoint_extra_context_ =
+                  turn_extra_context.value_or(nlohmann::ordered_json::object());
+            }
 
-              if (process_cancelled_.load(std::memory_order_acquire)) {
-                (*callback)(absl::CancelledError("Task cancelled"));
-                return;
-              }
+            if (process_cancelled_.load(std::memory_order_acquire)) {
+              (*callback)(absl::CancelledError("Task cancelled"));
+              return;
+            }
 
-              // Run decode.
-              auto decode_task_controller = session_->RunDecodeAsync(
-                  [callback](absl::StatusOr<Responses> responses) {
+            // Run decode, keeping `turn_constraint` alive until the decode task
+            // finishes and releases its callback.
+            absl::StatusOr<std::unique_ptr<Engine::Session::TaskController>>
+                decode_task_controller;
+            {
+              SubmitGuard decode_submit_guard(this);
+              decode_task_controller = session_->RunDecodeAsync(
+                  [callback, turn_constraint](
+                      absl::StatusOr<Responses> responses) {
                     (*callback)(responses);
                   },
                   decode_config);
-              // If RunDecodeAsync returns a task controller, it means the
-              // decode task was scheduled successfully. Add the controller
-              // to our map if a task_group_id was provided, so it can be
-              // cancelled later.
-              if (decode_task_controller.ok()) {
-                if (process_cancelled_.load(std::memory_order_acquire)) {
-                  if (*decode_task_controller != nullptr) {
-                    (*decode_task_controller)->Cancel().IgnoreError();
-                  }
-                  session_->CancelProcess();
-                }
-                AddTaskController(task_group_id,
-                                  std::move(*decode_task_controller));
+            }
+            if (g_submitting_conversation != this &&
+                deferred_rewind_kv->exchange(false,
+                                             std::memory_order_acq_rel) &&
+                session_ != nullptr) {
+              if (config_.enable_rewinding()) {
+                session_->RewindToCheckpoint(kChannelContentCheckpoint)
+                    .IgnoreError();
               } else {
-                // If !decode_task_controller.ok(), it means
-                // RunDecodeAsync failed to schedule. Invoke the callback
-                // with the error status.
-                (*callback)(decode_task_controller.status());
+                session_->RestoreContext(kChannelContentCheckpoint)
+                    .IgnoreError();
               }
             }
-          }));
+            // If RunDecodeAsync returns a task controller, it means the
+            // decode task was scheduled successfully. Add the controller
+            // to our map if a task_group_id was provided, so it can be
+            // cancelled later.
+            if (decode_task_controller.ok()) {
+              if (process_cancelled_.load(std::memory_order_acquire)) {
+                if (*decode_task_controller != nullptr) {
+                  (*decode_task_controller)->Cancel().IgnoreError();
+                }
+                session_->CancelProcess();
+              }
+              AddTaskController(task_group_id,
+                                std::move(*decode_task_controller));
+            } else {
+              // If !decode_task_controller.ok(), it means
+              // RunDecodeAsync failed to schedule. Invoke the callback
+              // with the error status.
+              (*callback)(decode_task_controller.status());
+            }
+          }
+        });
+  }
+  if (g_submitting_conversation != this &&
+      deferred_rewind_kv->exchange(false, std::memory_order_acq_rel) &&
+      session_ != nullptr) {
+    if (config_.enable_rewinding()) {
+      session_->RewindToCheckpoint(kChannelContentCheckpoint).IgnoreError();
+    } else {
+      session_->RestoreContext(kChannelContentCheckpoint).IgnoreError();
+    }
+  }
+  ABSL_RETURN_IF_ERROR(prefill_task_controller.status());
   async_scheduled = true;
   if (process_cancelled_.load(std::memory_order_acquire)) {
-    if (prefill_task_controller != nullptr) {
-      prefill_task_controller->Cancel().IgnoreError();
+    if (*prefill_task_controller != nullptr) {
+      (*prefill_task_controller)->Cancel().IgnoreError();
     }
     session_->CancelProcess();
   }
-  AddTaskController(task_group_id, std::move(prefill_task_controller));
+  AddTaskController(task_group_id, std::move(*prefill_task_controller));
 
   return absl::OkStatus();
 };
@@ -1130,7 +1433,9 @@ absl::StatusOr<BenchmarkInfo*> Conversation::GetMutableBenchmarkInfo() {
 
 void Conversation::CancelProcess() {
   process_cancelled_.store(true, std::memory_order_release);
-  session_->CancelProcess();
+  if (session_) {
+    session_->CancelProcess();
+  }
 }
 
 void Conversation::CancelGroup(absl::string_view task_group_id) {
@@ -1214,7 +1519,8 @@ absl::StatusOr<std::string> Conversation::RenderPrefaceIntoString(
 absl::StatusOr<std::string> Conversation::GetPrefillTextForMessages(
     absl::Span<const Message> old_messages,
     absl::Span<const Message> new_messages, const OptionalArgs& optional_args,
-    bool include_preface, bool add_generation_prompt_to_old) {
+    bool include_preface, bool add_generation_prompt_to_old,
+    bool add_generation_prompt_to_new) {
   // Create the template context for the `old` string.
   PromptTemplateInput old_context;
   old_context.add_generation_prompt = add_generation_prompt_to_old;
@@ -1266,7 +1572,7 @@ absl::StatusOr<std::string> Conversation::GetPrefillTextForMessages(
 
   // Copy the `old` template context to the `new` template context.
   PromptTemplateInput new_context = old_context;
-  new_context.add_generation_prompt = false;
+  new_context.add_generation_prompt = add_generation_prompt_to_new;
 
   // Add new messages to the `new` template context.
   nlohmann::ordered_json prefill_messages = nlohmann::ordered_json::array();
@@ -1302,11 +1608,13 @@ absl::StatusOr<std::vector<InputData>>
 Conversation::GetInputDataVectorForMessages(
     absl::Span<const Message> old_messages,
     absl::Span<const Message> new_messages, const OptionalArgs& optional_args,
-    bool include_preface, bool add_generation_prompt_to_old) {
+    bool include_preface, bool add_generation_prompt_to_old,
+    bool add_generation_prompt_to_new) {
   ABSL_ASSIGN_OR_RETURN(
       std::string prefill_text,
       GetPrefillTextForMessages(old_messages, new_messages, optional_args,
-                                include_preface, add_generation_prompt_to_old));
+                                include_preface, add_generation_prompt_to_old,
+                                add_generation_prompt_to_new));
 
   nlohmann::ordered_json prefill_messages = nlohmann::ordered_json::array();
   for (const auto& message : new_messages) {
@@ -1325,7 +1633,27 @@ Conversation::RewindAndGetInputDataVector(const OptionalArgs& optional_args) {
     return std::vector<InputData>();
   }
 
-  bool add_generation_prompt_to_old = checkpoint_after_user_prefill_;
+  const bool add_generation_prompt_to_old = checkpoint_after_user_prefill_;
+
+  OptionalArgs rewind_args;
+  rewind_args.args = optional_args.args;
+  rewind_args.thinking_config = checkpoint_thinking_config_.has_value()
+                                    ? checkpoint_thinking_config_
+                                    : optional_args.thinking_config;
+  rewind_args.extra_context = checkpoint_extra_context_.has_value()
+                                  ? checkpoint_extra_context_
+                                  : optional_args.extra_context;
+
+  // Build the refill InputData vector BEFORE mutating KV via RewindToCheckpoint
+  // so template/media errors never leave KV rewound while history is intact.
+  ABSL_ASSIGN_OR_RETURN(
+      std::vector<InputData> input_data_vector,
+      GetInputDataVectorForMessages(
+          absl::MakeSpan(history_).subspan(0, *checkpoint_message_index_),
+          absl::MakeSpan(history_).subspan(*checkpoint_message_index_),
+          rewind_args,
+          /*include_preface=*/!config_.prefill_preface_on_init(),
+          add_generation_prompt_to_old));
 
   // If rewinding enabled, rewind the session to the saved checkpoint.
   if (config_.enable_rewinding()) {
@@ -1336,28 +1664,10 @@ Conversation::RewindAndGetInputDataVector(const OptionalArgs& optional_args) {
     ABSL_RETURN_IF_ERROR(session_->RestoreContext(kChannelContentCheckpoint));
   }
 
-  OptionalArgs rewind_args;
-  rewind_args.args = optional_args.args;
-  rewind_args.thinking_config = checkpoint_thinking_config_.has_value()
-                                    ? checkpoint_thinking_config_
-                                    : optional_args.thinking_config;
-  rewind_args.extra_context = optional_args.extra_context.has_value()
-                                  ? optional_args.extra_context
-                                  : checkpoint_extra_context_;
-
-  // Get the InputData vector for the messages from the checkpoint onward.
-  ABSL_ASSIGN_OR_RETURN(
-      std::vector<InputData> input_data_vector,
-      GetInputDataVectorForMessages(
-          absl::MakeSpan(history_).subspan(0, *checkpoint_message_index_),
-          absl::MakeSpan(history_).subspan(*checkpoint_message_index_),
-          rewind_args,
-          /*include_preface=*/!config_.prefill_preface_on_init(),
-          add_generation_prompt_to_old));
-
-  // Clear the checkpoint message index.
+  // Clear the checkpoint metadata only after rewind succeeded.
   checkpoint_message_index_ = std::nullopt;
   checkpoint_after_user_prefill_ = false;
+  pending_thought_in_kv_ = false;
   checkpoint_thinking_config_ = std::nullopt;
   checkpoint_extra_context_ = std::nullopt;
 

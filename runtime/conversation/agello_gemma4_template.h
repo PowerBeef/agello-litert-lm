@@ -27,13 +27,22 @@ namespace litert::lm {
 // response, made the model read it twice, after a `<turn|>` that closed its own turn: then it
 // often ended the answer at once (Agello's probe 36, an empty reply after the date tool).
 //
-// Returns `jinja` with six edits:
-// 1. a model message with tool calls ends with `<|tool_response>`, not `<turn|>\n`;
-// 2. the tool response that follows it leaves out its first `<|tool_response>`;
-// 3. the answer after a tool response gets no `<|turn>model\n` header, as it is generated;
-// 4. no generation prompt follows a tool call;
-// 5. `format_argument` renders null/None values as `null` instead of Python's `None`;
-// 6. `messages[0]['role']` checks guard against an empty `messages` list.
+// Returns `jinja` with the Gemma 4 tool-call and schema fixes:
+// 1. model messages with tool calls end with `<|tool_response>` when last or followed by a tool
+//    message, and close with `<turn|>\n` when followed by a non-tool message;
+// 2. assistant `content` preamble renders before `tool_calls` so `<tool_call|><|tool_response>`
+//    stays contiguous;
+// 3. the tool response that follows a tool call leaves out its first `<|tool_response>`, and
+//    `role == 'tool'` preserves string/text/mapping content and top-level `message['name']`;
+// 4. the answer after a tool response gets no `<|turn>model\n` header, as it is generated;
+// 5. no generation prompt follows a tool call;
+// 6. `format_argument` renders null/None values as `null` instead of Python's `None`;
+// 7. `messages[0]['role']` checks guard against an empty `messages` list;
+// 8. `format_parameters` restricts `standard_keys` filtering to fallback non-`properties` schemas,
+//    fixes comma placement on `OBJECT`/`ARRAY` schemas lacking `description`/`nullable`, and
+//    supports JSON Schema union types (`type: ["string", "null"]`);
+// 9. `format_function_declaration` closes `parameters` and `response` braces unconditionally and
+//    handles missing `parameters['type']`, non-`OBJECT`/union `response['type']`, and flat tools.
 // Returns `jinja` unchanged when any of the pieces it edits isn't there (another template).
 std::string FixGemma4ToolTemplate(absl::string_view jinja);
 

@@ -26,6 +26,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/status_macros.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "runtime/components/constrained_decoding/constraint.h"
@@ -45,6 +46,133 @@
 #include "sentencepiece_model.pb.h"  // from @sentencepiece
 
 namespace litert::lm {
+namespace {
+
+constexpr absl::string_view kZwj = "\xE2\x80\x8D";
+
+// Inserts U+200D inside Gemma 4 control-token boundaries (`<|`, `|>`) and
+// legacy multimodal tags so untrusted user/tool content cannot forge turn,
+// tool, or media boundaries. Deterministic and idempotent.
+std::string NeutralizeGemma4ControlTokens(absl::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    const char c = text[i];
+    if (c == '<') {
+      const absl::string_view tail = text.substr(i);
+      if ((i + 1 < text.size() && text[i + 1] == '|') ||
+          absl::StartsWith(tail, "<start_of_image>") ||
+          absl::StartsWith(tail, "<end_of_image>") ||
+          absl::StartsWith(tail, "<start_of_audio>") ||
+          absl::StartsWith(tail, "<end_of_audio>")) {
+        out.push_back('<');
+        out.append(kZwj.data(), kZwj.size());
+        continue;
+      }
+    } else if (c == '|' && i + 1 < text.size() && text[i + 1] == '>') {
+      out.push_back('|');
+      out.append(kZwj.data(), kZwj.size());
+      continue;
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
+// Neutralizes multimodal placeholder and delimiter tokens while keeping
+// `<|channel>thought\n...<channel|>` intact for assistant/system turns.
+// Deterministic and idempotent.
+std::string NeutralizeGemma4MediaTokens(absl::string_view text) {
+  std::string out;
+  out.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    const absl::string_view tail = text.substr(i);
+    if (absl::StartsWith(tail, "<|image|>")) {
+      out.push_back('<');
+      out.append(kZwj.data(), kZwj.size());
+      out.append("|image|");
+      out.append(kZwj.data(), kZwj.size());
+      out.push_back('>');
+      i += absl::string_view("<|image|>").size() - 1;
+      continue;
+    }
+    if (absl::StartsWith(tail, "<|audio|>")) {
+      out.push_back('<');
+      out.append(kZwj.data(), kZwj.size());
+      out.append("|audio|");
+      out.append(kZwj.data(), kZwj.size());
+      out.push_back('>');
+      i += absl::string_view("<|audio|>").size() - 1;
+      continue;
+    }
+    if (absl::StartsWith(tail, "<|image>") ||
+        absl::StartsWith(tail, "<|audio>") ||
+        absl::StartsWith(tail, "<start_of_image>") ||
+        absl::StartsWith(tail, "<end_of_image>") ||
+        absl::StartsWith(tail, "<start_of_audio>") ||
+        absl::StartsWith(tail, "<end_of_audio>")) {
+      out.push_back('<');
+      out.append(kZwj.data(), kZwj.size());
+      continue;
+    }
+    if (absl::StartsWith(tail, "<image|>")) {
+      out.append("<image|");
+      out.append(kZwj.data(), kZwj.size());
+      out.push_back('>');
+      i += absl::string_view("<image|>").size() - 1;
+      continue;
+    }
+    if (absl::StartsWith(tail, "<audio|>")) {
+      out.append("<audio|");
+      out.append(kZwj.data(), kZwj.size());
+      out.push_back('>');
+      i += absl::string_view("<audio|>").size() - 1;
+      continue;
+    }
+    out.push_back(text[i]);
+  }
+  return out;
+}
+
+void NeutralizeJsonStrings(nlohmann::ordered_json& value,
+                           bool all_control_tokens) {
+  if (value.is_string()) {
+    const std::string& raw = value.get_ref<const std::string&>();
+    std::string sanitized = all_control_tokens
+                                ? NeutralizeGemma4ControlTokens(raw)
+                                : NeutralizeGemma4MediaTokens(raw);
+    if (sanitized != raw) {
+      value = std::move(sanitized);
+    }
+  } else if (value.is_array()) {
+    for (auto& element : value) {
+      NeutralizeJsonStrings(element, all_control_tokens);
+    }
+  } else if (value.is_object()) {
+    bool key_changed = false;
+    for (auto& [key, entry] : value.items()) {
+      NeutralizeJsonStrings(entry, all_control_tokens);
+      std::string sanitized_key = all_control_tokens
+                                      ? NeutralizeGemma4ControlTokens(key)
+                                      : NeutralizeGemma4MediaTokens(key);
+      if (sanitized_key != key) {
+        key_changed = true;
+      }
+    }
+    if (key_changed) {
+      nlohmann::ordered_json rebuilt = nlohmann::ordered_json::object();
+      for (auto& [key, entry] : value.items()) {
+        std::string sanitized_key = all_control_tokens
+                                        ? NeutralizeGemma4ControlTokens(key)
+                                        : NeutralizeGemma4MediaTokens(key);
+        rebuilt[sanitized_key] = std::move(entry);
+      }
+      value = std::move(rebuilt);
+    }
+  }
+}
+
+}  // namespace
 
 absl::StatusOr<std::unique_ptr<Gemma4DataProcessor>>
 Gemma4DataProcessor::Create(Gemma4DataProcessorConfig config,
@@ -107,16 +235,97 @@ Gemma4DataProcessor::Create(Gemma4DataProcessorConfig config,
 #endif
 }
 
+absl::StatusOr<nlohmann::ordered_json>
+Gemma4DataProcessor::MessageToTemplateInput(
+    const nlohmann::ordered_json& message) const {
+  nlohmann::ordered_json result = NormalizeMessageContent(message);
+  if (!result.is_object()) {
+    return result;
+  }
+
+  std::string role;
+  if (result.contains("role") && result["role"].is_string()) {
+    role = result["role"].get<std::string>();
+  }
+  const bool is_trusted_role = (role == "assistant" || role == "model" ||
+                                role == "system" || role == "developer");
+  const bool all_control_tokens = !is_trusted_role;
+
+  if (role == "tool" && result.contains("name") && result["name"].is_string()) {
+    NeutralizeJsonStrings(result["name"], /*all_control_tokens=*/true);
+  }
+
+  if (result.contains("content")) {
+    auto& content = result["content"];
+    if (content.is_string()) {
+      NeutralizeJsonStrings(content, all_control_tokens);
+    } else if (content.is_array()) {
+      for (auto& item : content) {
+        if (item.is_string()) {
+          NeutralizeJsonStrings(item, all_control_tokens);
+          continue;
+        }
+        if (!item.is_object()) {
+          continue;
+        }
+        std::string item_type;
+        if (item.contains("type") && item["type"].is_string()) {
+          item_type = item["type"].get<std::string>();
+        }
+        if (item_type == "image" || item_type == "audio") {
+          continue;
+        }
+        if (item_type == "text") {
+          if (item.contains("text") && item["text"].is_string()) {
+            NeutralizeJsonStrings(item["text"], all_control_tokens);
+          }
+        } else if (role == "tool" || item_type == "tool_response") {
+          if (item.contains("name") && item["name"].is_string()) {
+            NeutralizeJsonStrings(item["name"], /*all_control_tokens=*/true);
+          }
+          if (item.contains("response")) {
+            NeutralizeJsonStrings(item["response"],
+                                  /*all_control_tokens=*/true);
+          }
+          if (item.contains("tool_response")) {
+            NeutralizeJsonStrings(item["tool_response"],
+                                  /*all_control_tokens=*/true);
+          }
+          if (item.contains("text") && item["text"].is_string()) {
+            NeutralizeJsonStrings(item["text"], /*all_control_tokens=*/true);
+          }
+        }
+      }
+    }
+  }
+
+  if (result.contains("tool_calls") && result["tool_calls"].is_array()) {
+    for (auto& tool_call : result["tool_calls"]) {
+      if (tool_call.is_object() && tool_call.contains("function") &&
+          tool_call["function"].is_object()) {
+        auto& fn = tool_call["function"];
+        if (fn.contains("name") && fn["name"].is_string()) {
+          NeutralizeJsonStrings(fn["name"], /*all_control_tokens=*/false);
+        }
+        if (fn.contains("arguments")) {
+          NeutralizeJsonStrings(fn["arguments"], /*all_control_tokens=*/false);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 absl::StatusOr<std::vector<InputData>>
 Gemma4DataProcessor::ToInputDataVectorImpl(
     const std::string& rendered_template_prompt,
     const nlohmann::ordered_json& messages,
     const Gemma4DataProcessorArguments& args) const {
   MultimodalPromptProcessingConfig multi_config{
-      .delimiter_regex =
-          R"regex((<start_of_image>|<\|image\|>|<start_of_audio>|<\|audio\|>))regex",
-      .image_token_regex = R"regex((<start_of_image>|<\|image\|>))regex",
-      .audio_token_regex = R"regex((<start_of_audio>|<\|audio\|>))regex",
+      .delimiter_regex = R"regex((<\|image\|>|<\|audio\|>))regex",
+      .image_token_regex = R"regex((<\|image\|>))regex",
+      .audio_token_regex = R"regex((<\|audio\|>))regex",
       .boi_token = config_.boi_token,
       .eoi_token = config_.eoi_token,
       .image_prefix = "",
@@ -194,7 +403,9 @@ Gemma4DataProcessor::CreateConstraint(
       gemma_options.constraint_mode = kLiteRtLmGemmaConstraintModeTextAndOr;
       break;
   }
-  std::string functions_str = functions.dump();
+  std::string functions_str = functions.dump(
+      /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+      nlohmann::json::error_handler_t::replace);
   LiteRtLmConstraint* constraint =
       LiteRtLmGemmaModelConstraintProvider_CreateConstraintFromTools(
           constraint_provider_c_.get(), functions_str.c_str(), &gemma_options);

@@ -598,6 +598,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::PrepareFirstPrefillAfterDecode(
     int token_index_to_reduce) {
   mtp_primed_ = false;
   ClearMtpDeferral();
+  ClearMtpConstraintHandoff();
   if (!llm_context_->runtime_state().ran_decode && !force_prepare_needed_) {
     return absl::OkStatus();
   }
@@ -1480,6 +1481,12 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
                                                   *active_state, constraint,
                                                   llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
                                                   decode_params.GetCancelled()));
+      if (constrained_decoder != nullptr) {
+        mtp_constrained_decoder_ = constrained_decoder;
+        mtp_constraint_consumed_pending_ = true;
+      } else {
+        ClearMtpConstraintHandoff();
+      }
       ABSL_RETURN_IF_ERROR(
           ConsumePendingOrAddProcessedToken(step_and_token.token));
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
@@ -1503,12 +1510,21 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       // the constraint between the two calls.
       ABSL_ASSIGN_OR_RETURN(auto step_and_token,
                             GetTokenToDecode(ExecutorInputs()));
+      const bool reset_constraint =
+          constrained_decoder == nullptr ||
+          mtp_constrained_decoder_ != constrained_decoder;
       LITERT_ASSIGN_OR_RETURN(
           output_tokens_vector,
           mtp_drafter_->Draft(deferred_step, deferred_token,
                               std::move(*deferred_activations), *active_state,
                               constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
-                              decode_params.GetCancelled()));
+                              decode_params.GetCancelled(), reset_constraint));
+      if (constrained_decoder != nullptr) {
+        mtp_constrained_decoder_ = constrained_decoder;
+        mtp_constraint_consumed_pending_ = true;
+      } else {
+        ClearMtpConstraintHandoff();
+      }
       ABSL_RETURN_IF_ERROR(
           ConsumePendingOrAddProcessedToken(step_and_token.token));
       RET_CHECK_EQ(output_tokens_vector.size(), 1);
@@ -1562,12 +1578,21 @@ LlmLiteRtCompiledModelExecutorBase::Decode(
       // Note: Position remains the same as the prefill step. However,
       // current_step is incremented in DecodeLogits and as such needs to be
       // decremented.
+      const bool reset_constraint =
+          constrained_decoder == nullptr ||
+          mtp_constrained_decoder_ != constrained_decoder;
       LITERT_ASSIGN_OR_RETURN(
           output_tokens_vector,
           mtp_drafter_->Draft(llm_context_->runtime_state().current_step - 1,
                               token_id, std::move(activations), *active_state,
                               constraint, llm_context_->processed_context().processed_tokens().ProcessedTokenIds(),
-                              decode_params.GetCancelled()));
+                              decode_params.GetCancelled(), reset_constraint));
+      if (constrained_decoder != nullptr) {
+        mtp_constrained_decoder_ = constrained_decoder;
+        mtp_constraint_consumed_pending_ = true;
+      } else {
+        ClearMtpConstraintHandoff();
+      }
       llm_context_->runtime_state().current_step +=
           output_tokens_vector[0].size();
       output_tokens_vector[0].insert(output_tokens_vector[0].begin(), token_id);
@@ -1652,6 +1677,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::Decode(
   const absl::Time start = absl::Now();
   mtp_primed_ = false;
   ClearMtpDeferral();
+  ClearMtpConstraintHandoff();
   ABSL_RETURN_IF_ERROR(PrepareFirstDecode());
   ABSL_ASSIGN_OR_RETURN(auto step_and_token, GetTokenToDecode(inputs));
   ABSL_RETURN_IF_ERROR(DecodeInternal(step_and_token.token, output_logits));
@@ -1698,15 +1724,37 @@ LlmLiteRtCompiledModelExecutorBase::DecodeLogitsImpl(
     for (const auto& token : step_and_token.token) {
       current_token_ids.push_back(token->id());
     }
-    // Update constraint state only with decode ids.
-    if (last_run_is_decode) {
-      ABSL_RETURN_IF_ERROR(
-          constrained_decoder->UpdateState(absl::MakeSpan(current_token_ids)));
+    const bool use_mtp_constraint =
+        last_run_is_decode && current_token_ids.size() == 1 &&
+        constrained_decoder == mtp_constrained_decoder_ &&
+        mtp_drafter_ != nullptr &&
+        mtp_drafter_->HasActiveConstraint(constrained_decoder->GetConstraint());
+    if (use_mtp_constraint) {
+      // Previous MTP rounds kept the canonical constraint state inside
+      // `mtp_drafter_` and already committed the round's bonus token (which is
+      // now the pending token). Advance only on subsequent plain-decode steps.
+      if (!mtp_constraint_consumed_pending_) {
+        ABSL_RETURN_IF_ERROR(
+            mtp_drafter_->AdvanceConstraintState(current_token_ids[0]));
+      }
+      mtp_constraint_consumed_pending_ = false;
+      AGELLO_SPAN(kConstraint);
+      AGELLO_COUNT(kLogitMasks);
+      ABSL_RETURN_IF_ERROR(mtp_drafter_->ApplyConstraintMask(output_logits));
+    } else {
+      ClearMtpConstraintHandoff();
+      // Update constraint state only with decode ids.
+      if (last_run_is_decode) {
+        ABSL_RETURN_IF_ERROR(
+            constrained_decoder->UpdateState(absl::MakeSpan(current_token_ids)));
+      }
+      // Process logits based on the current constraint state.
+      AGELLO_SPAN(kConstraint);
+      AGELLO_COUNT(kLogitMasks);
+      ABSL_RETURN_IF_ERROR(constrained_decoder->ProcessLogits(output_logits));
     }
-    // Process logits based on the current constraint state.
-    AGELLO_SPAN(kConstraint);
-    AGELLO_COUNT(kLogitMasks);
-    ABSL_RETURN_IF_ERROR(constrained_decoder->ProcessLogits(output_logits));
+  } else {
+    ClearMtpConstraintHandoff();
   }
 
   ++llm_context_->runtime_state().current_step;
@@ -1812,6 +1860,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreState(
     std::unique_ptr<StateInterface> state) {
   mtp_primed_ = false;
   ClearMtpDeferral();
+  ClearMtpConstraintHandoff();
   if (state == nullptr) {
     return absl::OkStatus();
   }
@@ -1909,6 +1958,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RestoreContext(
   llm_context_ = std::move(context_data);
   mtp_primed_ = false;
   ClearMtpDeferral();
+  ClearMtpConstraintHandoff();
   rewind_point_.reset();
 
   // We can keep our kv cache buffers if this is the first step. This lets us
@@ -2135,6 +2185,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
   // Moving the step (e.g. rewinding) invalidates the MTP drafter state.
   mtp_primed_ = false;
   ClearMtpDeferral();
+  ClearMtpConstraintHandoff();
 
   int max_step = old_step;
   ABSL_ASSIGN_OR_RETURN(auto processed_tokens, GetProcessedTokens());
@@ -2311,6 +2362,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::Reset() {
   llm_context_->runtime_state().current_step = 0;
   mtp_primed_ = false;
   ClearMtpDeferral();
+  ClearMtpConstraintHandoff();
   rewind_point_.reset();
   // Agello (P3.3): reclaim sparse KV steps past step 0 immediately on reset.
   if (auto* state = dynamic_cast<LitertState*>(state_.get())) {

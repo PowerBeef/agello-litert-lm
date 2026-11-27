@@ -565,4 +565,17 @@ template absl::Status SingleTextureTests<DataType::kUint8>(DataType data_type);
   XCTAssertTrue(status.ok(), @"%s", std::string(status.message()).c_str());
 }
 
+- (void)testCreateTensorSharedBufferRejectsNil {
+  TensorDescriptor desc(DataType::kFloat16, TensorStorageType::kBuffer, Layout::kHWC);
+  desc.SetBHWCShape(BHWC(1, 1, 1, 4));
+  ml_drift::metal::MetalSpatialTensor tensor;
+  absl::Status status = ml_drift::metal::CreateTensorSharedBuffer(nil, desc, &tensor);
+  XCTAssertEqual(status.code(), absl::StatusCode::kInvalidArgument);
+
+  TensorDescriptor tex_desc(DataType::kFloat16, TensorStorageType::kTexture2D, Layout::kHWC);
+  tex_desc.SetBHWCShape(BHWC(1, 1, 1, 4));
+  status = ml_drift::metal::CreateTensorSharedImage2DBuffer(nil, tex_desc, 64, &tensor);
+  XCTAssertEqual(status.code(), absl::StatusCode::kInvalidArgument);
+}
+
 @end

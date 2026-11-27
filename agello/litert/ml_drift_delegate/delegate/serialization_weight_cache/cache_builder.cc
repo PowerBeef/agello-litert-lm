@@ -16,15 +16,29 @@
 
 #include <fcntl.h>  // IWYU pragma: keep b/332641196
 
+#if defined(_WIN32)
+#include <io.h>
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
+#if defined(__APPLE__)
+#include <sys/clonefile.h>
+#endif
+
+#include <atomic>
 #include <cerrno>  // IWYU pragma: keep
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <new>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -60,6 +74,117 @@ bool IsInMemoryCachePath(const char* path) {
                   sizeof(ml_drift::kInMemoryCachePath) - 1);
 }
 
+std::string MakeSiblingTempPath(absl::string_view target_path) {
+  static std::atomic<uint64_t> counter{0};
+  const uint64_t seq = counter.fetch_add(1, std::memory_order_relaxed);
+  const size_t tid = std::hash<std::thread::id>{}(std::this_thread::get_id());
+#if defined(_WIN32)
+  const unsigned long pid = static_cast<unsigned long>(_getpid());
+#else
+  const unsigned long pid = static_cast<unsigned long>(getpid());
+#endif
+  return absl::StrCat(target_path, ".tmp.", pid, ".", tid, ".", seq);
+}
+
+bool FsyncFile(int fd) {
+#if defined(_WIN32)
+  return _commit(fd) == 0;
+#else
+  if (fsync(fd) == 0) return true;
+  // Special file descriptors (e.g. memfd) do not support fsync.
+  return errno == EINVAL || errno == ENOTSUP;
+#endif
+}
+
+void FsyncParentDir(absl::string_view file_path) {
+#if !defined(_WIN32)
+  std::string dir_path;
+  const size_t slash = file_path.find_last_of('/');
+  if (slash == absl::string_view::npos) {
+    dir_path = ".";
+  } else if (slash == 0) {
+    dir_path = "/";
+  } else {
+    dir_path = std::string(file_path.substr(0, slash));
+  }
+  const int dir_fd = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
+  if (dir_fd >= 0) {
+    (void)fsync(dir_fd);
+    close(dir_fd);
+  }
+#endif
+}
+
+// Clones (via APFS CoW on Apple) or copies `src_path` into a newly created
+// sibling file `tmp_path` and opens it read-write in `out_fd`.
+absl::Status CopyFileToNewTemp(const std::string& src_path,
+                               const std::string& tmp_path,
+                               FileDescriptor& out_fd) {
+#if defined(__APPLE__)
+  if (clonefile(src_path.c_str(), tmp_path.c_str(), 0) == 0) {
+    out_fd = FileDescriptor::Open(tmp_path.c_str(), O_RDWR, 0644);
+    if (out_fd.IsValid()) {
+      return absl::OkStatus();
+    }
+    const int err = errno;
+    std::remove(tmp_path.c_str());
+    return absl::InternalError(
+        absl::StrCat("Could not open file ('", tmp_path, "'): ", strerror(err)));
+  }
+  if (errno == ENOENT) {
+    return absl::NotFoundError("Source cache file does not exist.");
+  }
+#endif
+
+  FileDescriptor src_fd = FileDescriptor::Open(src_path.c_str(), O_RDONLY);
+  if (!src_fd.IsValid()) {
+    if (errno == ENOENT) {
+      return absl::NotFoundError("Source cache file does not exist.");
+    }
+    return absl::InternalError(absl::StrCat(
+        "Could not open file ('", src_path, "'): ", strerror(errno)));
+  }
+
+  FileDescriptor dst_fd = FileDescriptor::Open(
+      tmp_path.c_str(), O_CREAT | O_EXCL | O_RDWR,  // NOLINT: b/332641196
+      0644);
+  if (!dst_fd.IsValid()) {
+    return absl::InternalError(absl::StrCat(
+        "Could not open file ('", tmp_path, "'): ", strerror(errno)));
+  }
+
+  std::vector<uint8_t> buf(256 * 1024);
+  while (true) {
+#if defined(_WIN32)
+    const int bytes_read =
+        _read(src_fd.Value(), buf.data(), static_cast<unsigned int>(buf.size()));
+#else
+    const ssize_t bytes_read = read(src_fd.Value(), buf.data(), buf.size());
+#endif
+    if (bytes_read == 0) {
+      break;
+    }
+    if (bytes_read < 0) {
+      if (errno == EINTR) continue;
+      const int err = errno;
+      dst_fd.Close();
+      std::remove(tmp_path.c_str());
+      return absl::InternalError(absl::StrCat(
+          "Could not read cache file ('", src_path, "'): ", strerror(err)));
+    }
+    if (!dst_fd.Write(buf.data(), static_cast<size_t>(bytes_read))) {
+      const int err = errno;
+      dst_fd.Close();
+      std::remove(tmp_path.c_str());
+      return absl::InternalError(absl::StrCat(
+          "Could not write temporary cache file ('", tmp_path, "'): ",
+          strerror(err)));
+    }
+  }
+  out_fd = std::move(dst_fd);
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 // Checks if the given path is a special value to use an in-memory cache.
@@ -67,25 +192,60 @@ bool IsInMemoryCachePath(absl::string_view path) {
   return IsInMemoryCachePath(path.data());
 }
 
+CacheBuilder::~CacheBuilder() {
+  fd_.Close();
+  if (!temp_path_.empty()) {
+    std::remove(temp_path_.c_str());
+    temp_path_.clear();
+  }
+}
+
 CacheBuilder::CacheBuilder(CacheBuilder&& other)
     : data_(std::move(other.data_)),
-      header_base_offset_(std::move(other.header_base_offset_)),
-      capacity_(std::move(other.capacity_)),
-      build_segment_size_(std::move(other.build_segment_size_)),
-      build_segment_start_(std::move(other.build_segment_start_)),
-      first_write_done_(std::move(other.first_write_done_)),
+      builder_(std::move(other.builder_)),
+      buffer_fb_list_(std::move(other.buffer_fb_list_)),
+      other_subgraphs_offsets_(std::move(other.other_subgraphs_offsets_)),
+      buffer_fb_list_changed_(other.buffer_fb_list_changed_),
+      header_base_offset_(other.header_base_offset_),
+      capacity_(other.capacity_),
+      build_segment_size_(other.build_segment_size_),
+      build_segment_start_(other.build_segment_start_),
+      first_write_done_(other.first_write_done_),
+      is_build_step_(other.is_build_step_.exchange(false)),
+      unique_model_identifier_(other.unique_model_identifier_),
       fd_(std::move(other.fd_)),
-      file_path_(std::move(other.file_path_)) {}
+      file_path_(std::move(other.file_path_)),
+      use_atomic_rename_(other.use_atomic_rename_),
+      temp_path_(std::move(other.temp_path_)) {
+  other.use_atomic_rename_ = false;
+  other.temp_path_.clear();
+}
 
 CacheBuilder& CacheBuilder::operator=(CacheBuilder&& other) {
+  if (this == &other) return *this;
+  fd_.Close();
+  if (!temp_path_.empty()) {
+    std::remove(temp_path_.c_str());
+    temp_path_.clear();
+  }
   data_ = std::move(other.data_);
-  header_base_offset_ = std::move(other.header_base_offset_);
-  capacity_ = std::move(other.capacity_);
-  build_segment_size_ = std::move(other.build_segment_size_);
-  build_segment_start_ = std::move(other.build_segment_start_);
-  first_write_done_ = std::move(other.first_write_done_);
+  builder_ = std::move(other.builder_);
+  buffer_fb_list_ = std::move(other.buffer_fb_list_);
+  other_subgraphs_offsets_ = std::move(other.other_subgraphs_offsets_);
+  buffer_fb_list_changed_ = other.buffer_fb_list_changed_;
+  header_base_offset_ = other.header_base_offset_;
+  capacity_ = other.capacity_;
+  build_segment_size_ = other.build_segment_size_;
+  build_segment_start_ = other.build_segment_start_;
+  first_write_done_ = other.first_write_done_;
+  is_build_step_.store(other.is_build_step_.exchange(false));
+  unique_model_identifier_ = other.unique_model_identifier_;
   fd_ = std::move(other.fd_);
   file_path_ = std::move(other.file_path_);
+  use_atomic_rename_ = other.use_atomic_rename_;
+  temp_path_ = std::move(other.temp_path_);
+  other.use_atomic_rename_ = false;
+  other.temp_path_.clear();
   return *this;
 }
 
@@ -96,23 +256,58 @@ absl::Status CacheBuilder::Start(absl::string_view path,
     return absl::InvalidArgumentError(
         "Cannot start a new build step when the cache is already started.");
   }
-  file_path_ = path;
+  if (path.empty()) {
+    return absl::InternalError("Could not open file (''): empty path");
+  }
+  file_path_ = std::string(path);
 
   if (IsInMemoryCachePath(file_path_)) {
+    use_atomic_rename_ = false;
+    temp_path_.clear();
     fd_ = CreateInMemoryFileDescriptor("MLDrift in-memory weight cache");
-  } else {
-    int flags = O_CREAT | O_RDWR;  // NOLINT: b/332641196
-    if (!append) {
-      flags |= O_TRUNC;  // NOLINT: b/332641196
+    if (!fd_.IsValid()) {
+      return absl::InternalError(absl::StrCat(
+          "Could not open file ('", file_path_, "'): ", strerror(errno)));
     }
-    fd_ = FileDescriptor::Open(file_path_.c_str(), flags, 0644);
-  }
-  if (!fd_.IsValid()) {
-    return absl::InternalError(absl::StrCat(
-        "Could not open file ('", file_path_, "'): ", strerror(errno)));
+    return StartInternal(unique_model_identifier, append);
   }
 
-  return StartInternal(unique_model_identifier, append);
+  use_atomic_rename_ = true;
+  std::string tmp_path = MakeSiblingTempPath(file_path_);
+  bool existing_valid = false;
+  if (append) {
+    absl::Status copy_status = CopyFileToNewTemp(file_path_, tmp_path, fd_);
+    if (copy_status.ok()) {
+      const FileDescriptor::Offset existing_size = fd_.SetPosFromEnd(0);
+      existing_valid =
+          existing_size >= static_cast<FileDescriptor::Offset>(sizeof(MLDriftCacheHeader));
+      if (!existing_valid) {
+        fd_.SetPos(0);
+      }
+    } else if (copy_status.code() != absl::StatusCode::kNotFound) {
+      return copy_status;
+    }
+  }
+  if (!fd_.IsValid()) {
+    fd_ = FileDescriptor::Open(
+        tmp_path.c_str(), O_CREAT | O_EXCL | O_RDWR,  // NOLINT: b/332641196
+        0644);
+    if (!fd_.IsValid()) {
+      return absl::InternalError(absl::StrCat(
+          "Could not open file ('", file_path_, "'): ", strerror(errno)));
+    }
+  }
+  temp_path_ = std::move(tmp_path);
+
+  absl::Status status = StartInternal(unique_model_identifier,
+                                      /*append=*/existing_valid);
+  if (!status.ok()) {
+    fd_.Close();
+    std::remove(temp_path_.c_str());
+    temp_path_.clear();
+    return status;
+  }
+  return absl::OkStatus();
 }
 
 absl::Status CacheBuilder::StartInternal(uint64_t unique_model_identifier,
@@ -128,19 +323,18 @@ absl::Status CacheBuilder::StartInternal(uint64_t unique_model_identifier,
     return absl::OkStatus();
   }
 
-  // Write data in the header, this will be overwritten in the `Finalize` call.
-  // We explicitly set the header as invalid. If any error happens during
-  // the build, reloading the cache file will fail.
-  MLDriftCacheHeader header{MLDriftCacheHeader::kInvalidHeader};
-  header.buffer_list_offset = sizeof(header);
+  // Write an invalid header so any partial/uncommitted file is rejected on
+  // reload. A valid kVersion header is only written when StopBuildStep commits.
+  MLDriftCacheHeader header{};
+  header.version = MLDriftCacheHeader::kInvalidHeader;
+  header.buffer_list_offset = header_base_offset_;
+  header.buffer_list_size = 0;
 
-  if (!fd_.Write(&header, sizeof(header))) {
+  if (fd_.SetPos(0) == -1 || !fd_.Write(&header, sizeof(header))) {
     return absl::InternalError(
         absl::StrCat("could not write initial cache header in ", file_path_));
   }
 
-  ABSL_RETURN_IF_ERROR(StartBuildStep(unique_model_identifier));
-  ABSL_RETURN_IF_ERROR(StopBuildStep());
   return absl::OkStatus();
 }
 
@@ -157,6 +351,8 @@ absl::Status CacheBuilder::Start(FileDescriptor&& fd,
   }
 
   file_path_ = "FileDescriptor";
+  use_atomic_rename_ = false;
+  temp_path_.clear();
 
   return StartInternal(unique_model_identifier, append);
 }
@@ -171,7 +367,19 @@ absl::Status CacheBuilder::StartBuildStep(uint64_t unique_model_identifier) {
         "Failed to start build step: already started. This may be a "
         "concurrency issue.");
   }
+  ScopeGuard reset_build_step([this] { is_build_step_.store(false); });
   unique_model_identifier_ = unique_model_identifier;
+
+  // For multi-step builds on a disk path, stage each subsequent step in a new
+  // sibling temp file cloned from the last committed cache so live MAP_SHARED
+  // weight mappings are never mutated in place.
+  if (use_atomic_rename_ && temp_path_.empty()) {
+    std::string tmp_path = MakeSiblingTempPath(file_path_);
+    FileDescriptor staged_fd;
+    ABSL_RETURN_IF_ERROR(CopyFileToNewTemp(file_path_, tmp_path, staged_fd));
+    fd_ = std::move(staged_fd);
+    temp_path_ = std::move(tmp_path);
+  }
 
   // Clear the builder and lists since we are going to reload from disk.
   builder_.Clear();
@@ -268,11 +476,14 @@ absl::Status CacheBuilder::StartBuildStep(uint64_t unique_model_identifier) {
   buffer_fb_list_changed_ = false;
 
   build_segment_size_ = 0;
-  build_segment_start_ = fd_.SetPos(header.buffer_list_offset);
-  if (build_segment_start_ < 0) {
+  const FileDescriptor::Offset segment_pos =
+      fd_.SetPos(header.buffer_list_offset);
+  if (segment_pos < 0) {
     return absl::InternalError("Could not move in the file.");
   }
+  build_segment_start_ = static_cast<size_t>(segment_pos);
 
+  reset_build_step.Deactivate();
   return absl::OkStatus();
 }
 
@@ -406,6 +617,23 @@ absl::Status CacheBuilder::StopBuildStep() {
   if (!fd_.Write(&header, sizeof(header))) {
     return absl::InternalError(
         absl::StrCat("Cannot write cache header to '", file_path_, "'."));
+  }
+
+  if (!IsInMemoryCachePath(file_path_)) {
+    if (!FsyncFile(fd_.Value())) {
+      return absl::InternalError(absl::StrCat(
+          "Cannot fsync cache file '",
+          temp_path_.empty() ? file_path_ : temp_path_, "': ", strerror(errno)));
+    }
+  }
+  if (use_atomic_rename_ && !temp_path_.empty()) {
+    if (std::rename(temp_path_.c_str(), file_path_.c_str()) != 0) {
+      return absl::InternalError(absl::StrCat(
+          "Cannot atomically rename cache file '", temp_path_, "' to '",
+          file_path_, "': ", strerror(errno)));
+    }
+    temp_path_.clear();
+    FsyncParentDir(file_path_);
   }
 
   first_write_done_ = true;

@@ -35,28 +35,39 @@ namespace litert::lm {
 
 namespace {
 
-// Equivalent to *std::max_element(x, x + kSize), but written in a way to coax
-// the compiler into autovectorizing it.
+// Treats NaN logits as -inf so comparisons establish a strict weak ordering
+// and NaNs never poison tile reductions, heaps, or sorts.
+inline float SanitizeLogit(float x) {
+  return std::isnan(x) ? -std::numeric_limits<float>::infinity() : x;
+}
+
+// Equivalent to *std::max_element(x, x + kSize) with NaN mapped to -inf,
+// written in a way to coax the compiler into autovectorizing it.
 template <int kSize>
 inline float Max(const float* x) {
   constexpr int kTileSize = 8;
   static_assert(kSize % kTileSize == 0);
   float max[kTileSize];
-  std::copy_n(x, kTileSize, max);
+  for (int j = 0; j < kTileSize; ++j) {
+    max[j] = SanitizeLogit(x[j]);
+  }
   for (int i = kTileSize; i < kSize; i += kTileSize) {
     for (int j = 0; j < kTileSize; ++j) {
-      max[j] = std::max(max[j], x[i + j]);
+      const float val = SanitizeLogit(x[i + j]);
+      if (val > max[j]) {
+        max[j] = val;
+      }
     }
   }
   return *std::max_element(max, max + kTileSize);
 }
 
-// Similar to std::max_element, but more optimized.
+// Similar to std::max_element, but more optimized and NaN-safe.
 inline int MaxElement(const float* logits, int size) {
   if (size <= 0) return 0;
 
   constexpr int kTileSize = 128;
-  float max = logits[0];
+  float max = SanitizeLogit(logits[0]);
   int max_idx = 0;
 
   int i = 0;
@@ -70,7 +81,7 @@ inline int MaxElement(const float* logits, int size) {
       // Find first index of this max in the tile. We only do this if we have a
       // new max, which avoids the index search for most tiles.
       for (int j = 0; j < kTileSize; ++j) {
-        if (tile_logits[j] == tile_max) {
+        if (SanitizeLogit(tile_logits[j]) == tile_max) {
           max = tile_max;
           max_idx = i + j;
           break;
@@ -81,8 +92,9 @@ inline int MaxElement(const float* logits, int size) {
 
   // Handle remaining elements
   for (; i < size; ++i) {
-    if (logits[i] > max) {
-      max = logits[i];
+    const float val = SanitizeLogit(logits[i]);
+    if (val > max) {
+      max = val;
       max_idx = i;
     }
   }
@@ -94,6 +106,16 @@ inline int MaxElement(const float* logits, int size) {
 
 absl::StatusOr<std::vector<std::vector<int>>> TopKTokenIds(
     absl::Span<const float> logits, int k, int batch_size, int sequence_size) {
+  if (batch_size <= 0 || sequence_size <= 0) {
+    return absl::InvalidArgumentError(
+        "batch_size and sequence_size must be positive.");
+  }
+  if (k <= 0) {
+    return absl::InvalidArgumentError("k must be greater than 0.");
+  }
+  if (logits.empty()) {
+    return absl::InvalidArgumentError("Logits vector cannot be empty.");
+  }
   if (logits.size() % (batch_size * sequence_size) != 0) {
     return absl::InvalidArgumentError(
         absl::StrFormat("Logits vector size must be a multiple of batch "
@@ -128,12 +150,12 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTokenIds(
         std::vector<LogitIndex> min_heap;
         min_heap.reserve(actual_k);
         for (int i = 0; i < actual_k; ++i) {
-          min_heap.push_back({logits[offset + i], i});
+          min_heap.push_back({SanitizeLogit(logits[offset + i]), i});
         }
         absl::c_make_heap(min_heap, min_heap_comp);
 
         for (int i = actual_k; i < vocab_size; ++i) {
-          float val = logits[offset + i];
+          float val = SanitizeLogit(logits[offset + i]);
           if (val > min_heap.front().logit) {
             absl::c_pop_heap(min_heap, min_heap_comp);
             min_heap.back() = {val, i};
@@ -159,21 +181,26 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTokenIds(
       for (int s = 0; s < sequence_size; ++s) {
         // Fill with 0, 1, 2,...
         std::iota(indices.begin(), indices.end(), 0);
+        const int offset = (b * sequence_size + s) * vocab_size;
+        const int actual_k = std::min(k, vocab_size);
 
-        // Define the comparator for descending probability
-        auto desc_prob_comp = [&logits, vocab_size, b, s, sequence_size](
-                                  int i1, int i2) {
-          int offset = (b * sequence_size + s) * vocab_size;
-          return logits[offset + i1] > logits[offset + i2];
+        // Define the comparator for descending probability (NaN-safe strict weak ordering).
+        auto desc_prob_comp = [&logits, offset](int i1, int i2) {
+          const float v1 = SanitizeLogit(logits[offset + i1]);
+          const float v2 = SanitizeLogit(logits[offset + i2]);
+          if (v1 != v2) {
+            return v1 > v2;
+          }
+          return i1 < i2;
         };
         // Partition Top-K.
         // O(N) average time complexity.
         // Rearranges 'indices' such that the k elements with the highest
         // probabilities are in the range [indices.begin(), indices.begin() +
         // k). The element at indices[k] is not necessarily the (k+1)th largest.
-        std::nth_element(indices.begin(), indices.begin() + k, indices.end(),
-                         desc_prob_comp);
-        std::copy(indices.begin(), indices.begin() + k,
+        std::nth_element(indices.begin(), indices.begin() + actual_k,
+                         indices.end(), desc_prob_comp);
+        std::copy(indices.begin(), indices.begin() + actual_k,
                   output_indices[b].begin() + s * k);
       }
     }
@@ -185,6 +212,10 @@ absl::StatusOr<std::vector<std::vector<float>>> Softmax(
     absl::Span<const float> logits, absl::Span<const int> topk_token_ids,
     float temperature, int batch_size, int sequence_size,
     std::vector<std::vector<float>>& max_logit_values) {
+  if (batch_size <= 0 || sequence_size <= 0) {
+    return absl::InvalidArgumentError(
+        "batch_size and sequence_size must be positive.");
+  }
   if (logits.empty()) {
     return absl::InvalidArgumentError("Logits vector cannot be empty.");
   }
@@ -194,7 +225,13 @@ absl::StatusOr<std::vector<std::vector<float>>> Softmax(
         "length. But got %d and %d * %d.",
         logits.size(), batch_size, sequence_size));
   }
-  if (temperature < 0.0) {
+  if (topk_token_ids.empty() ||
+      topk_token_ids.size() % (batch_size * sequence_size) != 0) {
+    return absl::InvalidArgumentError(
+        "topk_token_ids size must be a positive multiple of batch size * "
+        "sequence length.");
+  }
+  if (std::isnan(temperature) || temperature < 0.0f) {
     // A very small positive temperature can mimic greedy sampling.
     // If temp = 0, we will clamp it to epsilon later.
     return absl::InvalidArgumentError(
@@ -207,53 +244,81 @@ absl::StatusOr<std::vector<std::vector<float>>> Softmax(
   max_logit_values.assign(batch_size, std::vector<float>(sequence_size));
   for (size_t b = 0; b < batch_size; ++b) {
     for (size_t s = 0; s < sequence_size; ++s) {
-      // Define the comparator for ascending logit to be used with
-      // std::max_element. The comparator takes two indices from topk_token_ids
-      // and compares the corresponding logit values.
-      auto logit_comp = [&logits, vocab_size, b, s, sequence_size](
-                            int topk_idx1, int topk_idx2) {
-        int offset = (b * sequence_size + s) * vocab_size;
-        return logits[offset + topk_idx1] < logits[offset + topk_idx2];
+      const int offset = (b * sequence_size + s) * vocab_size;
+      const int topk_offset = (b * sequence_size + s) * k;
+
+      // Define the comparator for ascending sanitized logit to be used with
+      // std::max_element.
+      auto logit_comp = [&logits, offset](int topk_idx1, int topk_idx2) {
+        return SanitizeLogit(logits[offset + topk_idx1]) <
+               SanitizeLogit(logits[offset + topk_idx2]);
       };
 
-      int topk_offset = (b * sequence_size + s) * k;
       // Use std::max_element to find the index in topk_token_ids that
-      // corresponds to the maximum logit value.
+      // corresponds to the maximum sanitized logit value.
       auto max_iterator = std::max_element(
           topk_token_ids.begin() + topk_offset,
           topk_token_ids.begin() + topk_offset + k, logit_comp);
       const int max_logit_idx =
           std::distance(topk_token_ids.begin() + topk_offset, max_iterator);
-      int offset = (b * sequence_size + s) * vocab_size;
-      max_logit_values[b][s] =
-          logits[offset + topk_token_ids[topk_offset + max_logit_idx]];
+      const float max_logit =
+          SanitizeLogit(logits[offset + topk_token_ids[topk_offset + max_logit_idx]]);
+      max_logit_values[b][s] = max_logit;
 
-      float sum_of_exps = 0.0;
+      if (!std::isfinite(max_logit)) {
+        if (max_logit > 0.0f) {
+          // One or more +inf logits dominate: distribute probability mass
+          // uniformly across all +inf entries to avoid (+inf - +inf) NaN.
+          int inf_count = 0;
+          for (size_t i = 0; i < k; ++i) {
+            const float val =
+                SanitizeLogit(logits[offset + topk_token_ids[topk_offset + i]]);
+            const bool is_pos_inf = std::isinf(val) && val > 0.0f;
+            probabilities[b][s * k + i] = is_pos_inf ? 1.0f : 0.0f;
+            inf_count += is_pos_inf ? 1 : 0;
+          }
+          const float inv_inf =
+              inf_count > 0 ? 1.0f / static_cast<float>(inf_count) : 0.0f;
+          for (size_t i = 0; i < k; ++i) {
+            probabilities[b][s * k + i] *= inv_inf;
+          }
+        } else {
+          // All top-k logits are -inf or NaN: fall back to a uniform
+          // distribution so downstream sampling never sees NaN.
+          const float uniform_prob = 1.0f / static_cast<float>(k);
+          std::fill(probabilities[b].begin() + s * k,
+                    probabilities[b].begin() + (s + 1) * k, uniform_prob);
+        }
+        continue;
+      }
+
+      float sum_of_exps = 0.0f;
       float current_temp =
           std::max(temperature, std::numeric_limits<float>::epsilon());
       for (size_t i = 0; i < k; ++i) {
+        const float val =
+            SanitizeLogit(logits[offset + topk_token_ids[topk_offset + i]]);
         probabilities[b][s * k + i] =
-            std::exp((logits[offset + topk_token_ids[topk_offset + i]] -
-                      max_logit_values[b][s]) /
-                     current_temp);
+            std::exp((val - max_logit) / current_temp);
         sum_of_exps += probabilities[b][s * k + i];
       }
 
-      if (sum_of_exps <= std::numeric_limits<float>::epsilon()) {
-        // Handle potential zero sum (uniform distribution fallback)
-        float uniform_prob = 1.0 / static_cast<float>(k);
-        std::fill(probabilities[b].begin() + s * k,
-                  probabilities[b].begin() + (s + 1) * k, uniform_prob);
-      } else if (std::isinf(sum_of_exps)) {
+      if (std::isinf(sum_of_exps)) {
         // Handle inf sum which is caused by very small temperature.
         // This is to avoid inf sum in the softmax calculation.
         std::fill(probabilities[b].begin() + s * k,
                   probabilities[b].begin() + (s + 1) * k, 0.0f);
         probabilities[b][s * k + max_logit_idx] = 1.0f;
+      } else if (!std::isfinite(sum_of_exps) ||
+                 sum_of_exps <= std::numeric_limits<float>::epsilon()) {
+        // Handle potential zero or non-finite sum (uniform distribution fallback)
+        float uniform_prob = 1.0f / static_cast<float>(k);
+        std::fill(probabilities[b].begin() + s * k,
+                  probabilities[b].begin() + (s + 1) * k, uniform_prob);
       } else {
         // Normalize probabilities
         float inv_sum =
-            1.0 / sum_of_exps;  // Calculate inverse once for slight speedup
+            1.0f / sum_of_exps;  // Calculate inverse once for slight speedup
         for (size_t i = 0; i < k; ++i) {
           probabilities[b][s * k + i] *= inv_sum;
         }
@@ -267,6 +332,10 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTopPSampling(
     absl::Span<const float> logits, int k, float p, float temperature,
     std::shared_ptr<std::default_random_engine> rng, int batch_size,
     int sequence_size, std::vector<std::vector<float>>& sampled_scores) {
+  if (batch_size <= 0 || sequence_size <= 0) {
+    return absl::InvalidArgumentError(
+        "batch_size and sequence_size must be positive.");
+  }
   if (logits.empty()) {
     return absl::InvalidArgumentError("Logits vector cannot be empty.");
   }
@@ -279,8 +348,12 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTopPSampling(
   if (k <= 0) {
     return absl::InvalidArgumentError("k must be greater than 0.");
   }
-  if (p < 0.0 || p > 1.0) {
+  if (std::isnan(p) || p < 0.0f || p > 1.0f) {
     return absl::InvalidArgumentError("p must be in the range [0.0, 1.0].");
+  }
+  if (std::isnan(temperature) || temperature < 0.0f) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Temperature must be >= 0, but got ", temperature));
   }
   if (rng == nullptr) {
     return absl::InvalidArgumentError("rng cannot be nullptr.");
@@ -315,14 +388,16 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTopPSampling(
     }
     return sampled_ids;
   }
-  float current_temp =
-      std::max(temperature, std::numeric_limits<float>::epsilon());
   for (int b = 0; b < batch_size; ++b) {
     for (int s = 0; s < sequence_size; ++s) {
-      // Define the comparator for descending probability
+      // Define the comparator for descending probability (strict weak ordering).
       auto desc_prob_comp = [&probabilities, b, s, k](int i1, int i2) {
-        return (*probabilities)[b][s * k + i1] >
-               (*probabilities)[b][s * k + i2];
+        const float p1 = (*probabilities)[b][s * k + i1];
+        const float p2 = (*probabilities)[b][s * k + i2];
+        if (p1 != p2) {
+          return p1 > p2;
+        }
+        return i1 < i2;
       };
 
       // Sort Only the Top-K.
@@ -352,16 +427,19 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTopPSampling(
       // final_sample_size now holds min(p_cutoff_within_top_k, k)
 
       int topk_offset = b * sequence_size * k + s * k;
-      int offset = (b * sequence_size + s) * vocab_size;
 
-      // Handle Edge Case: Cumulative Probability is Zero.
-      if (cumulative_prob <= std::numeric_limits<double>::epsilon()) {
+      // Handle Edge Case: Cumulative Probability is Zero or Non-Finite.
+      if (!std::isfinite(cumulative_prob) ||
+          cumulative_prob <= std::numeric_limits<double>::epsilon()) {
         // Fallback: Return the index with the absolute highest probability
         // (indices[0] after sorting top-k).
         sampled_ids[b][s] = flat_topk_token_ids[topk_offset + index_of_topk[0]];
-        sampled_scores[b][s] = std::exp(
-            (logits[offset + sampled_ids[b][s]] - max_logit_values[b][s]) /
-            current_temp);
+        const float fallback_prob =
+            (*probabilities)[b][s * k + index_of_topk[0]];
+        sampled_scores[b][s] =
+            (std::isfinite(fallback_prob) && fallback_prob > 0.0f)
+                ? fallback_prob
+                : 1.0f;
         continue;
       }
 
@@ -369,6 +447,10 @@ absl::StatusOr<std::vector<std::vector<int>>> TopKTopPSampling(
       std::uniform_real_distribution<double> dist(0.0, cumulative_prob);
       double random_sample = dist(*rng);
       double current_cumulative = 0.0;
+      sampled_ids[b][s] =
+          flat_topk_token_ids[topk_offset + index_of_topk[final_sample_size - 1]];
+      sampled_scores[b][s] =
+          (*probabilities)[b][s * k + index_of_topk[final_sample_size - 1]];
       for (int i = 0; i < final_sample_size; ++i) {
         current_cumulative += (*probabilities)[b][s * k + index_of_topk[i]];
         if (random_sample <= current_cumulative) {

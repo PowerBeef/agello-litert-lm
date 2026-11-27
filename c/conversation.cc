@@ -15,6 +15,7 @@
 #include "c/conversation.h"
 
 #include <atomic>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,38 +51,57 @@ CreateConversationCallback(LiteRtLmStreamCallback callback, void* user_data) {
   auto ended = std::make_shared<std::atomic<bool>>(false);
   return [callback, user_data,
           ended](absl::StatusOr<litert::lm::Message> message) {
-    if (ended->load(std::memory_order_acquire)) {
-      return;
-    }
-    if (!message.ok() || message->empty()) {
-      if (ended->exchange(true, std::memory_order_acq_rel)) {
+    try {
+      if (ended->load(std::memory_order_acquire)) {
         return;
       }
-    }
-    if (!message.ok()) {
-      std::string error_str = message.status().ToString();
-      LiteRtLmStreamChunk chunk;
-      chunk.text = nullptr;
-      chunk.is_final = true;
-      chunk.error_msg = error_str.c_str();
-      callback(user_data, &chunk);
-      return;
-    }
-    if (message->empty()) {  // End of stream marker
-      LiteRtLmStreamChunk chunk;
-      chunk.text = nullptr;
-      chunk.is_final = true;
-      chunk.error_msg = nullptr;
-      callback(user_data, &chunk);
-    } else {
-      std::string json_str = message->dump(
-          /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
-          nlohmann::json::error_handler_t::replace);
-      LiteRtLmStreamChunk chunk;
-      chunk.text = json_str.c_str();
-      chunk.is_final = false;
-      chunk.error_msg = nullptr;
-      callback(user_data, &chunk);
+      if (!message.ok() || message->empty()) {
+        if (ended->exchange(true, std::memory_order_acq_rel)) {
+          return;
+        }
+      }
+      if (!message.ok()) {
+        std::string error_str = message.status().ToString();
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        chunk.error_msg = error_str.c_str();
+        callback(user_data, &chunk);
+        return;
+      }
+      if (message->empty()) {  // End of stream marker
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        chunk.error_msg = nullptr;
+        callback(user_data, &chunk);
+      } else {
+        std::string json_str = message->dump(
+            /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+            nlohmann::json::error_handler_t::replace);
+        LiteRtLmStreamChunk chunk;
+        chunk.text = json_str.c_str();
+        chunk.is_final = false;
+        chunk.error_msg = nullptr;
+        callback(user_data, &chunk);
+      }
+    } catch (const std::exception& e) {
+      if (!ended->exchange(true, std::memory_order_acq_rel)) {
+        std::string error_str = e.what();
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        chunk.error_msg = error_str.c_str();
+        callback(user_data, &chunk);
+      }
+    } catch (...) {
+      if (!ended->exchange(true, std::memory_order_acq_rel)) {
+        LiteRtLmStreamChunk chunk;
+        chunk.text = nullptr;
+        chunk.is_final = true;
+        chunk.error_msg = "Unknown C++ exception in conversation callback.";
+        callback(user_data, &chunk);
+      }
     }
   };
 }
@@ -111,8 +131,9 @@ litert::lm::OptionalArgs CreateOptionalArgs(
   if (extra_context) {
     auto extra_context_json =
         nlohmann::ordered_json::parse(extra_context, nullptr, false);
-    if (!extra_context_json.is_null() && !extra_context_json.empty()) {
-      litert_lm_optional_args.extra_context = extra_context_json;
+    if (!extra_context_json.is_discarded() && extra_context_json.is_object() &&
+        !extra_context_json.empty()) {
+      litert_lm_optional_args.extra_context = std::move(extra_context_json);
     }
   }
   if (optional_args) {
@@ -447,141 +468,152 @@ LiteRtLmStatusCode litert_lm_conversation_create(
                                       "Invalid engine.");
   }
 
-  absl::StatusOr<std::unique_ptr<Conversation>> conversation;
-  if (c_config) {
-    litert::lm::JsonPreface json_preface;
-    if (!c_config->system_message_json.empty()) {
-      nlohmann::ordered_json system_message;
-      system_message["role"] = "system";
-      auto content = nlohmann::ordered_json::parse(
-          c_config->system_message_json, nullptr, false);
-      if (content.is_discarded()) {
-        system_message["content"] = c_config->system_message_json;
-      } else {
-        system_message["content"] = content;
-      }
-      json_preface.messages = nlohmann::ordered_json::array({system_message});
-    }
-
-    if (!c_config->messages_json.empty()) {
-      auto messages = nlohmann::ordered_json::parse(c_config->messages_json,
-                                                    nullptr, false);
-      if (messages.is_discarded()) {
-        ABSL_LOG(ERROR) << "Failed to parse messages JSON.";
-      } else if (!messages.is_array()) {
-        ABSL_LOG(ERROR) << "Messages JSON is not an array.";
-      } else {
-        if (json_preface.messages.is_array()) {
-          json_preface.messages.insert(json_preface.messages.end(),
-                                       messages.begin(), messages.end());
+  try {
+    absl::StatusOr<std::unique_ptr<Conversation>> conversation;
+    if (c_config) {
+      litert::lm::JsonPreface json_preface;
+      if (!c_config->system_message_json.empty()) {
+        nlohmann::ordered_json system_message;
+        system_message["role"] = "system";
+        auto content = nlohmann::ordered_json::parse(
+            c_config->system_message_json, nullptr, false);
+        if (content.is_discarded()) {
+          system_message["content"] = c_config->system_message_json;
         } else {
-          json_preface.messages = std::move(messages);
+          system_message["content"] = content;
+        }
+        json_preface.messages = nlohmann::ordered_json::array({system_message});
+      }
+
+      if (!c_config->messages_json.empty()) {
+        auto messages = nlohmann::ordered_json::parse(c_config->messages_json,
+                                                      nullptr, false);
+        if (messages.is_discarded()) {
+          ABSL_LOG(ERROR) << "Failed to parse messages JSON.";
+        } else if (!messages.is_array()) {
+          ABSL_LOG(ERROR) << "Messages JSON is not an array.";
+        } else {
+          if (json_preface.messages.is_array()) {
+            json_preface.messages.insert(json_preface.messages.end(),
+                                         messages.begin(), messages.end());
+          } else {
+            json_preface.messages = std::move(messages);
+          }
         }
       }
-    }
 
-    if (!c_config->tools_json.empty()) {
-      auto tool_json_parsed =
-          nlohmann::ordered_json::parse(c_config->tools_json, nullptr, false);
-      if (!tool_json_parsed.is_discarded() && tool_json_parsed.is_array()) {
-        json_preface.tools = tool_json_parsed;
-      } else {
-        ABSL_LOG(ERROR) << "Failed to parse tools JSON or not an array: "
-                        << c_config->tools_json;
+      if (!c_config->tools_json.empty()) {
+        auto tool_json_parsed =
+            nlohmann::ordered_json::parse(c_config->tools_json, nullptr, false);
+        if (!tool_json_parsed.is_discarded() && tool_json_parsed.is_array()) {
+          json_preface.tools = tool_json_parsed;
+        } else {
+          ABSL_LOG(ERROR) << "Failed to parse tools JSON or not an array: "
+                          << c_config->tools_json;
+        }
       }
-    }
 
-    if (!c_config->extra_context_json.empty()) {
-      auto extra_context_parsed = nlohmann::ordered_json::parse(
-          c_config->extra_context_json, nullptr, false);
-      if (!extra_context_parsed.is_discarded() &&
-          extra_context_parsed.is_object()) {
-        json_preface.extra_context = std::move(extra_context_parsed);
-      } else {
-        ABSL_LOG(ERROR)
-            << "Failed to parse extra context JSON or not an object: "
-            << c_config->extra_context_json;
+      if (!c_config->extra_context_json.empty()) {
+        auto extra_context_parsed = nlohmann::ordered_json::parse(
+            c_config->extra_context_json, nullptr, false);
+        if (!extra_context_parsed.is_discarded() &&
+            extra_context_parsed.is_object()) {
+          json_preface.extra_context = std::move(extra_context_parsed);
+        } else {
+          ABSL_LOG(ERROR)
+              << "Failed to parse extra context JSON or not an object: "
+              << c_config->extra_context_json;
+        }
       }
+
+      auto builder = litert::lm::ConversationConfig::Builder();
+      SessionConfig session_config = c_config->session_config
+                                         ? *c_config->session_config
+                                         : SessionConfig::CreateDefault();
+      if (engine->engine->GetEngineSettings()
+              .GetAudioExecutorSettings()
+              .has_value()) {
+        session_config.SetAudioModalityEnabled(true);
+      }
+      if (engine->engine->GetEngineSettings()
+              .GetVisionExecutorSettings()
+              .has_value()) {
+        session_config.SetVisionModalityEnabled(true);
+      }
+      builder.SetSessionConfig(session_config);
+
+      builder.SetPreface(json_preface);
+      builder.SetEnableConstrainedDecoding(
+          c_config->enable_constrained_decoding);
+
+      if (c_config->constraint_provider_type.has_value() &&
+          *c_config->constraint_provider_type ==
+              kLiteRtLmConstraintProviderTypeLlGuidance) {
+        builder.SetConstraintProviderConfig(litert::lm::LlGuidanceConfig());
+      }
+
+      if (c_config->filter_channel_content_from_kv_cache.has_value()) {
+        builder.SetFilterChannelContentFromKvCache(
+            *c_config->filter_channel_content_from_kv_cache);
+      }
+      builder.SetStreamToolCalls(c_config->stream_tool_calls,
+                                 c_config->stream_tool_calls_channel_name);
+      if (!c_config->prompt_template.empty()) {
+        builder.SetOverwritePromptTemplate(
+            litert::lm::PromptTemplate(c_config->prompt_template));
+      }
+      if (c_config->thinking_config.has_value()) {
+        builder.SetThinkingConfig(*c_config->thinking_config);
+      }
+      // For disabling rewinding, we don't use a config, but instead force the
+      // option if and only if GPU artisan ringbuffers are being used in the
+      // engine.
+      auto& main_settings =
+          engine->engine->GetEngineSettings().GetMainExecutorSettings();
+      auto gpu_artisan_config =
+          main_settings.GetBackendConfig<litert::lm::GpuArtisanConfig>();
+      if (gpu_artisan_config.ok() &&
+          gpu_artisan_config->use_autosized_ringbuffers) {
+        builder.SetEnableRewinding(false);
+      }
+      auto config = builder.Build(*engine->engine);
+
+      if (!config.ok()) {
+        ABSL_LOG(ERROR) << "Failed to create conversation config: "
+                        << config.status();
+        return litert::lm::c::ToCStatus(config.status());
+      }
+      conversation = Conversation::Create(*engine->engine, *config);
+    } else {
+      auto default_conversation_config =
+          ConversationConfig::CreateDefault(*engine->engine);
+      if (!default_conversation_config.ok()) {
+        ABSL_LOG(ERROR) << "Failed to create default conversation config: "
+                        << default_conversation_config.status();
+        return litert::lm::c::ToCStatus(default_conversation_config.status());
+      }
+      conversation =
+          Conversation::Create(*engine->engine, *default_conversation_config);
     }
 
-    auto builder = litert::lm::ConversationConfig::Builder();
-    SessionConfig session_config = c_config->session_config
-                                       ? *c_config->session_config
-                                       : SessionConfig::CreateDefault();
-    if (engine->engine->GetEngineSettings()
-            .GetAudioExecutorSettings()
-            .has_value()) {
-      session_config.SetAudioModalityEnabled(true);
+    if (!conversation.ok()) {
+      ABSL_LOG(ERROR) << "Failed to create conversation: "
+                      << conversation.status();
+      return litert::lm::c::ToCStatus(conversation.status());
     }
-    if (engine->engine->GetEngineSettings()
-            .GetVisionExecutorSettings()
-            .has_value()) {
-      session_config.SetVisionModalityEnabled(true);
-    }
-    builder.SetSessionConfig(session_config);
-
-    builder.SetPreface(json_preface);
-    builder.SetEnableConstrainedDecoding(c_config->enable_constrained_decoding);
-
-    if (c_config->constraint_provider_type.has_value() &&
-        *c_config->constraint_provider_type ==
-            kLiteRtLmConstraintProviderTypeLlGuidance) {
-      builder.SetConstraintProviderConfig(litert::lm::LlGuidanceConfig());
-    }
-
-    if (c_config->filter_channel_content_from_kv_cache.has_value()) {
-      builder.SetFilterChannelContentFromKvCache(
-          *c_config->filter_channel_content_from_kv_cache);
-    }
-    builder.SetStreamToolCalls(c_config->stream_tool_calls,
-                               c_config->stream_tool_calls_channel_name);
-    if (!c_config->prompt_template.empty()) {
-      builder.SetOverwritePromptTemplate(
-          litert::lm::PromptTemplate(c_config->prompt_template));
-    }
-    if (c_config->thinking_config.has_value()) {
-      builder.SetThinkingConfig(*c_config->thinking_config);
-    }
-    // For disabling rewinding, we don't use a config, but instead force the
-    // option if and only if GPU artisan ringbuffers are being used in the
-    // engine.
-    auto& main_settings =
-        engine->engine->GetEngineSettings().GetMainExecutorSettings();
-    auto gpu_artisan_config =
-        main_settings.GetBackendConfig<litert::lm::GpuArtisanConfig>();
-    if (gpu_artisan_config.ok() &&
-        gpu_artisan_config->use_autosized_ringbuffers) {
-      builder.SetEnableRewinding(false);
-    }
-    auto config = builder.Build(*engine->engine);
-
-    if (!config.ok()) {
-      ABSL_LOG(ERROR) << "Failed to create conversation config: "
-                      << config.status();
-      return litert::lm::c::ToCStatus(config.status());
-    }
-    conversation = Conversation::Create(*engine->engine, *config);
-  } else {
-    auto default_conversation_config =
-        ConversationConfig::CreateDefault(*engine->engine);
-    if (!default_conversation_config.ok()) {
-      ABSL_LOG(ERROR) << "Failed to create default conversation config: "
-                      << default_conversation_config.status();
-      return litert::lm::c::ToCStatus(default_conversation_config.status());
-    }
-    conversation =
-        Conversation::Create(*engine->engine, *default_conversation_config);
+    auto c_conversation = std::make_unique<LiteRtLmConversation>();
+    c_conversation->conversation = *std::move(conversation);
+    *out_conversation = c_conversation.release();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception creating conversation: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception creating conversation.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_create.");
   }
-
-  if (!conversation.ok()) {
-    ABSL_LOG(ERROR) << "Failed to create conversation: "
-                    << conversation.status();
-    return litert::lm::c::ToCStatus(conversation.status());
-  }
-  auto c_conversation = std::make_unique<LiteRtLmConversation>();
-  c_conversation->conversation = *std::move(conversation);
-  *out_conversation = c_conversation.release();
-  return kLiteRtLmStatusOk;
 }
 
 void litert_lm_conversation_delete(LiteRtLmConversation* conversation) {
@@ -597,15 +629,25 @@ LiteRtLmStatusCode litert_lm_conversation_clone(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid conversation.");
   }
-  auto cloned = conversation->conversation->Clone();
-  if (!cloned.ok()) {
-    ABSL_LOG(ERROR) << "Failed to clone conversation: " << cloned.status();
-    return litert::lm::c::ToCStatus(cloned.status());
+  try {
+    auto cloned = conversation->conversation->Clone();
+    if (!cloned.ok()) {
+      ABSL_LOG(ERROR) << "Failed to clone conversation: " << cloned.status();
+      return litert::lm::c::ToCStatus(cloned.status());
+    }
+    auto c_conversation = std::make_unique<LiteRtLmConversation>();
+    c_conversation->conversation = std::move(*cloned);
+    *out_conversation = c_conversation.release();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception cloning conversation: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception cloning conversation.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_clone.");
   }
-  auto c_conversation = std::make_unique<LiteRtLmConversation>();
-  c_conversation->conversation = std::move(*cloned);
-  *out_conversation = c_conversation.release();
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_conversation_send_message(
@@ -620,30 +662,41 @@ LiteRtLmStatusCode litert_lm_conversation_send_message(
                                       "Invalid conversation.");
   }
   LITERT_LM_C_RETURN_IF_NULL(message_json);
-  nlohmann::json json_message =
-      nlohmann::json::parse(message_json, /*cb=*/nullptr,
-                            /*allow_exceptions=*/false);
-  if (json_message.is_discarded()) {
-    ABSL_LOG(ERROR) << "Failed to parse message JSON.";
-    return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
-                                      "Failed to parse message JSON.");
-  }
+  try {
+    nlohmann::ordered_json json_message =
+        nlohmann::ordered_json::parse(message_json, /*cb=*/nullptr,
+                                      /*allow_exceptions=*/false);
+    if (json_message.is_discarded() ||
+        (!json_message.is_object() && !json_message.is_array())) {
+      ABSL_LOG(ERROR) << "Failed to parse message JSON.";
+      return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
+                                        "Failed to parse message JSON.");
+    }
 
-  OptionalArgs litert_lm_optional_args = CreateOptionalArgs(
-      conversation->conversation.get(), extra_context, optional_args);
+    OptionalArgs litert_lm_optional_args = CreateOptionalArgs(
+        conversation->conversation.get(), extra_context, optional_args);
 
-  auto response = conversation->conversation->SendMessage(
-      json_message, std::move(litert_lm_optional_args));
-  if (!response.ok()) {
-    ABSL_LOG(ERROR) << "Failed to send message: " << response.status();
-    return litert::lm::c::ToCStatus(response.status());
+    auto response = conversation->conversation->SendMessage(
+        json_message, std::move(litert_lm_optional_args));
+    if (!response.ok()) {
+      ABSL_LOG(ERROR) << "Failed to send message: " << response.status();
+      return litert::lm::c::ToCStatus(response.status());
+    }
+    auto c_response = std::make_unique<LiteRtLmJsonResponse>();
+    c_response->json_string = response->dump(
+        /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+        nlohmann::json::error_handler_t::replace);
+    *out_response = c_response.release();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception sending message: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception sending message.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_send_message.");
   }
-  auto c_response = std::make_unique<LiteRtLmJsonResponse>();
-  c_response->json_string = response->dump(
-      /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
-      nlohmann::json::error_handler_t::replace);
-  *out_response = c_response.release();
-  return kLiteRtLmStatusOk;
 }
 
 void litert_lm_json_response_delete(LiteRtLmJsonResponse* response) {
@@ -670,28 +723,39 @@ LiteRtLmStatusCode litert_lm_conversation_send_message_stream(
   }
   LITERT_LM_C_RETURN_IF_NULL(message_json);
   LITERT_LM_C_RETURN_IF_NULL(callback);
-  nlohmann::json json_message =
-      nlohmann::json::parse(message_json, /*cb=*/nullptr,
-                            /*allow_exceptions=*/false);
-  if (json_message.is_discarded()) {
-    ABSL_LOG(ERROR) << "Failed to parse message JSON.";
-    return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
-                                      "Failed to parse message JSON.");
+  try {
+    nlohmann::ordered_json json_message =
+        nlohmann::ordered_json::parse(message_json, /*cb=*/nullptr,
+                                      /*allow_exceptions=*/false);
+    if (json_message.is_discarded() ||
+        (!json_message.is_object() && !json_message.is_array())) {
+      ABSL_LOG(ERROR) << "Failed to parse message JSON.";
+      return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
+                                        "Failed to parse message JSON.");
+    }
+
+    litert::lm::OptionalArgs litert_lm_optional_args = CreateOptionalArgs(
+        conversation->conversation.get(), extra_context, optional_args);
+
+    absl::Status status = conversation->conversation->SendMessageAsync(
+        json_message,
+        litert::lm::c::CreateConversationCallback(callback, callback_data),
+        std::move(litert_lm_optional_args));
+
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to start message stream: " << status;
+      return litert::lm::c::ToCStatus(status);
+    }
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception starting message stream: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception starting message stream.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_send_message_stream.");
   }
-
-  litert::lm::OptionalArgs litert_lm_optional_args = CreateOptionalArgs(
-      conversation->conversation.get(), extra_context, optional_args);
-
-  absl::Status status = conversation->conversation->SendMessageAsync(
-      json_message,
-      litert::lm::c::CreateConversationCallback(callback, callback_data),
-      std::move(litert_lm_optional_args));
-
-  if (!status.ok()) {
-    ABSL_LOG(ERROR) << "Failed to start message stream: " << status;
-    return litert::lm::c::ToCStatus(status);
-  }
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_conversation_render_message_to_string(
@@ -704,27 +768,39 @@ LiteRtLmStatusCode litert_lm_conversation_render_message_to_string(
                                       "Invalid conversation.");
   }
   LITERT_LM_C_RETURN_IF_NULL(message_json);
-  nlohmann::json json_message =
-      nlohmann::json::parse(message_json, /*cb=*/nullptr,
-                            /*allow_exceptions=*/false);
-  if (json_message.is_discarded()) {
-    ABSL_LOG(ERROR) << "Failed to parse message JSON.";
-    return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
-                                      "Failed to parse message JSON.");
-  }
+  try {
+    nlohmann::ordered_json json_message =
+        nlohmann::ordered_json::parse(message_json, /*cb=*/nullptr,
+                                      /*allow_exceptions=*/false);
+    if (json_message.is_discarded() ||
+        (!json_message.is_object() && !json_message.is_array())) {
+      ABSL_LOG(ERROR) << "Failed to parse message JSON.";
+      return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
+                                        "Failed to parse message JSON.");
+    }
 
-  auto rendered = conversation->conversation->RenderMessageIntoString(
-      json_message, litert::lm::OptionalArgs());
-  if (!rendered.ok()) {
-    ABSL_LOG(ERROR) << "Failed to render message: " << rendered.status();
-    return litert::lm::c::ToCStatus(rendered.status());
+    auto rendered = conversation->conversation->RenderMessageIntoString(
+        json_message, litert::lm::OptionalArgs());
+    if (!rendered.ok()) {
+      ABSL_LOG(ERROR) << "Failed to render message: " << rendered.status();
+      return litert::lm::c::ToCStatus(rendered.status());
+    }
+    // Use a thread-local buffer so concurrent calls on a shared Conversation
+    // never overwrite another thread's returned C string (R-19).
+    thread_local std::string last_rendered_message;
+    last_rendered_message = std::move(*rendered);
+    *out_text = last_rendered_message.c_str();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception rendering message: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception rendering message.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in "
+        "litert_lm_conversation_render_message_to_string.");
   }
-  // Use a thread-local buffer so concurrent calls on a shared Conversation
-  // never overwrite another thread's returned C string (R-19).
-  thread_local std::string last_rendered_message;
-  last_rendered_message = std::move(*rendered);
-  *out_text = last_rendered_message.c_str();
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_conversation_render_preface_to_string(
@@ -735,16 +811,27 @@ LiteRtLmStatusCode litert_lm_conversation_render_preface_to_string(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid conversation.");
   }
-  auto rendered = conversation->conversation->RenderPrefaceIntoString(
-      litert::lm::OptionalArgs());
-  if (!rendered.ok()) {
-    ABSL_LOG(ERROR) << "Failed to render preface: " << rendered.status();
-    return litert::lm::c::ToCStatus(rendered.status());
+  try {
+    auto rendered = conversation->conversation->RenderPrefaceIntoString(
+        litert::lm::OptionalArgs());
+    if (!rendered.ok()) {
+      ABSL_LOG(ERROR) << "Failed to render preface: " << rendered.status();
+      return litert::lm::c::ToCStatus(rendered.status());
+    }
+    thread_local std::string last_rendered_preface;
+    last_rendered_preface = std::move(*rendered);
+    *out_text = last_rendered_preface.c_str();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    ABSL_LOG(ERROR) << "Exception rendering preface: " << e.what();
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    ABSL_LOG(ERROR) << "Unknown exception rendering preface.";
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in "
+        "litert_lm_conversation_render_preface_to_string.");
   }
-  thread_local std::string last_rendered_preface;
-  last_rendered_preface = std::move(*rendered);
-  *out_text = last_rendered_preface.c_str();
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_conversation_cancel_process(
@@ -753,8 +840,16 @@ LiteRtLmStatusCode litert_lm_conversation_cancel_process(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid conversation.");
   }
-  conversation->conversation->CancelProcess();
-  return kLiteRtLmStatusOk;
+  try {
+    conversation->conversation->CancelProcess();
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_cancel_process.");
+  }
 }
 
 LiteRtLmStatusCode litert_lm_conversation_wait_until_done(
@@ -763,12 +858,20 @@ LiteRtLmStatusCode litert_lm_conversation_wait_until_done(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid conversation.");
   }
-  absl::Status status = conversation->conversation->WaitUntilDone();
-  if (!status.ok()) {
-    ABSL_LOG(ERROR) << "Failed to wait until done: " << status;
-    return litert::lm::c::ToCStatus(status);
+  try {
+    absl::Status status = conversation->conversation->WaitUntilDone();
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to wait until done: " << status;
+      return litert::lm::c::ToCStatus(status);
+    }
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_wait_until_done.");
   }
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_conversation_get_benchmark_info(
@@ -780,14 +883,22 @@ LiteRtLmStatusCode litert_lm_conversation_get_benchmark_info(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid conversation.");
   }
-  auto benchmark_info = conversation->conversation->GetBenchmarkInfo();
-  if (!benchmark_info.ok()) {
-    ABSL_LOG(ERROR) << "Failed to get benchmark info: "
-                    << benchmark_info.status();
-    return litert::lm::c::ToCStatus(benchmark_info.status());
+  try {
+    auto benchmark_info = conversation->conversation->GetBenchmarkInfo();
+    if (!benchmark_info.ok()) {
+      ABSL_LOG(ERROR) << "Failed to get benchmark info: "
+                      << benchmark_info.status();
+      return litert::lm::c::ToCStatus(benchmark_info.status());
+    }
+    *out_benchmark_info = new LiteRtLmBenchmarkInfo{std::move(*benchmark_info)};
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_get_benchmark_info.");
   }
-  *out_benchmark_info = new LiteRtLmBenchmarkInfo{std::move(*benchmark_info)};
-  return kLiteRtLmStatusOk;
 }
 
 LiteRtLmStatusCode litert_lm_conversation_get_token_count(
@@ -797,13 +908,22 @@ LiteRtLmStatusCode litert_lm_conversation_get_token_count(
     return litert::lm::c::ReturnError(absl::StatusCode::kInvalidArgument,
                                       "Invalid conversation.");
   }
-  absl::StatusOr<int> token_count = conversation->conversation->GetTokenCount();
-  if (!token_count.ok()) {
-    ABSL_LOG(ERROR) << "Failed to get token count: " << token_count.status();
-    return litert::lm::c::ToCStatus(token_count.status());
+  try {
+    absl::StatusOr<int> token_count =
+        conversation->conversation->GetTokenCount();
+    if (!token_count.ok()) {
+      ABSL_LOG(ERROR) << "Failed to get token count: " << token_count.status();
+      return litert::lm::c::ToCStatus(token_count.status());
+    }
+    *out_count = *token_count;
+    return kLiteRtLmStatusOk;
+  } catch (const std::exception& e) {
+    return litert::lm::c::ReturnError(absl::StatusCode::kInternal, e.what());
+  } catch (...) {
+    return litert::lm::c::ReturnError(
+        absl::StatusCode::kInternal,
+        "Unknown C++ exception in litert_lm_conversation_get_token_count.");
   }
-  *out_count = *token_count;
-  return kLiteRtLmStatusOk;
 }
 
 }  // extern "C"

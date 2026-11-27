@@ -71,6 +71,18 @@ std::string Render(const std::string& jinja, json messages, bool generation_prom
   return rendered.ok() ? *rendered : "";
 }
 
+std::string RenderWithTools(const std::string& jinja, json tools, json messages,
+                            bool generation_prompt) {
+  PromptTemplate prompt_template(jinja);
+  PromptTemplateInput input;
+  input.tools = std::move(tools);
+  input.messages = std::move(messages);
+  input.add_generation_prompt = generation_prompt;
+  auto rendered = prompt_template.Apply(input);
+  EXPECT_TRUE(rendered.ok()) << rendered.status();
+  return rendered.ok() ? *rendered : "";
+}
+
 int Count(absl::string_view text, absl::string_view piece) {
   int count = 0;
   for (size_t at = text.find(piece); at != absl::string_view::npos;
@@ -157,6 +169,219 @@ TEST(AgelloGemma4TemplateTest, EmptyMessagesRendersCleanly) {
   const std::string with_missing_content =
       Render(fixed, json::array({{{"role", "user"}}}), false);
   EXPECT_TRUE(absl::StrContains(with_missing_content, "<|turn>user\n")) << with_missing_content;
+}
+
+// Defect #1: tool parameters named `type`, `description`, `properties`,
+// `required`, or `nullable` are never silently dropped.
+TEST(AgelloGemma4TemplateTest, ToolParametersNamedLikeSchemaKeywordsArePreserved) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json tools = json::parse(R"json([{
+    "type": "function",
+    "function": {
+      "name": "create_record",
+      "description": "Create a record.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "description": "Record kind"},
+          "description": {"type": "string", "description": "Details"},
+          "properties": {"type": "object", "properties": {"a": {"type": "string"}}},
+          "required": {"type": "boolean"},
+          "nullable": {"type": "boolean"}
+        },
+        "required": ["type", "description"]
+      }
+    }
+  }])json");
+  const std::string rendered =
+      RenderWithTools(fixed, tools, json::array({User("Go")}), true);
+  EXPECT_TRUE(absl::StrContains(rendered, "type:{description:<|\"|>Record kind<|\"|>,type:<|\"|>STRING<|\"|>}"))
+      << rendered;
+  EXPECT_TRUE(absl::StrContains(rendered, "description:{description:<|\"|>Details<|\"|>,type:<|\"|>STRING<|\"|>}"))
+      << rendered;
+  EXPECT_TRUE(absl::StrContains(rendered, "properties:{properties:{a:{type:<|\"|>STRING<|\"|>}},type:<|\"|>OBJECT<|\"|>}"))
+      << rendered;
+  EXPECT_TRUE(absl::StrContains(rendered, "required:{type:<|\"|>BOOLEAN<|\"|>}")) << rendered;
+  EXPECT_TRUE(absl::StrContains(rendered, "nullable:{type:<|\"|>BOOLEAN<|\"|>}")) << rendered;
+}
+
+// Defect #2: OBJECT and ARRAY parameters without `description`/`nullable` emit
+// well-formed commas (no leading `{,` and comma before `type:`).
+TEST(AgelloGemma4TemplateTest, ObjectAndArrayWithoutDescriptionHaveValidCommas) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json tools = json::parse(R"json([{
+    "type": "function",
+    "function": {
+      "name": "update",
+      "description": "Update item.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "meta": {
+            "type": "object",
+            "properties": {"k": {"type": "string"}},
+            "required": ["k"]
+          },
+          "tags": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    }
+  }])json");
+  const std::string rendered =
+      RenderWithTools(fixed, tools, json::array({User("Go")}), true);
+  EXPECT_FALSE(absl::StrContains(rendered, "{,")) << rendered;
+  EXPECT_TRUE(absl::StrContains(
+      rendered,
+      "meta:{properties:{k:{type:<|\"|>STRING<|\"|>}},required:[<|\"|>k<|\"|>],type:<|\"|>OBJECT<|\"|>}"))
+      << rendered;
+  EXPECT_TRUE(absl::StrContains(
+      rendered, "tags:{items:{type:<|\"|>STRING<|\"|>},type:<|\"|>ARRAY<|\"|>}"))
+      << rendered;
+}
+
+// Defect #3: JSON Schema union types (`type: ["string", "null"]`, etc.) render
+// cleanly without failing `| upper`.
+TEST(AgelloGemma4TemplateTest, UnionTypesInParametersRenderWithoutError) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json tools = json::parse(R"json([{
+    "type": "function",
+    "function": {
+      "name": "search",
+      "description": "Search.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filter": {"type": ["string", "null"], "enum": ["a", "b"]},
+          "nested": {"type": ["object", "null"], "properties": {"id": {"type": "integer"}}},
+          "ids": {"type": ["array", "null"], "items": {"type": ["integer", "null"]}}
+        }
+      }
+    }
+  }])json");
+  const std::string rendered =
+      RenderWithTools(fixed, tools, json::array({User("Go")}), true);
+  EXPECT_TRUE(absl::StrContains(
+      rendered,
+      "filter:{enum:[<|\"|>a<|\"|>,<|\"|>b<|\"|>],type:[<|\"|>STRING<|\"|>,<|\"|>NULL<|\"|>]}"))
+      << rendered;
+  EXPECT_TRUE(absl::StrContains(
+      rendered,
+      "nested:{properties:{id:{type:<|\"|>INTEGER<|\"|>}},type:[<|\"|>OBJECT<|\"|>,<|\"|>NULL<|\"|>]}"))
+      << rendered;
+  EXPECT_TRUE(absl::StrContains(
+      rendered,
+      "ids:{items:{type:[<|\"|>INTEGER<|\"|>,<|\"|>NULL<|\"|>]},type:[<|\"|>ARRAY<|\"|>,<|\"|>NULL<|\"|>]}"))
+      << rendered;
+}
+
+// Defect #4: closing `}` is always emitted even when `parameters.type` is
+// omitted or `response.type` is non-`OBJECT`.
+TEST(AgelloGemma4TemplateTest, MissingParamTypeAndNonObjectResponseCloseBraces) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json tools = json::parse(R"json([{
+    "type": "function",
+    "function": {
+      "name": "lookup",
+      "description": "Lookup.",
+      "parameters": {
+        "properties": {"q": {"type": "string"}},
+        "required": ["q"]
+      },
+      "response": {
+        "description": "Plain text summary",
+        "type": "string"
+      }
+    }
+  }])json");
+  const std::string rendered =
+      RenderWithTools(fixed, tools, json::array({User("Go")}), true);
+  EXPECT_TRUE(absl::StrContains(
+      rendered,
+      "declaration:lookup{description:<|\"|>Lookup.<|\"|>,"
+      "parameters:{properties:{q:{type:<|\"|>STRING<|\"|>}},required:[<|\"|>q<|\"|>]},"
+      "response:{description:<|\"|>Plain text summary<|\"|>,type:<|\"|>STRING<|\"|>}}<tool|>"))
+      << rendered;
+}
+
+// Defect #5: assistant preamble text renders BEFORE `tool_calls` so the
+// `<tool_call|><|tool_response>` wire boundary stays intact.
+TEST(AgelloGemma4TemplateTest, AssistantPreambleRendersBeforeToolCalls) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json call_with_preamble = {
+      {"role", "assistant"},
+      {"content", json::array({{{"type", "text"}, {"text", "Let me check."}}})},
+      {"tool_calls",
+       json::array({{{"type", "function"},
+                     {"function",
+                      {{"name", "get_current_date_time"},
+                       {"arguments", json::object()}}}}})},
+  };
+  const std::string before_response =
+      Render(fixed, json::array({User("What year is it?"), call_with_preamble}), false);
+  const std::string with_response = Render(
+      fixed,
+      json::array({User("What year is it?"), call_with_preamble, ToolResponse(),
+                   Answer("It is 2026.")}),
+      false);
+  EXPECT_TRUE(absl::StrContains(
+      before_response,
+      "<|turn>model\nLet me check.<|tool_call>call:get_current_date_time{}<tool_call|><|tool_response>"))
+      << before_response;
+  ASSERT_TRUE(absl::StartsWith(with_response, before_response)) << with_response;
+  EXPECT_TRUE(absl::StrContains(
+      with_response,
+      "<tool_call|><|tool_response>response:get_current_date_time{"
+      "human:<|\"|>Tuesday, November 17, 2026<|\"|>}<tool_response|>It is 2026.<turn|>\n"))
+      << with_response;
+}
+
+// Defect #6: an abandoned tool call followed by a `user` message closes with
+// `<turn|>\n` and emits zero dangling `<|tool_response>`.
+TEST(AgelloGemma4TemplateTest, AbandonedToolCallFollowedByUserOmitsToolResponse) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const std::string rendered =
+      Render(fixed, json::array({User("What year is it?"), ToolCall(), User("Never mind")}), true);
+  EXPECT_EQ(Count(rendered, "<|tool_response>"), 0) << rendered;
+  EXPECT_TRUE(absl::StrContains(
+      rendered,
+      "<|tool_call>call:get_current_date_time{}<tool_call|><turn|>\n"
+      "<|turn>user\nNever mind<turn|>\n<|turn>model\n"))
+      << rendered;
+}
+
+// Defect #7: `role == "tool"` preserves string `content`, text items, mapping
+// content, and top-level `message['name']` instead of `response:unknown{value:null}`.
+TEST(AgelloGemma4TemplateTest, ToolMessageStringAndTextContentPreserveNameAndValue) {
+  const std::string fixed = FixGemma4ToolTemplate(FileTemplate());
+  const json string_tool = {
+      {"role", "tool"},
+      {"name", "get_current_date_time"},
+      {"content", "2026-11-26"},
+  };
+  const std::string rendered_string =
+      Render(fixed, json::array({User("Date?"), ToolCall(), string_tool}), true);
+  EXPECT_TRUE(absl::StrContains(
+      rendered_string,
+      "<tool_call|><|tool_response>response:get_current_date_time{"
+      "value:<|\"|>2026-11-26<|\"|>}<tool_response|>"))
+      << rendered_string;
+  EXPECT_FALSE(absl::StrContains(rendered_string, "unknown")) << rendered_string;
+
+  const json text_item_tool = {
+      {"role", "tool"},
+      {"name", "get_current_date_time"},
+      {"content", json::array({{{"type", "text"}, {"text", "2026-11-26"}}})},
+  };
+  const std::string rendered_text_item =
+      Render(fixed, json::array({User("Date?"), ToolCall(), text_item_tool}), true);
+  EXPECT_TRUE(absl::StrContains(
+      rendered_text_item,
+      "<tool_call|><|tool_response>response:get_current_date_time{"
+      "value:<|\"|>2026-11-26<|\"|>}<tool_response|>"))
+      << rendered_text_item;
 }
 
 }  // namespace

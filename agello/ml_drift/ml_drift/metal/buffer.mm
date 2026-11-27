@@ -64,15 +64,35 @@ absl::Status Buffer::GetGPUResources(const GPUObjectDescriptor* obj_ptr,
 
 absl::Status Buffer::CreateFromBufferDescriptor(const BufferDescriptor& desc,
                                                 id<MTLDevice> device) {
-  size_ = desc.size;
-  if (desc.data.empty()) {
-    buffer_ =
-        [device newBufferWithLength:size_ options:MTLResourceStorageModeShared];
-  } else {
-    buffer_ = [device newBufferWithBytes:desc.data.data()
-                                  length:size_
-                                 options:MTLResourceStorageModeShared];
+  if (desc.size < 0) {
+    return absl::InvalidArgumentError("BufferDescriptor size is negative.");
   }
+  const size_t size_in_bytes = static_cast<size_t>(desc.size);
+  if (size_in_bytes > 0 && device == nil) {
+    return absl::InvalidArgumentError("MTLDevice is nil.");
+  }
+  if (!desc.data.empty() && desc.data.size() < size_in_bytes) {
+    return absl::InvalidArgumentError(
+        "BufferDescriptor data is smaller than desc.size.");
+  }
+  id<MTLBuffer> buffer = nil;
+  if (size_in_bytes > 0) {
+    if (desc.data.empty()) {
+      buffer = [device newBufferWithLength:size_in_bytes
+                                   options:MTLResourceStorageModeShared];
+    } else {
+      buffer = [device newBufferWithBytes:desc.data.data()
+                                   length:size_in_bytes
+                                  options:MTLResourceStorageModeShared];
+    }
+    if (buffer == nil) {
+      return absl::ResourceExhaustedError("Failed to allocate id<MTLBuffer>.");
+    }
+  }
+  Release();
+  buffer_ = buffer;
+  size_ = size_in_bytes;
+  owner_ = true;
   return absl::OkStatus();
 }
 
@@ -80,15 +100,27 @@ Buffer CreateBufferShared(id<MTLBuffer> buffer) { return Buffer(buffer); }
 
 absl::Status CreateBuffer(size_t size_in_bytes, const void* data,
                           id<MTLDevice> device, Buffer* result) {
+  if (result == nullptr) {
+    return absl::InvalidArgumentError("Output Buffer pointer is null.");
+  }
+  if (size_in_bytes > 0 && device == nil) {
+    return absl::InvalidArgumentError("MTLDevice is nil.");
+  }
   @autoreleasepool {
-    id<MTLBuffer> buffer;
-    if (data) {
-      buffer = [device newBufferWithBytes:data
-                                   length:size_in_bytes
-                                  options:MTLResourceStorageModeShared];
-    } else {
-      buffer = [device newBufferWithLength:size_in_bytes
-                                   options:MTLResourceStorageModeShared];
+    id<MTLBuffer> buffer = nil;
+    if (size_in_bytes > 0) {
+      if (data) {
+        buffer = [device newBufferWithBytes:data
+                                     length:size_in_bytes
+                                    options:MTLResourceStorageModeShared];
+      } else {
+        buffer = [device newBufferWithLength:size_in_bytes
+                                     options:MTLResourceStorageModeShared];
+      }
+      if (buffer == nil) {
+        return absl::ResourceExhaustedError(
+            "Failed to allocate id<MTLBuffer>.");
+      }
     }
 
     *result = Buffer(buffer, size_in_bytes);

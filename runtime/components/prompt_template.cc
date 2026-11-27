@@ -14,6 +14,8 @@
 
 #include "runtime/components/prompt_template.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +31,61 @@
 
 namespace litert::lm {
 namespace {
+
+constexpr absl::string_view kUtf8ReplacementChar = "\xEF\xBF\xBD";
+
+// Replaces any invalid UTF-8 byte sequences with U+FFFD so strings crossed into
+// Rust (`cxx::rust::String`) never throw `std::invalid_argument`.
+std::string SanitizeUtf8(absl::string_view input) {
+  std::string out;
+  out.reserve(input.size());
+  const size_t n = input.size();
+  size_t i = 0;
+  while (i < n) {
+    const uint8_t b0 = static_cast<uint8_t>(input[i]);
+    if (b0 <= 0x7F) {
+      out.push_back(input[i]);
+      ++i;
+      continue;
+    }
+    if (b0 >= 0xC2 && b0 <= 0xDF && i + 1 < n) {
+      const uint8_t b1 = static_cast<uint8_t>(input[i + 1]);
+      if (b1 >= 0x80 && b1 <= 0xBF) {
+        out.append(input.data() + i, 2);
+        i += 2;
+        continue;
+      }
+    } else if (b0 >= 0xE0 && b0 <= 0xEF && i + 2 < n) {
+      const uint8_t b1 = static_cast<uint8_t>(input[i + 1]);
+      const uint8_t b2 = static_cast<uint8_t>(input[i + 2]);
+      const bool b1_valid =
+          (b0 == 0xE0) ? (b1 >= 0xA0 && b1 <= 0xBF)
+                       : ((b0 == 0xED) ? (b1 >= 0x80 && b1 <= 0x9F)
+                                       : (b1 >= 0x80 && b1 <= 0xBF));
+      if (b1_valid && b2 >= 0x80 && b2 <= 0xBF) {
+        out.append(input.data() + i, 3);
+        i += 3;
+        continue;
+      }
+    } else if (b0 >= 0xF0 && b0 <= 0xF4 && i + 3 < n) {
+      const uint8_t b1 = static_cast<uint8_t>(input[i + 1]);
+      const uint8_t b2 = static_cast<uint8_t>(input[i + 2]);
+      const uint8_t b3 = static_cast<uint8_t>(input[i + 3]);
+      const bool b1_valid =
+          (b0 == 0xF0) ? (b1 >= 0x90 && b1 <= 0xBF)
+                       : ((b0 == 0xF4) ? (b1 >= 0x80 && b1 <= 0x8F)
+                                       : (b1 >= 0x80 && b1 <= 0xBF));
+      if (b1_valid && b2 >= 0x80 && b2 <= 0xBF && b3 >= 0x80 && b3 <= 0xBF) {
+        out.append(input.data() + i, 4);
+        i += 4;
+        continue;
+      }
+    }
+    out.append(kUtf8ReplacementChar.data(), kUtf8ReplacementChar.size());
+    ++i;
+  }
+  return out;
+}
 
 // Post-process the template to make it compatible with Minijinja.
 //
@@ -85,7 +142,7 @@ struct PromptTemplate::MinijinjaTemplateImpl {
 PromptTemplate::PromptTemplate(absl::string_view template_content)
     : minijinja_template_(std::make_unique<MinijinjaTemplateImpl>(
           MinijinjaTemplateImpl{new_minijinja_template(
-              EditTemplateForMinijinja(template_content))})) {
+              EditTemplateForMinijinja(SanitizeUtf8(template_content)))})) {
   const auto caps = minijinja_template_->tmpl->get_capabilities();
   capabilities_ = PromptTemplateCapabilities{
       .supports_single_turn = caps.supports_single_turn};
@@ -139,7 +196,9 @@ absl::StatusOr<std::string> PromptTemplate::Apply(
   minijinja_inputs["now"] = absl::ToUnixSeconds(input.now);
   minijinja_inputs["bos_token"] = input.bos_token;
   minijinja_inputs["eos_token"] = input.eos_token;
-  auto result = minijinja_template_->tmpl->apply(minijinja_inputs.dump());
+  auto result = minijinja_template_->tmpl->apply(minijinja_inputs.dump(
+      /*indent=*/-1, /*indent_char=*/' ', /*ensure_ascii=*/false,
+      nlohmann::json::error_handler_t::replace));
   if (!result.is_ok) {
     return absl::InternalError(
         absl::StrCat("Failed to apply template: ", std::string(result.error)));

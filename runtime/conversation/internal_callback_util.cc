@@ -97,6 +97,7 @@ void SendCompleteMessage(
     absl::string_view accumulated_response_text,
     const ModelDataProcessor& model_data_processor,
     DataProcessorArguments processor_args, int cursor,
+    absl::AnyInvocable<void()>& cancel_callback,
     absl::AnyInvocable<void(Message)>& complete_message_callback,
     const std::string& active_channel_name,
     const std::vector<Channel>& channels,
@@ -131,12 +132,18 @@ void SendCompleteMessage(
   auto extracted_channels = ExtractChannelContent(custom_channels, responses,
                                                   initial_open_channel_name);
   if (!extracted_channels.ok()) {
+    if (cancel_callback) {
+      cancel_callback();
+    }
     user_callback(extracted_channels.status());
     return;
   }
   auto complete_message =
       model_data_processor.ToMessage(responses, processor_args);
   if (!complete_message.ok()) {
+    if (cancel_callback) {
+      cancel_callback();
+    }
     user_callback(complete_message.status());
     return;
   }
@@ -290,9 +297,9 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateInternalCallback(
           tool_call_stream_cursor =
               size_t(0)](absl::StatusOr<Responses> responses) mutable {
     if (!responses.ok()) {
-      // If the error is due to cancellation, then we should trigger the cancel
-      // callback for removing the last message from the history.
-      if (cancel_callback && absl::IsCancelled(responses.status())) {
+      // Trigger rollback on any terminal failure, not just cancellation, so
+      // history and checkpoint metadata never remain desynchronized from KV.
+      if (cancel_callback) {
         cancel_callback();
       }
       user_callback(responses.status());
@@ -310,6 +317,9 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateInternalCallback(
 
     if (responses->GetTaskState() == TaskState::kFailed ||
         responses->GetTaskState() == TaskState::kDependentTaskFailed) {
+      if (cancel_callback) {
+        cancel_callback();
+      }
       user_callback(absl::InternalError(
           absl::StrCat("Task failed with state: ",
                        static_cast<int>(responses->GetTaskState()))));
@@ -335,7 +345,7 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateInternalCallback(
          responses->GetTaskState() == TaskState::kMaxNumTokensReached)) {
       SendCompleteMessage(user_callback, accumulated_response_text,
                           model_data_processor, processor_args, cursor,
-                          complete_message_callback,
+                          cancel_callback, complete_message_callback,
                           inside_channel ? active_channel_name : "", channels,
                           open_channel_name);
       cursor = accumulated_response_text.size();

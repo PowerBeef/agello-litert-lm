@@ -56,7 +56,8 @@ absl::Status QuantizationUint8Test(TestExecutionEnvironment& exec_env,
   for (int b = 0; b < src_tensor.shape.b; ++b) {
     for (int h = 0; h < src_tensor.shape.h; ++h) {
       for (int w = 0; w < src_tensor.shape.w; ++w) {
-        float min_value = src_tensor.data[0];
+        float min_value =
+            src_tensor.data[src_tensor.shape.LinearIndex({b, h, w, 0})];
         float max_value = min_value;
         for (int c = 0; c < src_tensor.shape.c; ++c) {
           float src_value =
@@ -66,7 +67,8 @@ absl::Status QuantizationUint8Test(TestExecutionEnvironment& exec_env,
         }
         float offset = min_value;
         float range = max_value - min_value;
-        float scale = 255.0f / range;
+        float scale = range > 0.0f ? 255.0f / range : 0.0f;
+        float inv_scale = range / 255.0f;
         int sum = 0;
         for (int c = 0; c < src_tensor.shape.c; ++c) {
           float src_value =
@@ -81,7 +83,7 @@ absl::Status QuantizationUint8Test(TestExecutionEnvironment& exec_env,
           }
         }
         dst_ref_params.data[dst_ref_params.shape.LinearIndex({b, h, w, 0})] =
-            1.0f / scale;
+            inv_scale;
         dst_ref_params.data[dst_ref_params.shape.LinearIndex({b, h, w, 1})] =
             offset;
         if (calculate_sum) {
@@ -160,7 +162,8 @@ absl::Status QuantizationInt8Test(TestExecutionEnvironment& exec_env,
   for (int b = 0; b < src_tensor.shape.b; ++b) {
     for (int h = 0; h < src_tensor.shape.h; ++h) {
       for (int w = 0; w < src_tensor.shape.w; ++w) {
-        float min_value = src_tensor.data[0];
+        float min_value =
+            src_tensor.data[src_tensor.shape.LinearIndex({b, h, w, 0})];
         float max_value = min_value;
         for (int c = 0; c < src_tensor.shape.c; ++c) {
           float src_value =
@@ -169,13 +172,14 @@ absl::Status QuantizationInt8Test(TestExecutionEnvironment& exec_env,
           max_value = std::max(max_value, src_value);
         }
         float range = max_value - min_value;
-        float offset = min_value + range / 2.0f;
-        float scale = 255.0f / range;
+        float offset = min_value + range * (128.0f / 255.0f);
+        float scale = range > 0.0f ? 255.0f / range : 0.0f;
+        float inv_scale = range / 255.0f;
         int sum = 0;
         for (int c = 0; c < src_tensor.shape.c; ++c) {
           float src_value =
               src_tensor.data[src_tensor.shape.LinearIndex({b, h, w, c})];
-          float dst_value = (src_value - offset) * scale;
+          float dst_value = (src_value - min_value) * scale - 128.0f;
           dst_value = std::max(-128.0f, dst_value);
           dst_value = std::min(127.0f, dst_value);
           dst_ref_i8.data[dst_ref_i8.shape.LinearIndex({b, h, w, c})] =
@@ -185,7 +189,7 @@ absl::Status QuantizationInt8Test(TestExecutionEnvironment& exec_env,
           }
         }
         dst_ref_params.data[dst_ref_params.shape.LinearIndex({b, h, w, 0})] =
-            1.0f / scale;
+            inv_scale;
         dst_ref_params.data[dst_ref_params.shape.LinearIndex({b, h, w, 1})] =
             offset;
         if (calculate_sum) {
@@ -438,6 +442,83 @@ absl::Status QuantizationInt8Test(TestExecutionEnvironment& env,
                                  /*calculate_sum=*/false));
   ABSL_EXPECT_OK(QuantizationInt8Test(env, src_tensor, op_def,
                                  /*calculate_sum=*/true));
+  return absl::OkStatus();
+}
+
+absl::Status QuantizationInt8OutlierAndConstantRowsTest(
+    TestExecutionEnvironment& env, TensorStorageType float_storage,
+    DataType float_type, TensorStorageType dst_storage) {
+  const auto src_shape = BHWC(1, 1, 4, 32);
+  TensorFloat32 src_tensor;
+  src_tensor.shape = src_shape;
+  src_tensor.data.assign(src_shape.DimensionsProduct(), 0.0f);
+
+  // Row 0: large BOS-style outlier at (0, 0, 0) that previously poisoned other rows.
+  src_tensor.data[src_shape.LinearIndex({0, 0, 0, 0})] = 49152.0f;
+  // Row 1: small dynamic range [0, 1] whose quantization must stay isolated from row 0.
+  for (int c = 0; c < src_shape.c; ++c) {
+    src_tensor.data[src_shape.LinearIndex({0, 0, 1, c})] =
+        static_cast<float>(c) / 31.0f;
+  }
+  // Row 2: symmetric wide range [-40960, +40960] whose span (81920) overflows FP16.
+  src_tensor.data[src_shape.LinearIndex({0, 0, 2, 0})] = -40960.0f;
+  src_tensor.data[src_shape.LinearIndex({0, 0, 2, 1})] = 40960.0f;
+  // Row 3: constant all-zero row (src_range == 0) that must not produce NaN.
+
+  OperationDef op_def;
+  op_def.src_tensors.push_back({float_type, float_storage, Layout::kHWC});
+  op_def.dst_tensors.push_back({DataType::kInt8, dst_storage, Layout::kHWC});
+  op_def.dst_tensors.push_back({float_type, float_storage, Layout::kHWC});
+
+  BHWC params_shape = src_shape;
+  params_shape.c = 2;
+  auto operation =
+      CreateQuantization(op_def, PackedType::kInt8C4, env.GetGpuInfo(),
+                         src_shape, /*calculate_sum=*/false);
+  TensorDescriptor src_td = op_def.src_tensors[0];
+  src_td.UploadData(src_tensor);
+  TensorDescriptor dst_i8_td = op_def.dst_tensors[0];
+  dst_i8_td.SetBHWCShape(src_shape);
+  TensorDescriptor dst_params_td = op_def.dst_tensors[1];
+  dst_params_td.SetBHWCShape(params_shape);
+
+  ABSL_RETURN_IF_ERROR(env.ExecuteGPUOperation(
+      {&src_td}, {&dst_i8_td, &dst_params_td}, std::move(operation)));
+
+  Tensor<BHWC, DataType::kInt8> dst_i8;
+  dst_i8_td.DownloadData(&dst_i8);
+  Tensor<BHWC, DataType::kFloat32> dst_params;
+  dst_params_td.DownloadData(&dst_params);
+
+  for (float p : dst_params.data) {
+    EXPECT_TRUE(std::isfinite(p));
+  }
+
+  // Row 1 must use its own [0, 1] range rather than row 0's 49152 outlier.
+  const float row1_inv_scale =
+      dst_params.data[params_shape.LinearIndex({0, 0, 1, 0})];
+  const float row1_offset =
+      dst_params.data[params_shape.LinearIndex({0, 0, 1, 1})];
+  EXPECT_NEAR(row1_inv_scale, 1.0f / 255.0f, 0.005f);
+  EXPECT_NEAR(row1_offset, 128.0f / 255.0f, 0.005f);
+  EXPECT_EQ(dst_i8.data[src_shape.LinearIndex({0, 0, 1, 0})], -128);
+  EXPECT_EQ(dst_i8.data[src_shape.LinearIndex({0, 0, 1, 31})], 127);
+
+  // Row 2's span (81920) exceeds FP16 max, so FP32 src_range must keep inv_scale finite.
+  const float row2_inv_scale =
+      dst_params.data[params_shape.LinearIndex({0, 0, 2, 0})];
+  EXPECT_NEAR(row2_inv_scale, 81920.0f / 255.0f, 1.0f);
+  EXPECT_EQ(dst_i8.data[src_shape.LinearIndex({0, 0, 2, 0})], -128);
+  EXPECT_EQ(dst_i8.data[src_shape.LinearIndex({0, 0, 2, 1})], 127);
+
+  // Row 3 (all zeros) must yield zero scale/offset and finite int8 values.
+  EXPECT_FLOAT_EQ(dst_params.data[params_shape.LinearIndex({0, 0, 3, 0})],
+                  0.0f);
+  EXPECT_FLOAT_EQ(dst_params.data[params_shape.LinearIndex({0, 0, 3, 1})],
+                  0.0f);
+  for (int c = 0; c < src_shape.c; ++c) {
+    EXPECT_EQ(dst_i8.data[src_shape.LinearIndex({0, 0, 3, c})], -128);
+  }
   return absl::OkStatus();
 }
 

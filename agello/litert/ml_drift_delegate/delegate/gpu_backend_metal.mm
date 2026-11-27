@@ -17,9 +17,12 @@
 #import <Metal/Metal.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -54,10 +57,33 @@ constexpr absl::string_view kBackendName = "Metal";
 constexpr absl::string_view kSerializedDataPrefix = "gpuv3_metal_data_";
 constexpr int kFlushPeriodDuringDispatch = 256;
 
-// While the calling thread defers GPU waits (resident MTP rounds / replay), its last
-// command buffer is committed and kept in thread-local storage instead of waited on;
-// WaitForDeferredGpuWork waits for it once at the end. Per-thread isolation ensures a
-// concurrent Metal workload on another thread (e.g. EmbeddingGemma) is never affected.
+std::string FormatCommandBufferError(id<MTLCommandBuffer> cb, absl::string_view context) {
+  const MTLCommandBufferStatus status = cb.status;
+  NSError* error = cb.error;
+  const char* desc =
+      (error != nil && error.localizedDescription != nil &&
+       error.localizedDescription.UTF8String != nullptr)
+          ? error.localizedDescription.UTF8String
+          : "";
+  const long code = error != nil ? static_cast<long>(error.code) : 0;
+  return absl::StrCat(context, " failed (MTLCommandBufferStatus=", static_cast<int>(status),
+                      ", error_code=", code,
+                      desc[0] != '\0' ? absl::StrCat(", description=", desc) : "", ")");
+}
+
+absl::Status CheckCommandBufferStatus(id<MTLCommandBuffer> cb, absl::string_view context) {
+  if (cb == nil) return absl::OkStatus();
+  if (cb.status != MTLCommandBufferStatusCompleted || cb.error != nil) {
+    return absl::InternalError(FormatCommandBufferError(cb, context));
+  }
+  return absl::OkStatus();
+}
+
+// While the calling thread defers GPU waits (resident MTP rounds / replay), every
+// committed command buffer is retained in thread-local storage instead of waited on;
+// WaitForDeferredGpuWork waits for them and checks every one for errors at the end.
+// Per-thread isolation ensures a concurrent Metal workload on another thread
+// (e.g. EmbeddingGemma) is never affected.
 struct DeferredBufferSlot {
   CFTypeRef ref = nullptr;
   ~DeferredBufferSlot() {
@@ -78,22 +104,71 @@ struct DeferredBufferSlot {
   }
 };
 
-thread_local DeferredBufferSlot g_last_deferred;
+struct DeferredBufferQueue {
+  std::vector<CFTypeRef> refs;
+  ~DeferredBufferQueue() { Clear(); }
+  void Clear() {
+    for (CFTypeRef ref : refs) {
+      if (ref != nullptr) CFRelease(ref);
+    }
+    refs.clear();
+  }
+  void Push(id<MTLCommandBuffer> buf) {
+    if (buf != nil) refs.push_back(CFBridgingRetain(buf));
+  }
+  std::vector<id<MTLCommandBuffer>> TakeAll() {
+    std::vector<id<MTLCommandBuffer>> out;
+    out.reserve(refs.size());
+    for (CFTypeRef ref : refs) {
+      if (ref != nullptr) out.push_back(CFBridgingRelease(ref));
+    }
+    refs.clear();
+    return out;
+  }
+  id<MTLCommandBuffer> PeekBack() const {
+    return !refs.empty() && refs.back() != nullptr
+               ? (__bridge id<MTLCommandBuffer>)refs.back()
+               : nil;
+  }
+};
+
+thread_local DeferredBufferQueue g_last_deferred;
 thread_local DeferredBufferSlot g_marked;
 
-void MarkLastDeferred() { g_marked.Set(g_last_deferred.Peek()); }
+void MarkLastDeferred() { g_marked.Set(g_last_deferred.PeekBack()); }
 
-void WaitForMarked() {
+bool WaitForMarked() {
   id<MTLCommandBuffer> marked = g_marked.Take();
-  if (marked != nil) [marked waitUntilCompleted];
+  if (marked == nil) return true;
+  [marked waitUntilCompleted];
+  absl::Status status = CheckCommandBufferStatus(marked, "Marked Metal command buffer");
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << status;
+    return false;
+  }
+  return true;
 }
 
-void WaitForLastDeferred() {
-  id<MTLCommandBuffer> last = g_last_deferred.Take();
-  if (last != nil) {
+bool WaitForLastDeferred() {
+  std::vector<id<MTLCommandBuffer>> pending = g_last_deferred.TakeAll();
+  if (pending.empty()) return true;
+  {
     ::agello::telemetry::ScopedSpan wait_span(::agello::telemetry::kGpuWaitOther);
-    [last waitUntilCompleted];
+    [pending.back() waitUntilCompleted];
+    for (id<MTLCommandBuffer> cb : pending) {
+      if (cb.status < MTLCommandBufferStatusCompleted) {
+        [cb waitUntilCompleted];
+      }
+    }
   }
+  for (id<MTLCommandBuffer> cb : pending) {
+    absl::Status status = CheckCommandBufferStatus(cb, "Deferred Metal command buffer");
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << status;
+      return false;
+    }
+  }
+  return true;
 }
 }  // namespace
 
@@ -138,6 +213,8 @@ GpuBackendMetal::GpuBackendMetal(::ml_drift::metal::MetalDevice* device,
 GpuBackendMetal::~GpuBackendMetal() {
   StopHeartbeat();
   @autoreleasepool {
+    DiscardPendingCommands();
+    committed_command_buffers_.clear();
     absl::MutexLock lock(&residency_mutex_);
     ReleaseResidencyLocked();
     if (@available(macOS 15.0, iOS 18.0, *)) {
@@ -158,8 +235,12 @@ void GpuBackendMetal::InitResidencySet() {
       if (residency_set_ != nil) {
         ABSL_LOG(INFO) << "Metal Residency Set successfully initialized.";
       } else {
-        ABSL_LOG(ERROR) << "Failed to create Metal Residency Set: "
-                        << [error.localizedDescription UTF8String];
+        const char* err_desc =
+            (error != nil && error.localizedDescription != nil &&
+             error.localizedDescription.UTF8String != nullptr)
+                ? error.localizedDescription.UTF8String
+                : "unknown error";
+        ABSL_LOG(ERROR) << "Failed to create Metal Residency Set: " << err_desc;
       }
     }
   }
@@ -214,8 +295,12 @@ absl::StatusOr<::ml_drift::GpuInfo> GpuBackendMetal::GetInfo() {
   // Apple1 (no simdgroup matrices, no Neural Accelerator kernels) for names it doesn't know.
   const int family = static_cast<int>(info.apple_info.gpu_family);
   const bool unknown = info.apple_info.gpu_type == ::ml_drift::AppleGpu::kUnknown;
+  const char* device_name =
+      (device_->device().name != nil && device_->device().name.UTF8String != nullptr)
+          ? device_->device().name.UTF8String
+          : "unknown";
   ::agello::telemetry::SetFact(
-      "gpu", std::string(device_->device().name.UTF8String) + ", ML Drift family Apple" +
+      "gpu", std::string(device_name) + ", ML Drift family Apple" +
                  std::to_string(family) + (unknown ? " (device not recognized)" : ""));
   if (unknown) {
     ::agello::telemetry::ReportAnomaly(::agello::telemetry::kGpuFamilyUnknown,
@@ -244,33 +329,70 @@ absl::Status GpuBackendMetal::AssociateGpuEvent(GpuEventHandle event, LiteRtEnvi
   return absl::UnimplementedError("AssociateGpuEvent is not implemented.");
 }
 
+void GpuBackendMetal::DiscardPendingCommands() {
+  if (compute_command_encoder_ != nullptr) {
+    [compute_command_encoder_ endEncoding];
+    compute_command_encoder_ = nullptr;
+  }
+  command_buffer_ = nullptr;
+}
+
+void GpuBackendMetal::TrackCommittedCommandBuffer(id<MTLCommandBuffer> command_buffer) {
+  if (command_buffer == nil) return;
+  if (::agello::telemetry::GpuWaitsDeferred()) {
+    ::agello::telemetry::SetDeferredWaitHook(&WaitForLastDeferred);
+    ::agello::telemetry::SetMarkHooks(&MarkLastDeferred, &WaitForMarked);
+    g_last_deferred.Push(command_buffer);
+  } else {
+    committed_command_buffers_.push_back(command_buffer);
+  }
+}
+
 absl::Status GpuBackendMetal::WaitForCompletion() {
   if (command_buffer_ == nullptr) {
-    // No pending GPU operations. No need to wait.
+    // Check any previously committed command buffers from this invocation.
+    std::vector<id<MTLCommandBuffer>> prior_cbs = std::move(committed_command_buffers_);
+    committed_command_buffers_.clear();
+    if (!prior_cbs.empty() && wait_type_ != kGpuDelegateWaitTypeDoNotWait) {
+      [prior_cbs.back() waitUntilCompleted];
+      for (id<MTLCommandBuffer> prev : prior_cbs) {
+        if (prev.status < MTLCommandBufferStatusCompleted) {
+          [prev waitUntilCompleted];
+        }
+        ABSL_RETURN_IF_ERROR(CheckCommandBufferStatus(prev, "Metal command buffer"));
+      }
+    }
     return absl::OkStatus();
   }
+
+  id<MTLCommandBuffer> cb = command_buffer_;
+  command_buffer_ = nullptr;
 
   if (::agello::telemetry::GpuWaitsDeferred()) {
     ::agello::telemetry::SetDeferredWaitHook(&WaitForLastDeferred);
     ::agello::telemetry::SetMarkHooks(&MarkLastDeferred, &WaitForMarked);
-    ::agello::telemetry::AttachGpuTiming(command_buffer_);
-    [command_buffer_ commit];
-    g_last_deferred.Set(command_buffer_);
-    command_buffer_ = nullptr;
+    ::agello::telemetry::AttachGpuTiming(cb);
+    [cb commit];
+    for (id<MTLCommandBuffer> prev : committed_command_buffers_) {
+      g_last_deferred.Push(prev);
+    }
+    committed_command_buffers_.clear();
+    g_last_deferred.Push(cb);
     return absl::OkStatus();
   }
 
-  // We need only synchronization so volatile works better than atomic which reads from global
-  // memory each time.
-  __block volatile bool buffer_completed = false;
+  std::vector<id<MTLCommandBuffer>> prior_cbs = std::move(committed_command_buffers_);
+  committed_command_buffers_.clear();
 
+  std::shared_ptr<std::atomic<bool>> buffer_completed;
   if (wait_type_ == kGpuDelegateWaitTypeActive) {
-    [command_buffer_ addCompletedHandler:^(id<MTLCommandBuffer>) {
-      buffer_completed = true;
+    buffer_completed = std::make_shared<std::atomic<bool>>(false);
+    [cb addCompletedHandler:^(id<MTLCommandBuffer>) {
+      buffer_completed->store(true, std::memory_order_release);
     }];
   }
 
-  ::agello::telemetry::AttachGpuTiming(command_buffer_);
+  ::agello::telemetry::AttachGpuTiming(cb);
   ::agello::telemetry::Count(::agello::telemetry::kGpuWaits);
   if (::agello::telemetry::Enabled(::agello::telemetry::kCounters)) {
     ::agello::telemetry::SetFact(
@@ -279,23 +401,28 @@ absl::Status GpuBackendMetal::WaitForCompletion() {
                                                                   : "do not wait");
   }
   ::agello::telemetry::ScopedSpan wait_span(::agello::telemetry::GpuWaitSpanForCurrentRun());
-  [command_buffer_ commit];
+  [cb commit];
 
   if (wait_type_ == kGpuDelegateWaitTypeActive) {
-    while (!buffer_completed) {
-      // Busy wait. Use local variable. Volatile uses RAM access all the time.
+    while (!buffer_completed->load(std::memory_order_acquire)) {
       for (volatile int i = 0; i < 100; ++i) {
       }
     }
   } else if (wait_type_ == kGpuDelegateWaitTypePassive) {
     // Passive wait: this thread sleeps until GPU finishes.
-    [command_buffer_ waitUntilCompleted];
+    [cb waitUntilCompleted];
+  } else {
+    // DoNotWait: do not inspect completion status before the GPU has finished.
+    return absl::OkStatus();
   }
 
-  // Reset the command buffer as it's committed above.
-  command_buffer_ = nullptr;
-
-  return absl::OkStatus();
+  for (id<MTLCommandBuffer> prev : prior_cbs) {
+    if (prev.status < MTLCommandBufferStatusCompleted) {
+      [prev waitUntilCompleted];
+    }
+    ABSL_RETURN_IF_ERROR(CheckCommandBufferStatus(prev, "Metal command buffer"));
+  }
+  return CheckCommandBufferStatus(cb, "Metal command buffer");
 }
 
 absl::StatusOr<GpuBackend::GpuBufferRequirements> GpuBackendMetal::GetGpuBufferRequirements(
@@ -571,8 +698,11 @@ absl::Status GpuInferenceContextMetal::Dispatch() {
   if (backend_->wait_type() != kGpuDelegateWaitTypeDoNotWait) {
     // Commit the previous command buffer if any.
     if (backend_->command_buffer() != nullptr) {
-      ::agello::telemetry::AttachGpuTiming(backend_->command_buffer());
-      [backend_->command_buffer() commit];
+      id<MTLCommandBuffer> prev = backend_->command_buffer();
+      backend_->set_command_buffer(nullptr);
+      ::agello::telemetry::AttachGpuTiming(prev);
+      [prev commit];
+      backend_->TrackCommittedCommandBuffer(prev);
     }
 
     // This drains all temporary Metal objects created during the graph encoding immediately.
@@ -580,12 +710,20 @@ absl::Status GpuInferenceContextMetal::Dispatch() {
       ctx_->EncodeWithCommandQueue(backend_->command_queue(), kFlushPeriodDuringDispatch);
     }
     // Need a new command buffer for conversion and waiting for completion.
-    backend_->set_command_buffer([backend_->command_queue() commandBuffer]);
+    id<MTLCommandBuffer> next_cb = [backend_->command_queue() commandBuffer];
+    if (next_cb == nil) {
+      return absl::InternalError("Failed to allocate Metal command buffer after dispatch.");
+    }
+    backend_->set_command_buffer(next_cb);
     return absl::OkStatus();
   }
 
   if (backend_->command_buffer() == nullptr) {
-    backend_->set_command_buffer([backend_->command_queue() commandBuffer]);
+    id<MTLCommandBuffer> next_cb = [backend_->command_queue() commandBuffer];
+    if (next_cb == nil) {
+      return absl::InternalError("Failed to allocate Metal command buffer for dispatch.");
+    }
+    backend_->set_command_buffer(next_cb);
   } else if ([backend_->command_buffer() status] >= MTLCommandBufferStatusCommitted) {
     return absl::FailedPreconditionError("Command buffer is already committed.");
   }
@@ -605,17 +743,34 @@ absl::Status GpuInferenceContextMetal::BeforeInvoke() {
       ::agello::telemetry::CurrentRun() == ::agello::telemetry::kGpuPrefill;
   if (ctx_->PoolReleaseDue(is_prefill) &&
       backend_->wait_type() != kGpuDelegateWaitTypeDoNotWait) {
+    absl::Status fence_status = absl::OkStatus();
     @autoreleasepool {
       id<MTLCommandBuffer> pending = backend_->command_buffer();
       if (pending != nullptr && [pending status] < MTLCommandBufferStatusCommitted) {
         ::agello::telemetry::AttachGpuTiming(pending);
         [pending commit];
         backend_->set_command_buffer([backend_->command_queue() commandBuffer]);
+      } else {
+        pending = nil;
       }
       id<MTLCommandBuffer> fence = [backend_->command_queue() commandBuffer];
-      [fence commit];
-      [fence waitUntilCompleted];
+      if (fence == nil) {
+        fence_status = absl::InternalError("Failed to allocate Metal fence command buffer.");
+      } else {
+        [fence commit];
+        [fence waitUntilCompleted];
+        if (pending != nil) {
+          if (pending.status < MTLCommandBufferStatusCompleted) {
+            [pending waitUntilCompleted];
+          }
+          fence_status = CheckCommandBufferStatus(pending, "Metal pending command buffer");
+        }
+        if (fence_status.ok()) {
+          fence_status = CheckCommandBufferStatus(fence, "Metal pool release fence");
+        }
+      }
     }
+    ABSL_RETURN_IF_ERROR(fence_status);
     ABSL_RETURN_IF_ERROR(ctx_->ReleasePoolBuffers());
   }
   return ctx_->EnsurePoolBuffers();
@@ -637,11 +792,22 @@ absl::Status GpuInferenceContextMetal::WaitForEventsCompleted(absl::Span<GpuEven
 
 absl::Status GpuInferenceContextMetal::PreConvert(bool input) {
   if (backend_->command_buffer() == nullptr) {
-    backend_->set_command_buffer([backend_->command_queue() commandBuffer]);
+    id<MTLCommandBuffer> cb = [backend_->command_queue() commandBuffer];
+    if (cb == nil) {
+      return absl::InternalError("Failed to allocate Metal command buffer for conversion.");
+    }
+    backend_->set_command_buffer(cb);
   } else if ([backend_->command_buffer() status] >= MTLCommandBufferStatusCommitted) {
     return absl::FailedPreconditionError("Command buffer is already committed.");
   }
-  backend_->set_compute_command_encoder([backend_->command_buffer() computeCommandEncoder]);
+  id<MTLComputeCommandEncoder> encoder = [backend_->command_buffer() computeCommandEncoder];
+  if (encoder == nil) {
+    if (input) {
+      backend_->DiscardPendingCommands();
+    }
+    return absl::InternalError("Failed to create Metal compute command encoder for conversion.");
+  }
+  backend_->set_compute_command_encoder(encoder);
   return absl::OkStatus();
 }
 

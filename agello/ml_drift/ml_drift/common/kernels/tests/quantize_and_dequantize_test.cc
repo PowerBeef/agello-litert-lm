@@ -104,7 +104,7 @@ TEST_P(QuantizationTest, QuantizationUint8) {
                  << " storage type: " << ToString(quant_storage());
   }
   ABSL_ASSERT_OK(QuantizationUint8Test(*exec_env, float_storage(), data_type(),
-                                  quant_storage()));
+                                       quant_storage()));
 }
 
 TEST_P(QuantizationTest, QuantizationInt8) {
@@ -116,8 +116,21 @@ TEST_P(QuantizationTest, QuantizationInt8) {
     GTEST_SKIP() << "Unsupported data type: " << ToString(DataType::kInt8)
                  << " storage type: " << ToString(quant_storage());
   }
-  ABSL_ASSERT_OK(QuantizationUint8Test(*exec_env, float_storage(), data_type(),
-                                  quant_storage()));
+  ABSL_ASSERT_OK(QuantizationInt8Test(*exec_env, float_storage(), data_type(),
+                                      quant_storage()));
+}
+
+TEST_P(QuantizationTest, QuantizationInt8OutlierAndConstantRows) {
+  if (!exec_env->IsStorageSupported(float_storage(), data_type())) {
+    GTEST_SKIP() << "Unsupported data type: " << ToString(data_type())
+                 << " storage type: " << ToString(float_storage());
+  }
+  if (!exec_env->IsStorageSupported(quant_storage(), DataType::kInt8)) {
+    GTEST_SKIP() << "Unsupported data type: " << ToString(DataType::kInt8)
+                 << " storage type: " << ToString(quant_storage());
+  }
+  ABSL_ASSERT_OK(QuantizationInt8OutlierAndConstantRowsTest(
+      *exec_env, float_storage(), data_type(), quant_storage()));
 }
 
 INSTANTIATE_TEST_SUITE_P(

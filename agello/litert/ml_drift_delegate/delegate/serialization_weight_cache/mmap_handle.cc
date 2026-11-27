@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "absl/status/status.h"  // from @com_google_absl
@@ -97,24 +98,29 @@ absl::Status MMapHandle::Map(const FileDescriptor& fd, const size_t offset,
 
   // This will reset data_ and size_ on return until is is deactivated.
   ScopeGuard unmap_on_error([this] { UnMap(); });
-  if (offset > file_stats.st_size) {
+  if (file_stats.st_size < 0) {
+    return absl::InternalError(
+        absl::StrCat("Negative file size for ('", path, "')."));
+  }
+  const size_t file_size = static_cast<size_t>(file_stats.st_size);
+  if (offset > file_size) {
     return absl::InvalidArgumentError(
         absl::StrCat("Cannot mmap beyond EOF: offset=", offset,
-                     ", file_size=", file_stats.st_size, " ('", path, "')."));
+                     ", file_size=", file_size, " ('", path, "')."));
   }
   // If size is 0, we will map the entire rest of the file.
   if (size == 0) {
-    size = file_stats.st_size - offset;
+    size = file_size - offset;
   }
   if (size == 0) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Cannot mmap 0 bytes (file is empty or offset is at EOF): offset=",
-        offset, ", file_size=", file_stats.st_size, " ('", path, "')."));
+        offset, ", file_size=", file_size, " ('", path, "')."));
   }
-  if (size > file_stats.st_size || offset > file_stats.st_size - size) {
+  if (size > file_size || offset > file_size - size) {
     return absl::InvalidArgumentError(
         absl::StrCat("Cannot mmap beyond EOF: offset=", offset, ", size=", size,
-                     ", file_size=", file_stats.st_size, " ('", path, "')."));
+                     ", file_size=", file_size, " ('", path, "')."));
   }
 
   size_ = size;
@@ -167,6 +173,11 @@ absl::Status MMapHandle::Map(const FileDescriptor& fd, const size_t offset,
   }
 #else   // defined(_WIN32)
   offset_page_adjustment_ = offset_ % getpagesize();
+  if (size_ > std::numeric_limits<size_t>::max() - offset_page_adjustment_) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Cannot mmap size with page adjustment overflow ('", path,
+                     "')."));
+  }
   data_ = static_cast<uint8_t*>(
       mmap(/*addr=*/nullptr, size_ + offset_page_adjustment_,
            PROT_READ,   // NOLINT: b/332641196

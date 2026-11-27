@@ -21,6 +21,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "litert/c/internal/litert_scheduling_info.h"
 #include "litert/c/litert_common.h"
@@ -130,6 +131,15 @@ class LiteRtExternalLiteRtBufferContextT : public TfLiteExternalContext {
     return UnregisterTensorBuffer(
         reinterpret_cast<const TfLiteOpaqueTensor*>(tensor));
   }
+
+  // Scoped per-Run registration tracking. Buffers registered while a run scope
+  // is recording are unregistered (or restored to their prior externally
+  // registered buffer) when EndRunRegistrations() runs. Call
+  // FreezeRunRegistrations() before Invoke() so delegate-allocated internal
+  // buffers registered during Invoke() are not affected.
+  void BeginRunRegistrations();
+  void FreezeRunRegistrations();
+  void EndRunRegistrations();
 
   // Gets a registered tensor buffer for the given tensor.
   // The returned TensorBuffer object is a duplicate (reference counted)
@@ -277,6 +287,16 @@ class LiteRtExternalLiteRtBufferContextT : public TfLiteExternalContext {
                      litert::internal::TensorIdentifierHash,
                      litert::internal::TensorIdentifierEqual>
       tensor_buffers_;
+
+  struct RunRegistrationEntry {
+    litert::internal::TfLiteTensorIdentifier tensor_id;
+    LiteRtTensorBufferPtr previous_buffer;
+  };
+  struct RunRegistrationFrame {
+    bool recording = true;
+    std::vector<RunRegistrationEntry> entries;
+  };
+  std::vector<RunRegistrationFrame> run_registration_frames_;
 
   LiteRtExternalLiteRtBufferContextT(
       const LiteRtExternalLiteRtBufferContextT&) = delete;

@@ -37,6 +37,7 @@
 #include "litert/cc/litert_options.h"  // from @litert
 #include "litert/cc/litert_profiler.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/constrained_decoding/constrained_decoder.h"
 #include "runtime/components/embedding_lookup/embedding_lookup_manager.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
@@ -152,6 +153,7 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
     llm_context_->runtime_state() = runtime_state;
     mtp_primed_ = false;
     ClearMtpDeferral();
+    ClearMtpConstraintHandoff();
     rewind_point_.reset();
     return absl::OkStatus();
   }
@@ -545,6 +547,20 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   void ClearMtpDeferral() {
     mtp_deferred_ = false;
     mtp_deferred_activations_.reset();
+  }
+
+  // Tracks when `mtp_drafter_` owns the canonical constraint state for the
+  // active `ConstrainedDecoder` so plain-decode fallbacks (e.g. near cache end)
+  // stay in sync instead of re-using `ConstrainedDecoder`'s untouched Start()
+  // state.
+  const ConstrainedDecoder* mtp_constrained_decoder_ = nullptr;
+  bool mtp_constraint_consumed_pending_ = false;
+  void ClearMtpConstraintHandoff() {
+    mtp_constrained_decoder_ = nullptr;
+    mtp_constraint_consumed_pending_ = false;
+    if (mtp_drafter_ != nullptr) {
+      mtp_drafter_->ResetConstraintState();
+    }
   }
 
   // Agello (T2): the sampled ids of a plain decode step, kept for the next

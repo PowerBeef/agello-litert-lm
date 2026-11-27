@@ -437,6 +437,101 @@ TEST(BoundedAttentionTest, FusesPrefillTailIntoFlashAttentionWhenEnabled) {
   build_int8_prefill(decode, /*rows=*/4, /*head_dim=*/256, /*keys=*/32768, /*is_global=*/false);
   ASSERT_EQ(*FuseBoundedAttentionSoftmax(&decode.graph, /*enable_flash_attention=*/true), 1);
   EXPECT_EQ(decode.graph.nodes().size(), 4u);
+
+  // D=512 FP16 prefill tail fuses into kFlashAttentionType.
+  Attention d512_fp16;
+  build_int8_prefill(d512_fp16, /*rows=*/512, /*head_dim=*/512, /*keys=*/1024, /*is_global=*/true);
+  for (Value* v : d512_fp16.graph.values()) {
+    if (v->tensor.shape == BHWC(1, 2, 512, 512)) {
+      v->tensor.type = DataType::kFloat16;
+    }
+  }
+  ASSERT_EQ(*FuseBoundedAttentionSoftmax(&d512_fp16.graph, /*enable_flash_attention=*/true), 1);
+  EXPECT_EQ(d512_fp16.graph.nodes().size(), 1u);
+  const Node* flash512 = d512_fp16.graph.FindProducer(d512_fp16.out->id);
+  ASSERT_NE(flash512, nullptr);
+  EXPECT_EQ(flash512->operation.type, kFlashAttentionType);
+  EXPECT_EQ(std::any_cast<const FlashAttentionAttributes&>(flash512->operation.attributes).head_dim,
+            512);
+}
+
+TEST(BoundedAttentionTest, RejectsFlashAttentionForUnsupportedQTypeOrInvalidMaskShape) {
+  auto build_flash_candidate = [](Attention& a, DataType q_type, DataType out_type,
+                                  BHWC mask_shape) {
+    constexpr int kRows = 256;
+    constexpr int kHeadDim = 256;
+    constexpr int kKeys = 512;
+    GraphFloat32& g = a.graph;
+    Value* q = NewValue(g, q_type, BHWC(1, 2, kRows, kHeadDim));
+    Value* k = NewValue(g, DataType::kUint8, BHWC(1, 2, kKeys, kHeadDim));
+    a.v = NewValue(g, DataType::kUint8, BHWC(1, 2, kHeadDim, kKeys));
+    a.params = NewValue(g, DataType::kInt32, BHWC(1, 1, 1, 7));
+    a.mask = NewValue(g, DataType::kBool, mask_shape);
+    a.logits = NewValue(g, DataType::kFloat32, BHWC(1, 2, kRows, kKeys));
+
+    RuntimeBatchedMatMulAttributes qk_attr;
+    qk_attr.runtime_check.dst_end_ch_index = 2;
+    qk_attr.is_global = false;
+    ExternalWeightsAttributes k_ext;
+    k_ext.weights_shape = ::ml_drift::OHWI(kKeys, 2, 1, kHeadDim);
+    k_ext.desc.type = DataType::kUint8;
+    k_ext.desc.layout = ::ml_drift::WeightsLayout::kOSpatialIOGroupO4I4;
+    k_ext.desc.output_group_size = kKeys / 4;
+    qk_attr.external_weights = k_ext;
+    ::ml_drift::Tensor<::ml_drift::Linear, DataType::kFloat32> scale_k;
+    scale_k.shape = ::ml_drift::Linear(kKeys);
+    scale_k.data = std::vector<float>(kKeys, 0.05f);
+    qk_attr.scale = scale_k;
+    NewNode(g, kRuntimeBatchedMatMulType, {q, k, a.params}, a.logits)->operation.attributes =
+        qk_attr;
+
+    Value* fill = NewValue(g, DataType::kFloat32, BHWC(1, 1, 1, 1));
+    Node* constant = g.NewNode();
+    constant->operation.type = ToString(OperationType::kConstant);
+    g.SetProducer(constant->id, fill->id);
+    a.selected = NewValue(g, DataType::kFloat32, BHWC(1, 2, kRows, kKeys));
+    a.select = NewNode(g, ToString(OperationType::kSelectV2), {a.mask, a.logits, fill}, a.selected);
+    a.probabilities = NewValue(g, DataType::kFloat32, BHWC(1, 2, kRows, kKeys));
+    a.softmax = NewNode(g, ToString(OperationType::kSoftmax), {a.selected}, a.probabilities);
+    a.softmax->operation.attributes = ::ml_drift::SoftmaxAttributes{::ml_drift::Axis::kChannels};
+
+    a.out = NewValue(g, out_type, BHWC(1, 2, kRows, kHeadDim));
+    RuntimeBatchedMatMulAttributes pv_attr;
+    pv_attr.runtime_check.src_end_ch_index = 2;
+    ExternalWeightsAttributes v_ext;
+    v_ext.weights_shape = ::ml_drift::OHWI(kHeadDim, 2, 1, kKeys);
+    v_ext.desc.type = DataType::kUint8;
+    v_ext.desc.layout = ::ml_drift::WeightsLayout::kOSpatialIOGroupI4O4;
+    v_ext.desc.output_group_size = kHeadDim / 4;
+    pv_attr.external_weights = v_ext;
+    ::ml_drift::Tensor<::ml_drift::Linear, DataType::kFloat32> scale_v;
+    scale_v.shape = ::ml_drift::Linear(kHeadDim);
+    scale_v.data = std::vector<float>(kHeadDim, 0.02f);
+    pv_attr.scale = scale_v;
+    a.pv = NewNode(g, kRuntimeBatchedMatMulType, {a.probabilities, a.v, a.params}, a.out);
+    a.pv->operation.attributes = pv_attr;
+  };
+
+  auto expect_not_flashed = [&](DataType q_type, DataType out_type, BHWC mask_shape) {
+    Attention a;
+    build_flash_candidate(a, q_type, out_type, mask_shape);
+    const auto rewritten = FuseBoundedAttentionSoftmax(&a.graph, /*enable_flash_attention=*/true);
+    ASSERT_TRUE(rewritten.ok()) << rewritten.status();
+    EXPECT_EQ(*rewritten, 1);
+    const Node* producer = a.graph.FindProducer(a.out->id);
+    ASSERT_NE(producer, nullptr);
+    EXPECT_NE(producer->operation.type, kFlashAttentionType);
+  };
+
+  // Non-float Q type or mismatched Q/out type must not fuse to FlashAttention.
+  expect_not_flashed(DataType::kInt32, DataType::kInt32, BHWC(1, 1, 256, 512));
+  expect_not_flashed(DataType::kFloat32, DataType::kFloat16, BHWC(1, 1, 256, 512));
+
+  // Invalid mask shapes (b != 1, h == 0, w == 0, !row_end && c != cache_size) must not fuse.
+  expect_not_flashed(DataType::kFloat32, DataType::kFloat32, BHWC(2, 1, 256, 512));
+  expect_not_flashed(DataType::kFloat32, DataType::kFloat32, BHWC(1, 0, 256, 512));
+  expect_not_flashed(DataType::kFloat32, DataType::kFloat32, BHWC(1, 1, 0, 512));
+  expect_not_flashed(DataType::kFloat32, DataType::kFloat32, BHWC(1, 1, 256, 256));
 }
 
 }  // namespace

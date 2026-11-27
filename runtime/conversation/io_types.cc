@@ -19,7 +19,9 @@
 namespace litert::lm {
 
 std::ostream& operator<<(std::ostream& os, const Message& message) {
-  os << message.dump();
+  os << message.dump(/*indent=*/-1, /*indent_char=*/' ',
+                     /*ensure_ascii=*/false,
+                     nlohmann::json::error_handler_t::replace);
   return os;
 }
 

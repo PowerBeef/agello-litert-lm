@@ -60,6 +60,7 @@ void ContextDrafts::Sync(absl::Span<const int> prefix, int last) {
     int kept = 0;
     while (proposed_at_size_ + kept < static_cast<int>(tokens_.size()) &&
            proposed_from_ + kept < proposed_at_size_ &&
+           tokens_[proposed_at_size_ + kept] >= 0 &&
            tokens_[proposed_at_size_ + kept] == tokens_[proposed_from_ + kept]) {
       ++kept;
     }
@@ -71,17 +72,31 @@ void ContextDrafts::Sync(absl::Span<const int> prefix, int last) {
 void ContextDrafts::Index(int from) {
   const int size = static_cast<int>(tokens_.size());
   for (int next = std::max(from, 2); next < size; ++next) {
+    // Break n-gram indexing at multimodal sentinels (< 0, e.g. -1 vision, -2 audio)
+    // and never index a continuation that begins with a negative sentinel.
+    if (tokens_[next] < 0 || tokens_[next - 1] < 0 || tokens_[next - 2] < 0) {
+      continue;
+    }
     bigrams_[Key(tokens_[next - 2], tokens_[next - 1])] = next;
-    if (next >= 3) trigrams_[Key(tokens_[next - 3], tokens_[next - 2], tokens_[next - 1])] = next;
+    if (next >= 3 && tokens_[next - 3] >= 0) {
+      trigrams_[Key(tokens_[next - 3], tokens_[next - 2], tokens_[next - 1])] = next;
+    }
   }
 }
 
 std::vector<int> ContextDrafts::Propose(int count, int* ngram) const {
   const int size = static_cast<int>(tokens_.size());
+  auto has_negative = [&](int start, int length) {
+    for (int i = 0; i < length; ++i) {
+      if (tokens_[start + i] < 0) return true;
+    }
+    return false;
+  };
   auto from = [&](const absl::flat_hash_map<uint64_t, int>& map, uint64_t key) {
     std::vector<int> drafts;
     const auto found = map.find(key);
-    if (found != map.end() && found->second + count <= size) {
+    if (found != map.end() && found->second + count <= size &&
+        !has_negative(found->second, count)) {
       drafts.assign(tokens_.begin() + found->second, tokens_.begin() + found->second + count);
       proposed_from_ = found->second;
       proposed_at_size_ = size;
@@ -89,14 +104,16 @@ std::vector<int> ContextDrafts::Propose(int count, int* ngram) const {
     return drafts;
   };
   if (count <= 0) return {};
-  if (size >= 3) {
+  if (size >= 3 && tokens_[size - 3] >= 0 && tokens_[size - 2] >= 0 &&
+      tokens_[size - 1] >= 0) {
     auto drafts = from(trigrams_, Key(tokens_[size - 3], tokens_[size - 2], tokens_[size - 1]));
     if (!drafts.empty()) {
       if (ngram != nullptr) *ngram = 3;
       return drafts;
     }
   }
-  if (min_ngram_ <= 2 && size >= 2) {
+  if (min_ngram_ <= 2 && size >= 2 && tokens_[size - 2] >= 0 &&
+      tokens_[size - 1] >= 0) {
     auto drafts = from(bigrams_, Key(tokens_[size - 2], tokens_[size - 1]));
     if (!drafts.empty()) {
       if (ngram != nullptr) *ngram = 2;
@@ -105,11 +122,12 @@ std::vector<int> ContextDrafts::Propose(int count, int* ngram) const {
   }
   // Realign past an edit: the context's last token a few tokens after where the copy diverged.
   constexpr int kRealignWindow = 16;
-  if (realign_ && diverged_at_ >= 0 && size >= 1) {
+  if (realign_ && diverged_at_ >= 0 && size >= 1 && tokens_[size - 1] >= 0) {
     const int last = tokens_[size - 1];
     const int end = std::min(diverged_at_ + kRealignWindow, size - 1);
     for (int at = diverged_at_; at < end; ++at) {
-      if (tokens_[at] == last && at + 1 + count <= size) {
+      if (tokens_[at] < 0) break;
+      if (tokens_[at] == last && at + 1 + count <= size && !has_negative(at + 1, count)) {
         if (ngram != nullptr) *ngram = 1;
         proposed_from_ = at + 1;
         proposed_at_size_ = size;

@@ -1853,6 +1853,21 @@ tflite::SignatureRunner* LiteRtCompiledModelT::GetSignatureRunner(
   return runner;
 }
 
+namespace {
+
+// Buffers present in both input_buffers and output_buffers for the active Run()
+// call on this thread, so CPU-synced aliased buffers lock as ReadWrite instead
+// of Read (which would cause LiteRtUnlockMetalMemory to skip uploading writes).
+thread_local const absl::flat_hash_set<LiteRtTensorBuffer>*
+    g_active_run_aliased_buffers = nullptr;
+
+bool IsAliasedInActiveRun(LiteRtTensorBuffer buffer) {
+  return g_active_run_aliased_buffers != nullptr &&
+         g_active_run_aliased_buffers->contains(buffer);
+}
+
+}  // namespace
+
 Expected<void> LiteRtCompiledModelT::RegisterBuffer(
     tflite::SignatureRunner* runner, TfLiteTensor* tensor, int tensor_index,
     const char* tensor_name, LiteRtTensorBufferT* buffer, bool is_input,
@@ -2009,8 +2024,10 @@ Expected<void> LiteRtCompiledModelT::RegisterBuffer(
         host_mem_addr = it->second;
       } else {
         LiteRtTensorBufferLockMode lock_mode =
-            is_input ? kLiteRtTensorBufferLockModeRead
-                     : kLiteRtTensorBufferLockModeWrite;
+            IsAliasedInActiveRun(buffer)
+                ? kLiteRtTensorBufferLockModeReadWrite
+                : (is_input ? kLiteRtTensorBufferLockModeRead
+                            : kLiteRtTensorBufferLockModeWrite);
         if (auto status =
                 LiteRtLockTensorBuffer(buffer, &host_mem_addr, lock_mode);
             status != kLiteRtStatusOk) {
@@ -2103,8 +2120,10 @@ Expected<void> LiteRtCompiledModelT::RegisterBuffer(
       host_mem_addr = it->second;
     } else {
       LiteRtTensorBufferLockMode lock_mode =
-          is_input ? kLiteRtTensorBufferLockModeRead
-                   : kLiteRtTensorBufferLockModeWrite;
+          IsAliasedInActiveRun(buffer)
+              ? kLiteRtTensorBufferLockModeReadWrite
+              : (is_input ? kLiteRtTensorBufferLockModeRead
+                          : kLiteRtTensorBufferLockModeWrite);
       if (auto status =
               LiteRtLockTensorBuffer(buffer, &host_mem_addr, lock_mode);
           status != kLiteRtStatusOk) {
@@ -2125,25 +2144,41 @@ Expected<void> LiteRtCompiledModelT::RegisterBuffer(
     }
     TfLiteCustomAllocation custom_allocation{host_mem_addr,
                                              buffer->buffer_size()};
+    TfLiteStatus status = kTfLiteOk;
     if (is_input) {
       if (runner) {
-        runner->SetCustomAllocationForInputTensor(tensor_name,
-                                                  custom_allocation,
-                                                  /*flags=*/0);
+        status = runner->SetCustomAllocationForInputTensor(tensor_name,
+                                                           custom_allocation,
+                                                           /*flags=*/0);
       } else {
-        interp_->SetCustomAllocationForTensor(tensor_index, custom_allocation,
-                                              /*flags=*/0);
+        status = interp_->SetCustomAllocationForTensor(
+            tensor_index, custom_allocation, /*flags=*/0);
+      }
+      if (status != kTfLiteOk) {
+        LITERT_LOG(LITERT_ERROR,
+                   "Failed to set custom allocation for CPU input tensor %s "
+                   "(index %d): %d",
+                   tensor_name ? tensor_name : "", tensor_index, status);
+        return Unexpected(kLiteRtStatusErrorRuntimeFailure,
+                          "Failed to set custom allocation for input");
       }
     } else {
       // Skip SetCustomAllocationForOutputTensor for constant tensors
       if (!is_constant_output) {
         if (runner) {
-          runner->SetCustomAllocationForOutputTensor(tensor_name,
-                                                     custom_allocation,
-                                                     /*flags=*/0);
+          status = runner->SetCustomAllocationForOutputTensor(
+              tensor_name, custom_allocation, /*flags=*/0);
         } else {
-          interp_->SetCustomAllocationForTensor(tensor_index, custom_allocation,
-                                                /*flags=*/0);
+          status = interp_->SetCustomAllocationForTensor(
+              tensor_index, custom_allocation, /*flags=*/0);
+        }
+        if (status != kTfLiteOk) {
+          LITERT_LOG(LITERT_ERROR,
+                     "Failed to set custom allocation for CPU output tensor %s "
+                     "(index %d): %d",
+                     tensor_name ? tensor_name : "", tensor_index, status);
+          return Unexpected(kLiteRtStatusErrorRuntimeFailure,
+                            "Failed to set custom allocation for output");
         }
       }
     }
@@ -2232,6 +2267,39 @@ Expected<void> LiteRtCompiledModelT::Run(
     }
   }
 
+  // Scope buffer_context_ registrations to this Run() call so per-run buffers
+  // (e.g. Vision Metal buffers) are not permanently pinned after Run() returns,
+  // while preserving any buffers registered externally prior to Run().
+  buffer_context_->BeginRunRegistrations();
+  auto unregister_run_buffers = absl::MakeCleanup([this]() {
+    if (buffer_context_ != nullptr) {
+      buffer_context_->EndRunRegistrations();
+    }
+  });
+
+  // Pre-scan for buffers passed as both input and output so CPU-synced aliased
+  // buffers are locked with ReadWrite (preventing Read-only unlock skips).
+  absl::flat_hash_set<LiteRtTensorBuffer> output_buffer_set;
+  output_buffer_set.reserve(num_outputs);
+  for (LiteRtTensorBuffer out_buf : output_buffers) {
+    if (out_buf != nullptr) {
+      output_buffer_set.insert(out_buf);
+    }
+  }
+  absl::flat_hash_set<LiteRtTensorBuffer> aliased_buffers;
+  for (LiteRtTensorBuffer in_buf : input_buffers) {
+    if (in_buf != nullptr && output_buffer_set.contains(in_buf)) {
+      aliased_buffers.insert(in_buf);
+    }
+  }
+  const auto* prev_aliased_buffers = g_active_run_aliased_buffers;
+  g_active_run_aliased_buffers =
+      aliased_buffers.empty() ? nullptr : &aliased_buffers;
+  auto restore_aliased_buffers =
+      absl::MakeCleanup([prev_aliased_buffers]() {
+        g_active_run_aliased_buffers = prev_aliased_buffers;
+      });
+
   // The collection of locked buffers mapped to their host memory addresses.
   // It is used to unlock the buffers after the inference is done and to reuse
   // host addresses when a buffer is shared (e.g. as both input and output).
@@ -2312,6 +2380,9 @@ Expected<void> LiteRtCompiledModelT::Run(
                        res.Error().Message()));
     }
   }
+  // Stop recording before AllocateTensors()/Invoke() so any delegate-allocated
+  // internal buffers registered during Invoke() remain untouched.
+  buffer_context_->FreezeRunRegistrations();
   if (profiler_ && profiler_->IsProfiling() &&
       event_handle != std::numeric_limits<uint64_t>::max()) {
     profiler_->SetCurrentEventSource(LITERT);

@@ -138,7 +138,30 @@ class LlmLiteRtMtpDrafter {
       int position, int token_id, std::optional<TensorBuffer> activations,
       StateInterface& state, const Constraint* constraint = nullptr,
       absl::Span<const int> context = {},
-      const std::atomic<bool>* cancelled = nullptr);
+      const std::atomic<bool>* cancelled = nullptr,
+      bool reset_constraint = true);
+
+  // Returns true if the drafter currently holds a live constraint state for
+  // `constraint` (advanced through the last committed MTP round).
+  bool HasActiveConstraint(const Constraint* constraint) const {
+    return constraint != nullptr && constraint_ == constraint &&
+           constraint_state_ != nullptr;
+  }
+
+  // Advances the drafter's active constraint state by `token_id`, resetting to
+  // Start() if ended. Used when plain decode continues a constrained turn after
+  // MTP rounds (e.g. near cache end).
+  absl::Status AdvanceConstraintState(int token_id);
+
+  // Masks a [1, 1, vocab_size] logits buffer using the drafter's active
+  // constraint state.
+  absl::Status ApplyConstraintMask(TensorBuffer& logits);
+
+  // Resets any tracked constraint state (on turn reset/rewind/prefill).
+  void ResetConstraintState() {
+    constraint_ = nullptr;
+    constraint_state_.reset();
+  }
 
   const MtpRoundStats& last_round_stats() const { return last_round_stats_; }
 

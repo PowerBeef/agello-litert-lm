@@ -51,7 +51,11 @@ class ResidentRound {
   virtual ~ResidentRound() = default;
 
   // Step 0's input token, known to the host. Call before any Encode of a round.
+  // Drains any prior round's GPU work and resets draft slots 1..max_steps to -1.
   virtual void SetFirstId(int token_id) = 0;
+  // Waits for all committed command buffers of the current round and resets the
+  // round's command buffer list. Safe to call when no command buffers are pending.
+  virtual void DrainLast() = 0;
   // Encodes step `step`'s input: the embedding of draft `step` (step 0's: SetFirstId's) into the
   // first `cols` floats of `activations`, then `cols` floats of `previous` from byte
   // `previous_offset` into the rest.

@@ -332,15 +332,17 @@ int CurrentRun();
 // backend registers the wait as a hook, so this library stays free of Metal.
 void DeferGpuWaits(bool deferred);
 bool GpuWaitsDeferred();
-void SetDeferredWaitHook(void (*hook)());
-void WaitForDeferredGpuWork();
+void SetDeferredWaitHook(bool (*hook)());
+// Waits for all deferred GPU work on the calling thread. Returns true on success
+// or when no deferred work is pending, false if any command buffer failed.
+bool WaitForDeferredGpuWork();
 // The replay's held verify (mode e): MarkDeferredGpuWork remembers the last command buffer
 // committed so far, WaitForMarkedGpuWork waits for it; HoldNextGpuRun makes the next graph's first
 // command buffer wait on an event (encoded, committed, not started) until ReleaseHeldGpuRun. The
 // Metal side registers the hooks.
-void SetMarkHooks(void (*mark)(), void (*wait_marked)());
+void SetMarkHooks(void (*mark)(), bool (*wait_marked)());
 void MarkDeferredGpuWork();
-void WaitForMarkedGpuWork();
+bool WaitForMarkedGpuWork();
 void HoldNextGpuRun();
 bool TakeGpuRunHold();
 void SetHoldReleaseHook(void (*release)());

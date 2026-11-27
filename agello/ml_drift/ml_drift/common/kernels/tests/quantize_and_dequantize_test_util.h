@@ -47,6 +47,9 @@ absl::Status QuantizationInt8Test(TestExecutionEnvironment& env,
                                   TensorStorageType float_storage,
                                   DataType float_type,
                                   TensorStorageType dst_storage);
+absl::Status QuantizationInt8OutlierAndConstantRowsTest(
+    TestExecutionEnvironment& env, TensorStorageType float_storage,
+    DataType float_type, TensorStorageType dst_storage);
 
 }  // namespace ml_drift
 

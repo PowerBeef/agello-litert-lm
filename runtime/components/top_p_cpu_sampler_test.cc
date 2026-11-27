@@ -653,6 +653,88 @@ TEST(TopPSamplerTest, ZeroTemperatureWithKGreaterThanOneUsesFp16GreedyFastPath) 
   EXPECT_THAT(*ids, ElementsAre(1, 3));
 }
 
+TEST(TopPSamplerTest, HandlesSingleNaNAllNaNAllNegInfAndPosInfLogits) {
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const float neg_inf = -std::numeric_limits<float>::infinity();
+  const float pos_inf = std::numeric_limits<float>::infinity();
+
+  // Single NaN at index 0 (exercises GreedyHalf -> FP32 fallback and MaxElement):
+  // must select the true highest finite logit instead of token 0.
+  {
+    constexpr int kVocab = 260;
+    std::vector<float> logits(kVocab, -4.0f);
+    logits[0] = nan;
+    logits[199] = 3.5f;
+    for (bool fp16 : {false, true}) {
+      auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/1.0f,
+                                            /*temperature=*/0.0f,
+                                            /*batch_size=*/1,
+                                            /*sequence_size=*/1, /*seed=*/1,
+                                            /*compute_exact_log_probs=*/true);
+      ASSERT_TRUE(sampler_or.ok());
+      auto logits_tensor =
+          fp16 ? CopyFp16ToTensorBuffer(logits, {1, kVocab})
+               : CopyToTensorBuffer<float>(absl::MakeConstSpan(logits),
+                                           {1, kVocab});
+      ASSERT_TRUE(logits_tensor.HasValue());
+      std::vector<int> ids_vec(1, -1);
+      auto ids_tensor =
+          CopyToTensorBuffer<int>(absl::MakeConstSpan(ids_vec), {1});
+      std::vector<float> scores_vec(1, 0.0f);
+      auto scores_tensor =
+          CopyToTensorBuffer<float>(absl::MakeConstSpan(scores_vec), {1});
+      ASSERT_TRUE((*sampler_or)
+                      ->SampleToIdAndScoreBuffer(*logits_tensor, *ids_tensor,
+                                                 &(*scores_tensor))
+                      .ok());
+      auto ids = CopyFromTensorBuffer<int>(*ids_tensor);
+      auto scores = CopyFromTensorBuffer<float>(*scores_tensor);
+      ASSERT_TRUE(ids.HasValue());
+      ASSERT_TRUE(scores.HasValue());
+      EXPECT_THAT(*ids, ElementsAre(199));
+      EXPECT_TRUE(std::isfinite((*scores)[0]));
+    }
+  }
+
+  // All-NaN, all-(-Inf), and +Inf rows with top-k/top-p sampling (k > 1):
+  // must succeed without UB and emit finite log-probabilities.
+  for (const std::vector<float>& row : {
+           std::vector<float>{nan, nan, nan, nan},
+           std::vector<float>{neg_inf, neg_inf, neg_inf, neg_inf},
+           std::vector<float>{0.0f, pos_inf, -1.0f, 2.0f},
+       }) {
+    auto sampler_or = TopPSampler::Create(/*k=*/4, /*p=*/0.9f,
+                                          /*temperature=*/1.0f,
+                                          /*batch_size=*/1, /*sequence_size=*/1,
+                                          /*seed=*/5,
+                                          /*compute_exact_log_probs=*/false);
+    ASSERT_TRUE(sampler_or.ok());
+    auto logits_tensor =
+        CopyToTensorBuffer<float>(absl::MakeConstSpan(row), {1, 4});
+    ASSERT_TRUE(logits_tensor.HasValue());
+    std::vector<int> ids_vec(1, -1);
+    auto ids_tensor =
+        CopyToTensorBuffer<int>(absl::MakeConstSpan(ids_vec), {1});
+    std::vector<float> scores_vec(1, 0.0f);
+    auto scores_tensor =
+        CopyToTensorBuffer<float>(absl::MakeConstSpan(scores_vec), {1});
+    ASSERT_TRUE((*sampler_or)
+                    ->SampleToIdAndScoreBuffer(*logits_tensor, *ids_tensor,
+                                               &(*scores_tensor))
+                    .ok());
+    auto ids = CopyFromTensorBuffer<int>(*ids_tensor);
+    auto scores = CopyFromTensorBuffer<float>(*scores_tensor);
+    ASSERT_TRUE(ids.HasValue());
+    ASSERT_TRUE(scores.HasValue());
+    EXPECT_GE((*ids)[0], 0);
+    EXPECT_LT((*ids)[0], 4);
+    if (std::isinf(row[1]) && row[1] > 0.0f) {
+      EXPECT_EQ((*ids)[0], 1);
+    }
+    EXPECT_TRUE(std::isfinite((*scores)[0]));
+  }
+}
+
 }  // namespace
 }  // namespace litert::lm
 

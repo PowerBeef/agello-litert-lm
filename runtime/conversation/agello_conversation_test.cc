@@ -362,5 +362,400 @@ TEST(AgelloConversationTest, CancelDuringPrefillSkipsSaveCheckpointAndDecode) {
   EXPECT_TRUE(absl::IsCancelled(result.status())) << result.status();
 }
 
+// Helper for RT-P1-14 tests: builds a Gemma 4 thinking+tools Conversation backed
+// by a MockSession and returns both so tests can drive multi-round interactions.
+struct Gemma4TestHarness {
+  std::unique_ptr<EngineSettings> engine_settings;
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  FakeTokenizer tokenizer;
+  MockEngine engine;
+  MockSession* session = nullptr;
+  std::unique_ptr<Conversation> conversation;
+
+  void Init(const std::string& template_override = "") {
+    const std::string raw_template = LoadGemma4Template();
+    ASSERT_FALSE(raw_template.empty());
+    const std::string fixed_template =
+        template_override.empty() ? FixGemma4ToolTemplate(raw_template)
+                                  : template_override;
+
+    ASSERT_OK_AND_ASSIGN(auto model_assets,
+                         ModelAssets::Create("unused.litertlm"));
+    ASSERT_OK_AND_ASSIGN(
+        auto settings,
+        EngineSettings::CreateDefault(model_assets, Backend::CPU));
+    proto::LlmMetadata metadata;
+    metadata.mutable_llm_model_type()->mutable_gemma4();
+    metadata.set_jinja_prompt_template(raw_template);
+    auto* stop = metadata.add_stop_tokens();
+    stop->mutable_token_ids()->add_ids(106);
+    settings.GetMutableLlmMetadata() = metadata;
+    engine_settings = std::make_unique<EngineSettings>(std::move(settings));
+
+    ASSERT_OK(session_config.MaybeUpdateAndValidate(*engine_settings));
+
+    auto mock_session = std::make_unique<MockSession>();
+    session = mock_session.get();
+    ON_CALL(*session, GetSessionConfig())
+        .WillByDefault(ReturnRef(session_config));
+    ON_CALL(*session, WaitUntilDone()).WillByDefault(Return(absl::OkStatus()));
+    ON_CALL(*session, CancelProcess()).WillByDefault(Return());
+
+    ON_CALL(engine, GetEngineSettings())
+        .WillByDefault(ReturnRef(*engine_settings));
+    ON_CALL(engine, GetTokenizer()).WillByDefault(ReturnRef(tokenizer));
+    EXPECT_CALL(engine, CreateSession(testing::_))
+        .WillOnce(Return(testing::ByMove(std::move(mock_session))));
+
+    JsonPreface preface;
+    preface.tools = nlohmann::ordered_json::parse(
+        R"([{"type":"function","function":{"name":"get_time","description":"time"}}])");
+
+    ASSERT_OK_AND_ASSIGN(
+        auto config,
+        ConversationConfig::Builder()
+            .SetSessionConfig(session_config)
+            .SetPreface(preface)
+            .SetEnableConstrainedDecoding(false)
+            .SetOverwritePromptTemplate(PromptTemplate(fixed_template))
+            .SetPrefillPrefaceOnInit(false)
+            .SetFilterChannelContentFromKvCache(true)
+            .SetOverwriteProcessorConfig(Gemma4DataProcessorConfig())
+            .SetChannels({litert::lm::Channel{
+                .channel_name = "thought",
+                .start = "<|channel>thought\n",
+                .end = "<channel|>",
+            }})
+            .Build(engine));
+    ASSERT_OK_AND_ASSIGN(conversation, Conversation::Create(engine, config));
+  }
+};
+
+TEST(AgelloConversationTest,
+     NonCancelDecodeFailureRollsBackHistoryAndRewindsKv) {
+  Gemma4TestHarness h;
+  h.Init();
+
+  // Round 1: user message -> thought + tool call (leaves checkpoint &
+  // pending_thought_in_kv_ active).
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, SaveCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kProcessing,
+                       {"<|channel>thought\nplan<channel|>"
+                        "<|tool_call>call:get_time{}<tool_call|>"}));
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+  }
+  ASSERT_OK(h.conversation->SendMessage(
+      Message{{"role", "user"}, {"content", "What time is it?"}}));
+  ASSERT_EQ(h.conversation->GetHistory().size(), 2u);
+
+  // Round 2: tool response decode fails with TaskState::kFailed (non-cancel).
+  // Must roll back history back to the checkpoint index (1 = user only) AND
+  // rewind KV back to `channel_content_checkpoint`.
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kFailed));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, RewindToCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+  }
+  auto res = h.conversation->SendMessage(nlohmann::json::parse(
+      R"({"role":"tool","content":[{"name":"get_time","response":{"time":"12:00"}}]})"));
+  EXPECT_FALSE(res.ok());
+  EXPECT_EQ(h.conversation->GetHistory().size(), 1u);
+}
+
+TEST(AgelloConversationTest,
+     CancelBeforeCompleteMessageCallbackDoesNotCommitHistory) {
+  Gemma4TestHarness h;
+  h.Init();
+
+  EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+      .WillOnce([](const std::vector<InputData>&,
+                   absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+        cb(Responses(TaskState::kDone));
+        return nullptr;
+      });
+  EXPECT_CALL(*h.session, SaveCheckpoint("channel_content_checkpoint"))
+      .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+      .WillOnce([&h](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+        cb(Responses(TaskState::kProcessing,
+                     {"<|channel>thought\nsecret<channel|>Answer"}));
+        // Simulate CancelProcess racing just before kDone reaches the
+        // complete_message_callback.
+        h.conversation->CancelProcess();
+        cb(Responses(TaskState::kDone));
+        return nullptr;
+      });
+  EXPECT_CALL(*h.session, RewindToCheckpoint("channel_content_checkpoint"))
+      .WillOnce(Return(absl::OkStatus()));
+
+  auto res = h.conversation->SendMessage(
+      Message{{"role", "user"}, {"content", "Hello"}});
+  EXPECT_TRUE(absl::IsCancelled(res.status())) << res.status();
+  EXPECT_TRUE(h.conversation->GetHistory().empty());
+}
+
+TEST(AgelloConversationTest, RefillPrefillFailureRollsBackHistoryToCheckpoint) {
+  Gemma4TestHarness h;
+  h.Init();
+
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, SaveCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kProcessing,
+                       {"<|channel>thought\nstep<channel|>Final answer."}));
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, RewindToCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    // Refill prefill fails after rewind: history must roll back to checkpoint
+    // (1 message = user turn) instead of keeping the uncommitted assistant turn.
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(absl::InternalError("refill prefill failed"));
+          return nullptr;
+        });
+  }
+
+  auto res = h.conversation->SendMessage(
+      Message{{"role", "user"}, {"content", "Explain"}});
+  EXPECT_EQ(res.status().code(), absl::StatusCode::kInternal);
+  EXPECT_EQ(h.conversation->GetHistory().size(), 1u);
+}
+
+TEST(AgelloConversationTest,
+     RewindPreservesCheckpointExtraContextOverRoundTwoArgs) {
+  // Template whose tool-message output includes `custom_tag` from extra_context
+  // so refill text directly reveals whether checkpoint_extra_context_ (round 1)
+  // took precedence over round 2's optional_args.extra_context.
+  const std::string custom_template = R"jinja(
+{%- for m in messages -%}
+  {{- m['role'] + ':' -}}
+  {%- if m['role'] == 'tool' and custom_tag is defined -%}TAG={{ custom_tag }};{%- endif -%}
+  {%- if m['content'] is string -%}{{- m['content'] -}}
+  {%- elif m['content'] is sequence -%}
+    {%- for item in m['content'] -%}
+      {%- if item['type'] == 'text' -%}{{- item['text'] -}}
+      {%- elif item['response'] is defined -%}{{- 'RESP' -}}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+  {%- if m['tool_calls'] -%}CALL{%- endif -%}
+  {{- '\n' -}}
+{%- endfor -%}
+{%- if add_generation_prompt -%}assistant:{%- endif -%}
+)jinja";
+
+  Gemma4TestHarness h;
+  h.Init(custom_template);
+
+  auto get_text = [](const InputText& text) {
+    auto s = text.GetRawTextString();
+    return s.ok() ? std::string(*s) : std::string();
+  };
+
+  // Round 1 uses custom_tag="round1" and produces thought + tool_call.
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, SaveCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kProcessing,
+                       {"<|channel>thought\nplan<channel|>"
+                        "<|tool_call>call:get_time{}<tool_call|>"}));
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+  }
+  OptionalArgs round1_args;
+  round1_args.extra_context = nlohmann::ordered_json{{"custom_tag", "round1"}};
+  ASSERT_OK(h.conversation->SendMessage(
+      Message{{"role", "user"}, {"content", "Hi"}}, std::move(round1_args)));
+
+  // Round 2 passes a DIFFERENT custom_tag="round2" in optional_args.
+  // RewindAndGetInputDataVector must prefer checkpoint_extra_context_ ("round1")
+  // over round 2's extra_context.
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kProcessing, {"Done."}));
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, RewindToCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(
+        *h.session,
+        RunPrefillAsync(
+            ElementsAre(VariantWith<InputText>(ResultOf(
+                get_text,
+                AllOf(HasSubstr("TAG=round1;RESP"),
+                      Not(HasSubstr("TAG=round2;")))))),
+            testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+  }
+  OptionalArgs round2_args;
+  round2_args.extra_context = nlohmann::ordered_json{{"custom_tag", "round2"}};
+  ASSERT_OK(h.conversation->SendMessage(
+      nlohmann::json::parse(
+          R"({"role":"tool","content":[{"name":"get_time","response":{"time":"12:00"}}]})"),
+      std::move(round2_args)));
+}
+
+TEST(AgelloConversationTest,
+     AbandonedToolTurnRewindsPendingThoughtBeforeNextUserTurn) {
+  Gemma4TestHarness h;
+  h.Init();
+
+  auto get_text = [](const InputText& text) {
+    auto s = text.GetRawTextString();
+    return s.ok() ? std::string(*s) : std::string();
+  };
+
+  // Round 1: user asks -> model thinks (`secret_plan`) + tool_call.
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RunPrefillAsync(testing::_, testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, SaveCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kProcessing,
+                       {"<|channel>thought\nsecret_plan<channel|>"
+                        "<|tool_call>call:get_time{}<tool_call|>"}));
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+  }
+  ASSERT_OK(h.conversation->SendMessage(
+      Message{{"role", "user"}, {"content", "What time is it?"}}));
+
+  // Round 2: tool turn is abandoned; user sends a new non-tool message instead.
+  // Must rewind `secret_plan` out of KV, then prefill the closed tool-call turn
+  // (without `<|tool_response>` and without `secret_plan`) + the new user turn.
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(*h.session, RewindToCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(
+        *h.session,
+        RunPrefillAsync(
+            ElementsAre(VariantWith<InputText>(ResultOf(
+                get_text,
+                AllOf(HasSubstr("<|tool_call>call:get_time{}<tool_call|><turn|>\n"),
+                      HasSubstr("<|turn>user\nNever mind<turn|>\n<|turn>model\n"),
+                      Not(HasSubstr("secret_plan")),
+                      Not(HasSubstr("<|tool_response>")))))),
+            testing::_))
+        .WillOnce([](const std::vector<InputData>&,
+                     absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb) {
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+    EXPECT_CALL(*h.session, SaveCheckpoint("channel_content_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*h.session, RunDecodeAsync(testing::_, testing::_))
+        .WillOnce([](absl::AnyInvocable<void(absl::StatusOr<Responses>)> cb,
+                     const DecodeConfig&) {
+          cb(Responses(TaskState::kProcessing, {"Okay!"}));
+          cb(Responses(TaskState::kDone));
+          return nullptr;
+        });
+  }
+  ASSERT_OK_AND_ASSIGN(
+      auto reply, h.conversation->SendMessage(
+                      Message{{"role", "user"}, {"content", "Never mind"}}));
+  EXPECT_EQ(reply["content"][0]["text"], "Okay!");
+}
+
+TEST(AgelloConversationTest, PromptTemplateSanitizesInvalidUtf8WithoutThrowing) {
+  // Invalid UTF-8 in template source (lone 0xFF, overlong 0xC0 0xAF, UTF-16
+  // surrogate 0xED 0xA0 0x80) must be replaced with U+FFFD rather than throwing
+  // across the C++/Rust FFI boundary.
+  std::string bad_template = "prefix-";
+  bad_template.push_back(static_cast<char>(0xFF));
+  bad_template.append("-{{ messages[0]['content'] }}");
+
+  PromptTemplate tmpl(bad_template);
+
+  std::string bad_content = "hello-";
+  bad_content.push_back(static_cast<char>(0xC0));
+  bad_content.push_back(static_cast<char>(0xAF));
+  bad_content.push_back(static_cast<char>(0xED));
+  bad_content.push_back(static_cast<char>(0xA0));
+  bad_content.push_back(static_cast<char>(0x80));
+
+  PromptTemplateInput input;
+  input.messages = nlohmann::ordered_json::array(
+      {{{"role", "user"}, {"content", bad_content}}});
+  ASSERT_OK_AND_ASSIGN(std::string rendered, tmpl.Apply(input));
+  EXPECT_THAT(rendered, HasSubstr("prefix-\xEF\xBF\xBD-hello-"));
+  EXPECT_THAT(rendered, HasSubstr("\xEF\xBF\xBD"));
+}
+
 }  // namespace
 }  // namespace litert::lm

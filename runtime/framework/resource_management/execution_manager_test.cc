@@ -34,6 +34,7 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "absl/synchronization/notification.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
@@ -1890,6 +1891,166 @@ TEST_P(ExecutionManagerTest,
   EXPECT_THAT(fake_audio_executor_ptr->used_lora_ids_,
               ElementsAre(std::optional<uint32_t>(0)));
 
+  EXPECT_OK(execution_manager_->ReleaseSession(session_id));
+}
+
+TEST_P(ExecutionManagerTest,
+       CreateDependentTaskWhileDependencyInLastCallbackQueuedPropagatesFailure) {
+  if (GetParam() != ExecutionManagerType::kThreaded) {
+    GTEST_SKIP() << "kLastCallbackQueued is specific to ThreadedExecutionManager.";
+  }
+  std::vector<std::vector<int>> prefill_tokens = {{1, 2, 3}};
+  std::vector<std::vector<int>> decode_tokens = {{4}, {5}, {6}};
+  auto fake_llm_executor = std::make_unique<FakeLlmExecutor>(
+      kVocabSize, std::move(prefill_tokens), std::move(decode_tokens));
+  fake_llm_executor->SetPrefillStatus(absl::InternalError("Prefill failed"));
+  CreateExecutionManager(std::move(fake_llm_executor));
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+
+  absl::Notification in_terminal_callback;
+  absl::Notification release_terminal_callback;
+  ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_a_id, std::move(inputs), {},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      [&](absl::StatusOr<Responses> responses) {
+        if (!responses.ok()) {
+          in_terminal_callback.Notify();
+          release_terminal_callback.WaitForNotification();
+        }
+      }));
+
+  ASSERT_TRUE(
+      in_terminal_callback.WaitForNotificationWithTimeout(absl::Seconds(2)));
+
+  // Task A is now in kLastCallbackQueued with pending end state kFailed.
+  // Creating a dependent task must propagate kDependentTaskFailed rather than
+  // launching decode.
+  std::vector<TaskState> task_b_states;
+  ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddDecodeTask(
+      session_id, task_b_id, /*dependency_task_ids=*/{task_a_id},
+      RepetitionPenaltyConfig::Default(), NoRepeatNgramConfig::Default(),
+      SuppressTokensConfig::Default(), /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      [&](absl::StatusOr<Responses> responses) {
+        ASSERT_OK(responses);
+        task_b_states.push_back(responses->GetTaskState());
+      }));
+
+  release_terminal_callback.Notify();
+
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_a_id, absl::Seconds(2)));
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(2)));
+  EXPECT_THAT(task_b_states, ElementsAre(TaskState::kDependentTaskFailed));
+  EXPECT_OK(execution_manager_->ReleaseSession(session_id));
+}
+
+TEST_P(ExecutionManagerTest,
+       CreateDependentTaskWhileDependencyInLastCallbackQueuedPropagatesCancel) {
+  if (GetParam() != ExecutionManagerType::kThreaded) {
+    GTEST_SKIP() << "kLastCallbackQueued is specific to ThreadedExecutionManager.";
+  }
+  CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+
+  absl::Notification in_terminal_callback;
+  absl::Notification release_terminal_callback;
+  ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_a_id, std::move(inputs), {},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(true),
+      [&](absl::StatusOr<Responses> responses) {
+        if (responses.ok() &&
+            responses->GetTaskState() == TaskState::kCancelled) {
+          in_terminal_callback.Notify();
+          release_terminal_callback.WaitForNotification();
+        }
+      }));
+
+  ASSERT_TRUE(
+      in_terminal_callback.WaitForNotificationWithTimeout(absl::Seconds(2)));
+
+  std::vector<TaskState> task_b_states;
+  ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddDecodeTask(
+      session_id, task_b_id, /*dependency_task_ids=*/{task_a_id},
+      RepetitionPenaltyConfig::Default(), NoRepeatNgramConfig::Default(),
+      SuppressTokensConfig::Default(), /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      [&](absl::StatusOr<Responses> responses) {
+        ASSERT_OK(responses);
+        task_b_states.push_back(responses->GetTaskState());
+      }));
+
+  release_terminal_callback.Notify();
+
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_a_id, absl::Seconds(2)));
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(2)));
+  EXPECT_THAT(task_b_states, ElementsAre(TaskState::kDependentTaskCancelled));
+  EXPECT_OK(execution_manager_->ReleaseSession(session_id));
+}
+
+TEST_P(ExecutionManagerTest,
+       TerminalCallbackCallingWaitUntilSessionDoneDoesNotDeadlock) {
+  if (GetParam() != ExecutionManagerType::kThreaded) {
+    GTEST_SKIP() << "Callback thread reentrancy is specific to ThreadedExecutionManager.";
+  }
+  CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+
+  absl::Status wait_session_status = absl::UnknownError("not run");
+  absl::Status wait_task_status = absl::UnknownError("not run");
+  ASSERT_OK_AND_ASSIGN(const TaskId task_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_id, std::move(inputs), {},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      [&](absl::StatusOr<Responses> responses) {
+        ASSERT_OK(responses);
+        // Reentrantly call GetSessionInfo on every state transition to verify
+        // session_and_task_lookup_mutex_ is never held during user callbacks.
+        EXPECT_OK(execution_manager_->GetSessionInfo(session_id));
+        if (responses->GetTaskState() == TaskState::kDone) {
+          wait_session_status = execution_manager_->WaitUntilSessionDone(
+              session_id, absl::Seconds(2));
+          wait_task_status =
+              execution_manager_->WaitUntilDone(task_id, absl::Seconds(2));
+        }
+      }));
+
+  EXPECT_OK(
+      execution_manager_->WaitUntilSessionDone(session_id, absl::Seconds(2)));
+  EXPECT_OK(wait_session_status);
+  EXPECT_OK(wait_task_status);
   EXPECT_OK(execution_manager_->ReleaseSession(session_id));
 }
 

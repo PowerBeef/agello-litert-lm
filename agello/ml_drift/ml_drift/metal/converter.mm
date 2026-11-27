@@ -49,8 +49,8 @@ constexpr uint64_t kUnbindBytes = 1ull << 20;
 
 absl::Status Unbind(ComputeTask& task, const MetalSpatialTensor& tensor, bool tensor_is_src,
                     size_t buffer_bytes) {
-  MetalSpatialTensor none;
-  ABSL_RETURN_IF_ERROR(CreateTensorSharedBuffer(nil, tensor.GetDescriptor(), &none, 0));
+  MetalSpatialTensor none(nil, nil, /*memory_owner=*/false, /*texture_mem_owner=*/false,
+                          tensor.GetDescriptor());
   Buffer no_buffer(nil, buffer_bytes);
   if (tensor_is_src) {
     ABSL_RETURN_IF_ERROR(task.SetSrcTensor(&none, 0));

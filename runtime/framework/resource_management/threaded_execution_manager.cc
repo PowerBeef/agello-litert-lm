@@ -19,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <variant>
@@ -170,22 +171,22 @@ absl::StatusOr<SessionId> ThreadedExecutionManager::RegisterNewSession(
       .stop_token_detector = std::move(stop_token_detector),
       .benchmark_info = std::move(benchmark_info),
   });
+  if (session_info->session_config.AudioModalityEnabled()) {
+    // Agello (P4.2): static audio encoders are loaded lazily on first audio
+    // input rather than eagerly at session open.
+    ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadAudioExecutor());
+  }
+  if (session_info->session_config.VisionModalityEnabled()) {
+    // Agello (PERFORMANCE.md, E1): the vision executor is created by the
+    // first image, not here: most chats never send one, and its CPU
+    // encoder's working memory is 1.2-1.5 GB on the iPhone.
+    ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadVisionExecutor());
+  }
   {
     absl::MutexLock lock(session_and_task_lookup_mutex_);
     if (session_lookup_.contains(session_id)) {
       return absl::InvalidArgumentError(absl::StrCat(
           "Session ", session_id, " already exists in session list."));
-    }
-    if (session_info->session_config.AudioModalityEnabled()) {
-      // Agello (P4.2): static audio encoders are loaded lazily on first audio
-      // input rather than eagerly at session open.
-      ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadAudioExecutor());
-    }
-    if (session_info->session_config.VisionModalityEnabled()) {
-      // Agello (PERFORMANCE.md, E1): the vision executor is created by the
-      // first image, not here: most chats never send one, and its CPU
-      // encoder's working memory is 1.2-1.5 GB on the iPhone.
-      ABSL_RETURN_IF_ERROR(resource_manager_->CanLoadVisionExecutor());
     }
     session_lookup_.insert({session_id, std::move(session_info)});
 #if defined(LITERT_LM_DEBUGGER_ENABLED)
@@ -198,31 +199,47 @@ absl::StatusOr<SessionId> ThreadedExecutionManager::RegisterNewSession(
 }
 
 absl::Status ThreadedExecutionManager::ReleaseSession(SessionId session_id) {
-  absl::MutexLock lock(session_and_task_lookup_mutex_);
-  if (!session_lookup_.contains(session_id)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Session ", session_id, " not found in session list."));
+  bool should_reset_audio = false;
+  bool should_reset_handler = false;
+  {
+    absl::MutexLock lock(session_and_task_lookup_mutex_);
+    auto session_it = session_lookup_.find(session_id);
+    if (session_it == session_lookup_.end()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Session ", session_id, " not found in session list."));
+    }
+    // If the session is the only session and it is audio modality enabled, we
+    // need to reset the audio executor, so the streaming audio executor would
+    // have a clean state for the next usage.
+    should_reset_audio =
+        session_it->second->session_config.AudioModalityEnabled() &&
+        session_lookup_.size() == 1;
+    for (auto it = task_lookup_.begin(); it != task_lookup_.end();) {
+      if (it->second.session_id == session_id) {
+        pending_end_states_.erase(it->first);
+        task_lookup_.erase(it++);
+      } else {
+        ++it;
+      }
+    }
+    pending_callback_tasks_.erase(session_id);
+#if defined(LITERT_LM_DEBUGGER_ENABLED)
+    if (runtime_debugger_ != nullptr) {
+      runtime_debugger_->UnregisterDebugSession(session_id);
+    }
+#endif  // defined(LITERT_LM_DEBUGGER_ENABLED)
+    session_lookup_.erase(session_it);
+    should_reset_handler = session_lookup_.empty();
   }
-  // If the session is the only session and it is audio modality enabled, we
-  // need to reset the audio executor, so the streaming audio executor would
-  // have a clean state for the next usage.
-  if (session_lookup_.at(session_id)->session_config.AudioModalityEnabled() &&
-      session_lookup_.size() == 1) {
+  // Release session_and_task_lookup_mutex_ before acquiring audio/LLM executor
+  // mutexes to prevent AB-BA lock inversion with AddDecodeTask callbacks.
+  if (should_reset_audio) {
     auto audio_executor = resource_manager_->AcquireLoadedAudioExecutor();
     if (audio_executor.ok()) {
       (*audio_executor)->Reset().IgnoreError();
     }
   }
-  absl::erase_if(task_lookup_, [session_id](const auto& kv) {
-    return kv.second.session_id == session_id;
-  });
-#if defined(LITERT_LM_DEBUGGER_ENABLED)
-  if (runtime_debugger_ != nullptr) {
-    runtime_debugger_->UnregisterDebugSession(session_id);
-  }
-#endif  // defined(LITERT_LM_DEBUGGER_ENABLED)
-  session_lookup_.erase(session_id);
-  if (session_lookup_.empty()) {
+  if (should_reset_handler) {
     resource_manager_->ResetCurrentHandler();
   }
   return absl::OkStatus();
@@ -275,23 +292,18 @@ absl::StatusOr<TaskId> ThreadedExecutionManager::GetNewTaskId() {
   return next_task_id_.fetch_add(1);
 }
 
-absl::Status ThreadedExecutionManager::CreateTask(
-    SessionId session_id, TaskId task_id,
-    absl::AnyInvocable<void()> absl_nonnull task,
-    absl::flat_hash_set<TaskId> dependent_tasks,
-    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
-    absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback) {
-  absl::MutexLock lock(session_and_task_lookup_mutex_);
-  if (!session_lookup_.contains(session_id)) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "Session ", session_id, " not found in session list. Task ", task_id,
-        " cannot be created."));
+void ThreadedExecutionManager::InvokePendingCallbacks(
+    std::vector<PendingCallback>& pending_callbacks) {
+  for (auto& entry : pending_callbacks) {
+    if (entry.callback != nullptr) {
+      entry.callback(std::move(entry.payload));
+    }
   }
-  if (task_lookup_.contains(task_id)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Task ", task_id, " already exists in task list."));
-  }
+  pending_callbacks.clear();
+}
 
+absl::StatusOr<TaskState> ThreadedExecutionManager::ResolveDependenciesLocked(
+    absl::flat_hash_set<TaskId>& dependent_tasks) {
   TaskState task_state = TaskState::kCreated;
   for (auto it = dependent_tasks.begin(); it != dependent_tasks.end();) {
     TaskId dep_task_id = *it;
@@ -306,9 +318,16 @@ absl::Status ThreadedExecutionManager::CreateTask(
       erase_dependency = true;
     } else {
       TaskInfo& dep_task_info = task_it->second;
+      TaskState effective_dep_state = dep_task_info.task_state;
+      if (effective_dep_state == TaskState::kLastCallbackQueued) {
+        auto pending_it = pending_end_states_.find(dep_task_id);
+        effective_dep_state = pending_it != pending_end_states_.end()
+                                  ? pending_it->second
+                                  : TaskState::kDone;
+      }
 
-      if (IsTaskEndState(dep_task_info.task_state)) {
-        switch (dep_task_info.task_state) {
+      if (IsTaskEndState(effective_dep_state)) {
+        switch (effective_dep_state) {
           case TaskState::kFailed:
             ABSL_FALLTHROUGH_INTENDED;
           case TaskState::kDependentTaskFailed:
@@ -329,17 +348,12 @@ absl::Status ThreadedExecutionManager::CreateTask(
             }
             break;
           default:
-            return absl::InvalidArgumentError(
-                absl::StrCat("Dependency task ", dep_task_id,
-                             " is in end state ", dep_task_info.task_state,
-                             " but not in Done or Cancelled or Failed state."));
+            return absl::InvalidArgumentError(absl::StrCat(
+                "Dependency task ", dep_task_id, " is in end state ",
+                effective_dep_state,
+                " but not in Done or Cancelled or Failed state."));
         }
         erase_dependency = true;
-      } else if (dep_task_info.task_state == TaskState::kLastCallbackQueued) {
-        erase_dependency = true;
-      } else {
-        // Dependency task is not finished, so this new task must follow it.
-        dep_task_info.following_tasks.insert(task_id);
       }
     }
 
@@ -349,32 +363,105 @@ absl::Status ThreadedExecutionManager::CreateTask(
       dependent_tasks.erase(copy_it);
     }
   }
-
-  if (!IsTaskEndState(task_state)) {
-    session_lookup_.at(session_id)->active_tasks.insert(task_id);
-  }
-
-  TaskInfo task_info;
-  task_info.session_id = session_id;
-  task_info.task_state = task_state;
-  task_info.task = std::move(task);
-  task_info.dependent_tasks = std::move(dependent_tasks);
-  task_info.cancelled = cancelled;
-  task_info.callback = std::move(callback);
-  task_lookup_.insert({task_id, std::move(task_info)});
-
-  task_lookup_.at(task_id).callback(Responses(task_state));
-
-  // If there are no dependency tasks, we can queue the task immediately.
-  // Otherwise, the task will be queued when all dependency tasks are done.
-  if (task_state == TaskState::kCreated &&
-      task_lookup_.at(task_id).dependent_tasks.empty()) {
-    ABSL_RETURN_IF_ERROR(QueueTask(task_id));
-  }
-  return absl::OkStatus();
+  return task_state;
 }
 
-absl::Status ThreadedExecutionManager::QueueTask(TaskId task_id) {
+absl::Status ThreadedExecutionManager::CreateTask(
+    SessionId session_id, TaskId task_id,
+    absl::AnyInvocable<void()> absl_nonnull task,
+    absl::flat_hash_set<TaskId> dependent_tasks,
+    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback) {
+  TaskState initial_state = TaskState::kCreated;
+  {
+    absl::MutexLock lock(session_and_task_lookup_mutex_);
+    if (!session_lookup_.contains(session_id)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "Session ", session_id, " not found in session list. Task ", task_id,
+          " cannot be created."));
+    }
+    if (task_lookup_.contains(task_id)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Task ", task_id, " already exists in task list."));
+    }
+
+    ABSL_ASSIGN_OR_RETURN(initial_state,
+                          ResolveDependenciesLocked(dependent_tasks));
+
+    if (!IsTaskEndState(initial_state)) {
+      session_lookup_.at(session_id)->active_tasks.insert(task_id);
+    }
+
+    TaskInfo task_info;
+    task_info.session_id = session_id;
+    task_info.task_state = initial_state;
+    task_info.cancelled = cancelled;
+    // Keep `task` and `callback` off `task_lookup_` while the initial callback
+    // runs unlocked so no other thread can concurrently invoke `callback` or
+    // start `task`.
+    task_lookup_.insert({task_id, std::move(task_info)});
+  }
+
+  callback(Responses(initial_state));
+
+  if (IsTaskEndState(initial_state)) {
+    return absl::OkStatus();
+  }
+
+  std::vector<PendingCallback> pending_callbacks;
+  std::vector<ReadyToQueueTask> ready_to_queue;
+  absl::Status queue_status = absl::OkStatus();
+  {
+    absl::MutexLock lock(session_and_task_lookup_mutex_);
+    auto task_it = task_lookup_.find(task_id);
+    if (task_it == task_lookup_.end() || !session_lookup_.contains(session_id)) {
+      // Session was released during the kCreated callback.
+      return absl::OkStatus();
+    }
+    if (task_it->second.task_state != TaskState::kCreated) {
+      return absl::OkStatus();
+    }
+
+    ABSL_ASSIGN_OR_RETURN(TaskState resolved_state,
+                          ResolveDependenciesLocked(dependent_tasks));
+
+    if (IsTaskEndState(resolved_state)) {
+      task_it->second.dependent_tasks.clear();
+      auto following_waiting = FollowingWaitingTasks(task_id);
+      if (following_waiting.ok() && !following_waiting->empty()) {
+        UpdateAllTasksToState(*following_waiting, resolved_state,
+                              pending_callbacks)
+            .IgnoreError();
+      }
+      pending_callbacks.push_back(
+          {std::move(callback), Responses(resolved_state)});
+      queue_status = UpdateTaskState(task_id, resolved_state, pending_callbacks);
+    } else {
+      for (TaskId dep_task_id : dependent_tasks) {
+        if (auto dep_it = task_lookup_.find(dep_task_id);
+            dep_it != task_lookup_.end()) {
+          dep_it->second.following_tasks.insert(task_id);
+        }
+      }
+      task_it->second.task = std::move(task);
+      task_it->second.dependent_tasks = std::move(dependent_tasks);
+      task_it->second.callback = std::move(callback);
+      if (task_it->second.dependent_tasks.empty()) {
+        queue_status = QueueTask(task_id, pending_callbacks, ready_to_queue);
+      }
+    }
+  }
+
+  InvokePendingCallbacks(pending_callbacks);
+  if (!queue_status.ok()) {
+    return queue_status;
+  }
+  return DispatchReadyTasks(ready_to_queue);
+}
+
+absl::Status ThreadedExecutionManager::QueueTask(
+    TaskId task_id, std::vector<PendingCallback>& pending_callbacks,
+    std::vector<ReadyToQueueTask>& ready_to_queue) {
   if (!task_lookup_.contains(task_id)) {
     return absl::InvalidArgumentError(
         absl::StrCat("Task ", task_id, " not found in task list."));
@@ -382,121 +469,239 @@ absl::Status ThreadedExecutionManager::QueueTask(TaskId task_id) {
   if (task_lookup_.at(task_id).task_state != TaskState::kCreated) {
     auto error_status = absl::FailedPreconditionError(
         absl::StrCat("Task ", task_id, " is not in Created state."));
-    task_lookup_.at(task_id).callback(error_status);
+    if (task_lookup_.at(task_id).callback != nullptr) {
+      pending_callbacks.push_back(
+          {std::move(task_lookup_.at(task_id).callback), error_status});
+    }
     return error_status;
   }
   if (!task_lookup_.at(task_id).dependent_tasks.empty()) {
     auto error_status = absl::InvalidArgumentError(
         absl::StrCat("Task ", task_id, " has dependent tasks not finished."));
-    task_lookup_.at(task_id).callback(error_status);
+    if (task_lookup_.at(task_id).callback != nullptr) {
+      pending_callbacks.push_back(
+          {std::move(task_lookup_.at(task_id).callback), error_status});
+    }
     return error_status;
   }
 
-  auto task = std::move(task_lookup_.at(task_id).task);
-  AGELLO_COUNT(kTasksScheduled);
-  if (::agello::telemetry::Enabled(::agello::telemetry::kSpans)) {
-    // Time spent queued behind other sessions' work on the single execution thread.
-    task = [task = std::move(task),
-            queued = ::agello::telemetry::NowTicks()]() mutable {
-      ::agello::telemetry::RecordDuration(::agello::telemetry::kTaskQueueWait,
-                                          queued,
-                                          ::agello::telemetry::NowTicks());
-      task();
-    };
-  }
-
-  if (execution_thread_pool_ != nullptr) {
-    ABSL_RETURN_IF_ERROR(execution_thread_pool_->Schedule(std::move(task)));
-  } else {
-    ABSL_LOG(ERROR) << "Execution thread pool is null, skipping task: "
-                    << task_id;
-  }
-
-  task_lookup_.at(task_id).callback(Responses(TaskState::kQueued));
-  ABSL_RETURN_IF_ERROR(UpdateTaskState(task_id, TaskState::kQueued));
-
+  ABSL_RETURN_IF_ERROR(
+      UpdateTaskState(task_id, TaskState::kQueued, pending_callbacks));
+  ready_to_queue.push_back(ReadyToQueueTask{
+      .task_id = task_id,
+      .task = std::move(task_lookup_.at(task_id).task),
+      .callback = std::move(task_lookup_.at(task_id).callback),
+  });
   return absl::OkStatus();
+}
+
+absl::Status ThreadedExecutionManager::DispatchReadyTasks(
+    std::vector<ReadyToQueueTask>& ready_to_queue) {
+  absl::Status first_error = absl::OkStatus();
+  for (auto& ready : ready_to_queue) {
+    if (ready.callback != nullptr) {
+      ready.callback(Responses(TaskState::kQueued));
+    }
+    absl::AnyInvocable<void()> task_to_schedule;
+    {
+      absl::MutexLock lock(session_and_task_lookup_mutex_);
+      auto it = task_lookup_.find(ready.task_id);
+      if (it == task_lookup_.end() ||
+          it->second.task_state != TaskState::kQueued) {
+        continue;
+      }
+      it->second.callback = std::move(ready.callback);
+      task_to_schedule = std::move(ready.task);
+    }
+
+    AGELLO_COUNT(kTasksScheduled);
+    if (::agello::telemetry::Enabled(::agello::telemetry::kSpans)) {
+      // Time spent queued behind other sessions' work on the single execution
+      // thread.
+      task_to_schedule = [task = std::move(task_to_schedule),
+                          queued = ::agello::telemetry::NowTicks()]() mutable {
+        ::agello::telemetry::RecordDuration(::agello::telemetry::kTaskQueueWait,
+                                            queued,
+                                            ::agello::telemetry::NowTicks());
+        task();
+      };
+    }
+
+    if (execution_thread_pool_ != nullptr) {
+      absl::Status schedule_status =
+          execution_thread_pool_->Schedule(std::move(task_to_schedule));
+      if (!schedule_status.ok()) {
+        std::vector<PendingCallback> failure_callbacks;
+        {
+          absl::MutexLock lock(session_and_task_lookup_mutex_);
+          if (task_lookup_.contains(ready.task_id)) {
+            if (task_lookup_.at(ready.task_id).callback != nullptr) {
+              failure_callbacks.push_back(
+                  {std::move(task_lookup_.at(ready.task_id).callback),
+                   schedule_status});
+            }
+            UpdateTaskState(ready.task_id, TaskState::kFailed,
+                            failure_callbacks)
+                .IgnoreError();
+          }
+        }
+        InvokePendingCallbacks(failure_callbacks);
+        if (first_error.ok()) {
+          first_error = schedule_status;
+        }
+      }
+    } else {
+      ABSL_LOG(ERROR) << "Execution thread pool is null, skipping task: "
+                      << ready.task_id;
+    }
+  }
+  ready_to_queue.clear();
+  return first_error;
 }
 
 absl::StatusOr<
     std::tuple<std::shared_ptr<SessionInfo>, std::shared_ptr<std::atomic<bool>>,
                absl::AnyInvocable<void(absl::StatusOr<Responses>)>>>
 ThreadedExecutionManager::StartTask(TaskId task_id) {
-  absl::MutexLock lock(session_and_task_lookup_mutex_);
-  if (!task_lookup_.contains(task_id)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Task ", task_id, " not found in task list."));
-  }
-  // If the task is cancelled, we don't need to start it.
-  if (task_lookup_.at(task_id).task_state == TaskState::kCancelled) {
-    return std::make_tuple(nullptr, nullptr, nullptr);
-  }
-  if (task_lookup_.at(task_id).callback == nullptr) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Task ", task_id, " has no callback."));
-  }
-  if (task_lookup_.at(task_id).task_state != TaskState::kQueued) {
-    auto error_status = absl::FailedPreconditionError(
-        absl::StrCat("Task ", task_id, " is not in Queued state."));
-    task_lookup_.at(task_id).callback(error_status);
-    return error_status;
-  }
-  task_lookup_.at(task_id).callback(Responses(TaskState::kProcessing));
-  ABSL_RETURN_IF_ERROR(UpdateTaskState(task_id, TaskState::kProcessing));
+  std::shared_ptr<SessionInfo> session_info;
+  std::shared_ptr<std::atomic<bool>> cancelled;
+  absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback;
+  std::vector<PendingCallback> pending_callbacks;
+  absl::Status error_status = absl::OkStatus();
+  bool cancelled_before_start = false;
 
-  if (!session_lookup_.contains(task_lookup_.at(task_id).session_id)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Session ", task_lookup_.at(task_id).session_id,
-                     " not found in session list."));
-  }
-  std::shared_ptr<SessionInfo> session_info =
-      session_lookup_.at(task_lookup_.at(task_id).session_id);
-  return std::make_tuple(session_info, task_lookup_.at(task_id).cancelled,
-                         std::move(task_lookup_.at(task_id).callback));
-}
-
-absl::Status ThreadedExecutionManager::FinishTask(
-    TaskId task_id, absl::StatusOr<Responses> responses,
-    absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback) {
-  auto invoke_callback_and_return =
-      [&](absl::Status status) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
-          session_and_task_lookup_mutex_) -> absl::Status {
-    callback(status);
-    ABSL_RETURN_IF_ERROR(UpdateTaskState(task_id, TaskState::kFailed));
-    return status;
-  };
   {
     absl::MutexLock lock(session_and_task_lookup_mutex_);
     if (!task_lookup_.contains(task_id)) {
       return absl::InvalidArgumentError(
           absl::StrCat("Task ", task_id, " not found in task list."));
     }
+    // If the task is cancelled, we don't need to start it.
+    if (task_lookup_.at(task_id).task_state == TaskState::kCancelled) {
+      cancelled_before_start = true;
+    } else if (task_lookup_.at(task_id).callback == nullptr) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Task ", task_id, " has no callback."));
+    } else if (task_lookup_.at(task_id).task_state != TaskState::kQueued) {
+      error_status = absl::FailedPreconditionError(
+          absl::StrCat("Task ", task_id, " is not in Queued state."));
+      pending_callbacks.push_back(
+          {std::move(task_lookup_.at(task_id).callback), error_status});
+    } else if (!session_lookup_.contains(task_lookup_.at(task_id).session_id)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Session ", task_lookup_.at(task_id).session_id,
+                       " not found in session list."));
+    } else {
+      error_status =
+          UpdateTaskState(task_id, TaskState::kProcessing, pending_callbacks);
+      if (error_status.ok()) {
+        session_info = session_lookup_.at(task_lookup_.at(task_id).session_id);
+        cancelled = task_lookup_.at(task_id).cancelled;
+        callback = std::move(task_lookup_.at(task_id).callback);
+      }
+    }
+  }
+
+  InvokePendingCallbacks(pending_callbacks);
+  if (!error_status.ok()) {
+    return error_status;
+  }
+  if (cancelled_before_start) {
+    return std::make_tuple(nullptr, nullptr, nullptr);
+  }
+  callback(Responses(TaskState::kProcessing));
+  return std::make_tuple(std::move(session_info), std::move(cancelled),
+                         std::move(callback));
+}
+
+void ThreadedExecutionManager::CompleteFinalCallback(
+    std::optional<std::thread::id> tid, SessionId session_id, TaskId task_id,
+    TaskState next_state) {
+  std::vector<PendingCallback> cleanup_callbacks;
+  {
+    absl::MutexLock lock(session_and_task_lookup_mutex_);
+    if (tid.has_value()) {
+      running_callbacks_by_thread_.erase(*tid);
+    }
+    if (auto it = pending_callback_tasks_.find(session_id);
+        it != pending_callback_tasks_.end()) {
+      it->second.erase(task_id);
+      if (it->second.empty()) {
+        pending_callback_tasks_.erase(it);
+      }
+    }
+    if (task_lookup_.contains(task_id)) {
+      auto status = UpdateTaskState(task_id, next_state, cleanup_callbacks);
+      if (!status.ok()) {
+        ABSL_LOG(ERROR) << "Failed to update task state: " << status
+                        << " with task id: " << task_id;
+      }
+    } else {
+      pending_end_states_.erase(task_id);
+    }
+  }
+  InvokePendingCallbacks(cleanup_callbacks);
+}
+
+absl::Status ThreadedExecutionManager::FinishTask(
+    TaskId task_id, absl::StatusOr<Responses> responses,
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback) {
+  std::vector<PendingCallback> pending_callbacks;
+  std::vector<ReadyToQueueTask> ready_to_queue;
+  absl::Status early_error = absl::OkStatus();
+  bool schedule_final_callback = false;
+  TaskState next_task_state = TaskState::kUnknown;
+  SessionId task_session_id = -1;
+
+  {
+    absl::MutexLock lock(session_and_task_lookup_mutex_);
+    auto fail_task_locked =
+        [&](absl::Status status) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
+            session_and_task_lookup_mutex_) -> void {
+      pending_callbacks.push_back({std::move(callback), status});
+      absl::Status update_status =
+          UpdateTaskState(task_id, TaskState::kFailed, pending_callbacks);
+      early_error = update_status.ok() ? status : update_status;
+    };
+
+    if (!task_lookup_.contains(task_id)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Task ", task_id, " not found in task list."));
+    }
+    task_session_id = task_lookup_.at(task_id).session_id;
     if (task_lookup_.at(task_id).task_state != TaskState::kProcessing) {
       auto error_status = absl::FailedPreconditionError(
           absl::StrCat("Task ", task_id, " is not in Processing state."));
-      return invoke_callback_and_return(error_status);
-    }
-    if (!responses.ok() || responses->GetTaskState() == TaskState::kCancelled) {
+      fail_task_locked(error_status);
+    } else if (!responses.ok() ||
+               responses->GetTaskState() == TaskState::kCancelled) {
       auto following_waiting_tasks = FollowingWaitingTasks(task_id);
       if (!following_waiting_tasks.ok()) {
-        return invoke_callback_and_return(following_waiting_tasks.status());
-      }
-      auto status = UpdateAllTasksToState(
-          following_waiting_tasks.value(),
-          responses.ok() ? TaskState::kDependentTaskCancelled
-                         : TaskState::kDependentTaskFailed);
-      if (!status.ok()) {
-        return invoke_callback_and_return(status);
+        fail_task_locked(following_waiting_tasks.status());
+      } else {
+        auto status = UpdateAllTasksToState(
+            following_waiting_tasks.value(),
+            responses.ok() ? TaskState::kDependentTaskCancelled
+                           : TaskState::kDependentTaskFailed,
+            pending_callbacks);
+        if (!status.ok()) {
+          fail_task_locked(status);
+        } else {
+          schedule_final_callback = true;
+        }
       }
     } else if (responses->GetTaskState() == TaskState::kDone ||
                responses->GetTaskState() == TaskState::kMaxNumTokensReached) {
+      bool ok = true;
       for (TaskId following_task_id :
            task_lookup_.at(task_id).following_tasks) {
         if (!task_lookup_.contains(following_task_id)) {
           auto error_status = absl::InvalidArgumentError(
               absl::StrCat("Following task ", following_task_id,
                            " not found in task list."));
-          return invoke_callback_and_return(error_status);
+          fail_task_locked(error_status);
+          ok = false;
+          break;
         }
         if (IsTaskEndState(task_lookup_.at(following_task_id).task_state)) {
           continue;
@@ -507,51 +712,107 @@ absl::Status ThreadedExecutionManager::FinishTask(
               absl::StrCat("Following task ", following_task_id,
                            " is not in Created state. Task state: ",
                            task_lookup_.at(following_task_id).task_state));
-          return invoke_callback_and_return(error_status);
+          fail_task_locked(error_status);
+          ok = false;
+          break;
         }
         if (!task_lookup_.at(following_task_id)
                  .dependent_tasks.contains(task_id)) {
           auto error_status = absl::InvalidArgumentError(
               absl::StrCat("Following task ", following_task_id,
                            " does not depend on task ", task_id));
-          return invoke_callback_and_return(error_status);
+          fail_task_locked(error_status);
+          ok = false;
+          break;
         }
         task_lookup_.at(following_task_id).dependent_tasks.erase(task_id);
         if (task_lookup_.at(following_task_id).dependent_tasks.empty()) {
-          ABSL_RETURN_IF_ERROR(QueueTask(following_task_id));
+          absl::Status q_status =
+              QueueTask(following_task_id, pending_callbacks, ready_to_queue);
+          if (!q_status.ok()) {
+            early_error = q_status;
+            ok = false;
+            break;
+          }
         }
       }
+      if (ok) {
+        schedule_final_callback = true;
+      }
     } else if (!IsTaskEndState(responses->GetTaskState())) {
-      return invoke_callback_and_return(absl::InvalidArgumentError(absl::StrCat(
-          "Expected task state for responses to be end state, but got ",
-          responses->GetTaskState())));
+      fail_task_locked(absl::InvalidArgumentError(
+          absl::StrCat("Expected task state for responses to be end state, "
+                       "but got ",
+                       responses->GetTaskState())));
+    } else {
+      schedule_final_callback = true;
     }
 
-    TaskState next_task_state =
-        responses.ok() ? responses->GetTaskState() : TaskState::kFailed;
-    if (callback_thread_pool_ != nullptr) {
-      ABSL_RETURN_IF_ERROR(callback_thread_pool_->Schedule(
-          [callback = std::move(callback), responses = std::move(responses),
-           task_id = task_id, next_task_state = std::move(next_task_state),
-           this]() mutable {
-            callback(std::move(responses));
-            absl::MutexLock lock(session_and_task_lookup_mutex_);
-            auto status = UpdateTaskState(task_id, next_task_state);
-            if (!status.ok()) {
-              ABSL_LOG(ERROR) << "Failed to update task state: " << status
-                              << " with task id: " << task_id;
-            }
-          }));
-      ABSL_RETURN_IF_ERROR(
-          UpdateTaskState(task_id, TaskState::kLastCallbackQueued));
-    } else {
-      callback(
-          absl::InternalError("Callback thread pool is null, skipping "
-                              "callback and ignoring task state."));
+    if (schedule_final_callback) {
+      next_task_state =
+          responses.ok() ? responses->GetTaskState() : TaskState::kFailed;
+      if (callback_thread_pool_ != nullptr) {
+        // Transition to kLastCallbackQueued and remove task_id from
+        // active_tasks BEFORE invoking the terminal callback so a terminal
+        // callback calling WaitUntilSessionDone cannot self-deadlock.
+        absl::Status update_status = UpdateTaskState(
+            task_id, TaskState::kLastCallbackQueued, pending_callbacks);
+        if (!update_status.ok()) {
+          early_error = update_status;
+          schedule_final_callback = false;
+        } else {
+          pending_end_states_[task_id] = next_task_state;
+          pending_callback_tasks_[task_session_id].insert(task_id);
+        }
+      } else {
+        pending_callbacks.push_back(
+            {std::move(callback),
+             absl::InternalError("Callback thread pool is null, skipping "
+                                 "callback and ignoring task state.")});
+        absl::Status update_status =
+            UpdateTaskState(task_id, TaskState::kFailed, pending_callbacks);
+        if (!update_status.ok()) {
+          early_error = update_status;
+        }
+        schedule_final_callback = false;
+      }
     }
   }
 
-  if (callback_thread_pool_ != nullptr) {
+  InvokePendingCallbacks(pending_callbacks);
+  if (!early_error.ok()) {
+    return early_error;
+  }
+  ABSL_RETURN_IF_ERROR(DispatchReadyTasks(ready_to_queue));
+
+  if (schedule_final_callback && callback_thread_pool_ != nullptr) {
+    absl::Status schedule_status = callback_thread_pool_->Schedule(
+        [callback = std::move(callback), responses = std::move(responses),
+         task_id = task_id, session_id = task_session_id,
+         next_task_state = next_task_state, this]() mutable {
+          const std::thread::id tid = std::this_thread::get_id();
+          struct RunningCallbackGuard {
+            ThreadedExecutionManager* mgr;
+            std::thread::id tid;
+            SessionId session_id;
+            TaskId task_id;
+            TaskState next_state;
+            ~RunningCallbackGuard() {
+              mgr->CompleteFinalCallback(tid, session_id, task_id, next_state);
+            }
+          } guard{this, tid, session_id, task_id, next_task_state};
+          {
+            absl::MutexLock lock(session_and_task_lookup_mutex_);
+            running_callbacks_by_thread_[tid] = task_id;
+          }
+          callback(std::move(responses));
+        });
+    if (!schedule_status.ok()) {
+      CompleteFinalCallback(std::nullopt, task_session_id, task_id,
+                            TaskState::kFailed);
+      return schedule_status;
+    }
+
     // TODO b/476205457 - Consider to use a asynchronous approach to handle the
     // callback, and remove this WaitUntilDone.
     AGELLO_SPAN(kTaskCallback, task_id);
@@ -585,56 +846,67 @@ ThreadedExecutionManager::FollowingWaitingTasks(TaskId task_id) {
       return absl::InvalidArgumentError(absl::StrCat(
           "Following task ", following_task_id, " not found in task list."));
     }
+    if (IsTaskEndState(task_lookup_.at(following_task_id).task_state)) {
+      continue;
+    }
     if (!task_lookup_.at(following_task_id).dependent_tasks.contains(task_id)) {
       return absl::InvalidArgumentError(
           absl::StrCat("Following task ", following_task_id,
                        " does not depend on task ", task_id));
     }
-    if (!IsTaskEndState(task_lookup_.at(following_task_id).task_state)) {
-      following_waiting_tasks.insert(following_task_id);
-      ABSL_ASSIGN_OR_RETURN(auto next_following_waiting_tasks,
-                            FollowingWaitingTasks(following_task_id));
-      following_waiting_tasks.insert(next_following_waiting_tasks.begin(),
-                                     next_following_waiting_tasks.end());
-    }
+    following_waiting_tasks.insert(following_task_id);
+    ABSL_ASSIGN_OR_RETURN(auto next_following_waiting_tasks,
+                          FollowingWaitingTasks(following_task_id));
+    following_waiting_tasks.insert(next_following_waiting_tasks.begin(),
+                                   next_following_waiting_tasks.end());
   }
   return following_waiting_tasks;
 }
 
-absl::Status ThreadedExecutionManager::UpdateTaskState(TaskId task_id,
-                                                       TaskState task_state) {
+absl::Status ThreadedExecutionManager::UpdateTaskState(
+    TaskId task_id, TaskState task_state,
+    std::vector<PendingCallback>& pending_callbacks) {
   if (!task_lookup_.contains(task_id)) {
     return absl::InvalidArgumentError(
         absl::StrCat("Task ", task_id, " not found in task list."));
   }
-  if (!IsTaskEndState(task_lookup_.at(task_id).task_state) &&
-      IsTaskEndState(task_state)) {
+  auto is_inactive_state = [](TaskState state) {
+    return IsTaskEndState(state) || state == TaskState::kLastCallbackQueued;
+  };
+  if (!is_inactive_state(task_lookup_.at(task_id).task_state) &&
+      is_inactive_state(task_state)) {
     SessionId session_id = task_lookup_.at(task_id).session_id;
     if (session_lookup_.contains(session_id) &&
         session_lookup_.at(session_id)->active_tasks.contains(task_id)) {
-      session_lookup_.at(task_lookup_.at(task_id).session_id)
-          ->active_tasks.erase(task_id);
+      session_lookup_.at(session_id)->active_tasks.erase(task_id);
     } else {
       auto error_status = absl::InternalError(absl::StrCat(
           "Task ", task_id, " is not in active tasks of session ", session_id));
       if (task_lookup_.at(task_id).callback != nullptr) {
-        task_lookup_.at(task_id).callback(error_status);
+        pending_callbacks.push_back(
+            {std::move(task_lookup_.at(task_id).callback), error_status});
       }
       return error_status;
     }
+  }
+  if (IsTaskEndState(task_state)) {
+    pending_end_states_.erase(task_id);
   }
   task_lookup_.at(task_id).task_state = task_state;
   return absl::OkStatus();
 }
 
 absl::Status ThreadedExecutionManager::UpdateAllTasksToState(
-    const absl::flat_hash_set<TaskId>& task_ids, TaskState task_state) {
+    const absl::flat_hash_set<TaskId>& task_ids, TaskState task_state,
+    std::vector<PendingCallback>& pending_callbacks) {
   for (TaskId task_id : task_ids) {
     task_lookup_.at(task_id).dependent_tasks.clear();
     if (task_lookup_.at(task_id).callback) {
-      task_lookup_.at(task_id).callback(Responses(task_state));
+      pending_callbacks.push_back(
+          {std::move(task_lookup_.at(task_id).callback), Responses(task_state)});
     }
-    ABSL_RETURN_IF_ERROR(UpdateTaskState(task_id, task_state));
+    ABSL_RETURN_IF_ERROR(
+        UpdateTaskState(task_id, task_state, pending_callbacks));
   }
   return absl::OkStatus();
 }
@@ -848,10 +1120,24 @@ ThreadedExecutionManager::Create(
 
 absl::Status ThreadedExecutionManager::WaitUntilDone(TaskId task_id,
                                                      absl::Duration timeout) {
-  auto task_done = [this, task_id]() {
+  const std::thread::id current_tid = std::this_thread::get_id();
+  auto task_done = [this, task_id, current_tid]() {
     session_and_task_lookup_mutex_.AssertReaderHeld();
-    return task_lookup_.contains(task_id) &&
-           IsTaskEndState(task_lookup_.at(task_id).task_state);
+    auto it = task_lookup_.find(task_id);
+    if (it == task_lookup_.end()) {
+      return false;
+    }
+    if (IsTaskEndState(it->second.task_state)) {
+      return true;
+    }
+    if (it->second.task_state == TaskState::kLastCallbackQueued) {
+      auto cb_it = running_callbacks_by_thread_.find(current_tid);
+      if (cb_it != running_callbacks_by_thread_.end() &&
+          cb_it->second == task_id) {
+        return true;
+      }
+    }
+    return false;
   };
   const uint64_t wait_start = ::agello::telemetry::NowTicks();
   absl::MutexLock lock(session_and_task_lookup_mutex_);
@@ -866,10 +1152,23 @@ absl::Status ThreadedExecutionManager::WaitUntilDone(TaskId task_id,
 
 absl::Status ThreadedExecutionManager::WaitUntilSessionDone(
     SessionId session_id, absl::Duration timeout) {
-  auto session_done = [this, session_id]() {
+  const std::thread::id current_tid = std::this_thread::get_id();
+  auto session_done = [this, session_id, current_tid]() {
     session_and_task_lookup_mutex_.AssertReaderHeld();
-    return !session_lookup_.contains(session_id) ||
-           session_lookup_.at(session_id)->active_tasks.empty();
+    auto session_it = session_lookup_.find(session_id);
+    if (session_it == session_lookup_.end()) {
+      return true;
+    }
+    if (!session_it->second->active_tasks.empty()) {
+      return false;
+    }
+    auto cb_it = pending_callback_tasks_.find(session_id);
+    if (cb_it == pending_callback_tasks_.end() || cb_it->second.empty()) {
+      return true;
+    }
+    // Avoid self-deadlock when a terminal callback on callback_thread_pool_
+    // calls WaitUntilSessionDone() for its own session.
+    return running_callbacks_by_thread_.contains(current_tid);
   };
   const uint64_t wait_start = ::agello::telemetry::NowTicks();
   absl::MutexLock lock(session_and_task_lookup_mutex_);

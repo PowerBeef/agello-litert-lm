@@ -178,7 +178,9 @@ class SerializationWeightCache {
       absl::string_view serialization_prefix,
       const MlDriftDelegatePrecision& precision, bool prefer_texture_weights,
       bool allow_src_quantized_fc_conv_ops, bool prepare_weights_in_batches,
-      bool serialize_external_tensors, bool ordered_by_size);
+      bool serialize_external_tensors, bool ordered_by_size,
+      const std::unordered_map<size_t, size_t>* external_buffer_id_map =
+          nullptr);
 
  private:
   friend class SerializationWeightCacheTestPeer;

@@ -259,8 +259,9 @@ class LitertState : public StateInterface {
   AllocationPolicy allocation_policy_;
 
   // Agello (sparse KV): replaces the global KV caches with placement sparse buffers when asked
-  // and supported; called once, after creation.
-  absl::Status ConvertToSparseKv(const void* command_queue);
+  // and supported; called once, after creation. Clears any candidate buffer that was not
+  // replaced when `clear_buffer` is true.
+  absl::Status ConvertToSparseKv(const void* command_queue, bool clear_buffer);
   struct SparseKv;
   std::shared_ptr<SparseKv> sparse_kv_;
 };

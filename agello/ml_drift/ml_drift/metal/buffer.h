@@ -71,7 +71,7 @@ class Buffer : public GPUObject {
   void Release();
 
   id<MTLBuffer> buffer_ = nullptr;
-  size_t size_;
+  size_t size_ = 0;
   bool owner_ = true;
 };
 
@@ -87,7 +87,12 @@ absl::Status Buffer::WriteData(absl::Span<T> data) {
     return absl::InvalidArgumentError(
         "absl::Span<T> data size is greater from buffer allocated size.");
   }
-  std::memcpy([buffer_ contents], data.data(), data_size_in_bytes);
+  if (data_size_in_bytes > 0 && buffer_ == nil) {
+    return absl::FailedPreconditionError("MTLBuffer is nil.");
+  }
+  if (data_size_in_bytes > 0) {
+    std::memcpy([buffer_ contents], data.data(), data_size_in_bytes);
+  }
   return absl::OkStatus();
 }
 
@@ -99,8 +104,13 @@ absl::Status Buffer::WriteData(id<MTLCommandQueue> command_queue, absl::Span<T> 
     return absl::InvalidArgumentError(
         "absl::Span<T> data size is greater from buffer allocated size.");
   }
-  WriteDataToBuffer(buffer_, /*buffer_offset=*/0, command_queue, data.data(), data_size_in_bytes,
-                    wait_for_completion);
+  if (data_size_in_bytes > 0 && buffer_ == nil) {
+    return absl::FailedPreconditionError("MTLBuffer is nil.");
+  }
+  if (data_size_in_bytes > 0) {
+    WriteDataToBuffer(buffer_, /*buffer_offset=*/0, command_queue, data.data(), data_size_in_bytes,
+                      wait_for_completion);
+  }
   return absl::OkStatus();
 }
 
@@ -109,10 +119,15 @@ absl::Status Buffer::ReadData(std::vector<T>* result) const {
   if (size_ % sizeof(T) != 0) {
     return absl::UnknownError("Wrong element size(typename T is not correct?");
   }
+  if (size_ > 0 && buffer_ == nil) {
+    return absl::FailedPreconditionError("MTLBuffer is nil.");
+  }
 
   const int elements_count = size_ / sizeof(T);
   result->resize(elements_count);
-  std::memcpy(result->data(), [buffer_ contents], size_);
+  if (size_ > 0) {
+    std::memcpy(result->data(), [buffer_ contents], size_);
+  }
 
   return absl::OkStatus();
 }

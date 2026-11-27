@@ -660,34 +660,40 @@ namespace {
 // indexing while E4B streams a speculative round) never skips its own Metal waits
 // or steals the decode thread's hold.
 thread_local bool gpu_waits_deferred = false;
-std::atomic<void (*)()> deferred_wait_hook{nullptr};
+std::atomic<bool (*)()> deferred_wait_hook{nullptr};
 }  // namespace
 
 void DeferGpuWaits(bool deferred) { gpu_waits_deferred = deferred; }
 bool GpuWaitsDeferred() { return gpu_waits_deferred; }
-void SetDeferredWaitHook(void (*hook)()) {
+void SetDeferredWaitHook(bool (*hook)()) {
   deferred_wait_hook.store(hook, std::memory_order_release);
 }
-void WaitForDeferredGpuWork() {
-  if (auto* hook = deferred_wait_hook.load(std::memory_order_acquire)) hook();
+bool WaitForDeferredGpuWork() {
+  if (auto* hook = deferred_wait_hook.load(std::memory_order_acquire)) {
+    return hook();
+  }
+  return true;
 }
 
 namespace {
 std::atomic<void (*)()> mark_hook{nullptr};
-std::atomic<void (*)()> wait_marked_hook{nullptr};
+std::atomic<bool (*)()> wait_marked_hook{nullptr};
 thread_local bool hold_next_run = false;
 std::atomic<void (*)()> hold_release_hook{nullptr};
 }  // namespace
 
-void SetMarkHooks(void (*mark)(), void (*wait_marked)()) {
+void SetMarkHooks(void (*mark)(), bool (*wait_marked)()) {
   mark_hook.store(mark, std::memory_order_release);
   wait_marked_hook.store(wait_marked, std::memory_order_release);
 }
 void MarkDeferredGpuWork() {
   if (auto* hook = mark_hook.load(std::memory_order_acquire)) hook();
 }
-void WaitForMarkedGpuWork() {
-  if (auto* hook = wait_marked_hook.load(std::memory_order_acquire)) hook();
+bool WaitForMarkedGpuWork() {
+  if (auto* hook = wait_marked_hook.load(std::memory_order_acquire)) {
+    return hook();
+  }
+  return true;
 }
 void HoldNextGpuRun() { hold_next_run = true; }
 bool TakeGpuRunHold() {

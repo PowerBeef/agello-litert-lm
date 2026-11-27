@@ -143,6 +143,11 @@ class GpuBackend {
   // [REQUIRED]
   virtual absl::Status WaitForCompletion() = 0;
 
+  // Discards any uncommitted pending command encoder and command buffer after
+  // an error (e.g. failed input conversion) so partially encoded commands never
+  // leak into a subsequent invocation.
+  virtual void DiscardPendingCommands() {}
+
   // Returns the GPU buffer requirements for the given storage & data type.
   // [OPTIONAL] Only for LiteRT delegates.
   virtual absl::StatusOr<GpuBufferRequirements> GetGpuBufferRequirements(
@@ -433,6 +438,21 @@ class GpuTensorWrapper {
 
   // Returns the underlying `::ml_drift::GpuSpatialTensor`. Always succeeds.
   virtual ::ml_drift::GpuSpatialTensor& Get() = 0;
+
+  // Returns true if this wrapper references the same underlying GPU resource as
+  // `gpu_memory`. Backends whose `GpuMemoryHandle` is a host wrapper pointer
+  // override this to compare actual GPU handles, preventing ABA stale-buffer
+  // reuse when host addresses are recycled.
+  virtual bool MatchesMemory(GpuMemoryHandle gpu_memory) const {
+    return gpu_memory != nullptr && gpu_memory == source_handle_;
+  }
+
+ protected:
+  explicit GpuTensorWrapper(GpuMemoryHandle source_handle = nullptr)
+      : source_handle_(source_handle) {}
+
+ private:
+  GpuMemoryHandle source_handle_ = nullptr;
 };
 
 // A wrapper class to provide the GPU buffer object for a given GPU backend used
