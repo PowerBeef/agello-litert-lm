@@ -178,8 +178,21 @@ def read_header(path):
     return header_end, sections
 
 
+def validate_sections(header_end, sections, total):
+    """Verify container sections are within [header_end, total] and non-overlapping."""
+    cursor = header_end
+    for i in sorted(range(len(sections)), key=lambda idx: sections[idx][0]):
+        b, e, k = sections[i]
+        if b < cursor or e < b or e > total:
+            raise Stop(
+                f"invalid or overlapping section {i} ({k}): [{b}, {e}) after {cursor} (file size {total})"
+            )
+        cursor = e
+
+
 def load(path):
     header_end, sections = read_header(path)
+    validate_sections(header_end, sections, os.path.getsize(path))
     index, (begin, end, _) = next((i, s) for i, s in enumerate(sections) if s[2] == SECTION)
     with open(path, "rb") as f:
         f.seek(begin)
@@ -284,7 +297,7 @@ def trace(graph, sub, seeds, decompose, strict=True):
             # length (ring_kv.py resizes the local caches in the main graph only; the GPU never
             # runs decompositions): the traced size wins there.
             if strict or len(got) != len(stored) or any(
-                    g != s and has_t(x) for g, s, x in zip(got, stored, d)):
+                    g != s and has_t(x) for g, s, x in zip(got, stored, d, strict=True)):
                 raise Stop(f"{where}: traced {got} but the file has {stored}")
             LENIENT["count"] += 1
         dims[t] = d
@@ -400,7 +413,9 @@ def trace(graph, sub, seeds, decompose, strict=True):
             name = op.builtinOptions2.name.decode()
             if name in ("odml.rms_norm", "odml.cache_update"):
                 out = decompose(op.builtinOptions2.decompositionSubgraphIndex, [get(t) for t in ins], where)
-                for t, d in zip(outs, out):
+                if len(outs) != len(out):
+                    raise Stop(f"{where} {name}: expected {len(outs)} outputs, decomposition returned {len(out)}")
+                for t, d in zip(outs, out, strict=True):
                     check(t, list(d), where + " " + name)
             elif name == "odml.runtime_bmm":
                 q, kv = get(ins[0]), get(ins[1])
@@ -464,9 +479,9 @@ def solve_decompositions(graph, mt):
     for kind in {n for _, n, _ in lists["verify"]}:
         mine = [c for c in lists["verify"] if c[1] == kind]
         theirs = [c for c in lists["prefill_128"] if c[1] == kind]
-        per_kind[kind] = dict(zip([c[0] for c in mine], theirs)) if len(mine) == len(theirs) else {}
+        per_kind[kind] = dict(zip([c[0] for c in mine], theirs, strict=True)) if len(mine) == len(theirs) else {}
     solved = []
-    for (kd, nd, gd), (kv, nv, gv) in zip(lists["decode"], lists["verify"]):
+    for (kd, nd, gd), (kv, nv, gv) in zip(lists["decode"], lists["verify"], strict=True):
         if nv not in SOLVED_KINDS:
             continue
         where = f"composite {nv} (verify op {kv})"
@@ -484,7 +499,7 @@ def solve_decompositions(graph, mt):
             if len(sd) != len(sv) or (sp is not None and len(sp) != len(sv)):
                 raise Stop(f"{where}: tensor {t}'s rank differs")
             shapes[t] = [solve(a, b, None if sp is None else sp[j], f"{where} tensor {t}")
-                         for j, (a, b) in enumerate(zip(sd, sv))]
+                         for j, (a, b) in enumerate(zip(sd, sv, strict=True))]
         consts = {}
         cd, cv = int_constants(graph, subs[0]), int_constants(graph, subs[1])
         cp = int_constants(graph, subs[2]) if gp is not None else None
@@ -492,14 +507,16 @@ def solve_decompositions(graph, mt):
             if t not in cd or len(cd[t]) != len(values) or (cp is not None and (t not in cp or len(cp[t]) != len(values))):
                 raise Stop(f"{where}: constant {t} differs in size across exports")
             line = [solve(int(a), int(b), None if cp is None else int(cp[t][j]), f"{where} constant {t}")
-                    for j, (a, b) in enumerate(zip(cd[t], values))]
+                    for j, (a, b) in enumerate(zip(cd[t], values, strict=True))]
             if any(a for a, _ in line):
                 consts[t] = line
         options = {}
-        for i, ops in enumerate(zip(*[x.operators for x in subs])):
+        for i, ops in enumerate(zip(*[x.operators for x in subs], strict=True)):
             if graph.code(ops[1]) == "RESHAPE" and ops[1].builtinOptions is not None and \
                     ops[1].builtinOptions.newShape is not None:
                 shapes_n = [list(o.builtinOptions.newShape) for o in ops]
+                if any(len(s) != len(shapes_n[1]) for s in shapes_n):
+                    raise Stop(f"{where}: reshape {i} newShape rank differs across exports")
                 line = [solve(int(shapes_n[0][j]), int(shapes_n[1][j]),
                               int(shapes_n[2][j]) if len(shapes_n) > 2 else None, f"{where} reshape {i}")
                         for j in range(len(shapes_n[1]))]
@@ -531,8 +548,14 @@ def analyze(path):
 
     def decompose(index, in_dims, where):
         d_sub = mt.subgraphs[index]
-        seeds = {int(t): in_dims[j] for j, t in enumerate(d_sub.inputs)}
+        if len(in_dims) != len(d_sub.inputs):
+            raise Stop(
+                f"{where}: decomposition subgraph {index} expects {len(d_sub.inputs)} inputs, got {len(in_dims)}"
+            )
+        seeds = {int(t): d for t, d in zip(d_sub.inputs, in_dims, strict=True)}
         d_dims, d_edits = trace(graph, d_sub, seeds, decompose, strict=False)
+        if index in traced and traced[index] != (d_dims, d_edits):
+            raise Stop(f"{where}: shared decomposition subgraph {index} traced with conflicting dims/edits")
         traced[index] = (d_dims, d_edits)
         return [d_dims[int(t)] for t in d_sub.outputs]
 
@@ -599,8 +622,10 @@ def clone_subgraph(mt, graph, source, name, dims_of, n, edits, consts=None):
             continue
         new = np.array([value(x, n) for x in d], dtype=np.int32)
         if tensor.shapeSignature is not None and len(tensor.shapeSignature) == len(new):
-            tensor.shapeSignature = np.array([-1 if s == -1 else v for s, v in zip(tensor.shapeSignature, new)],
-                                             dtype=np.int32)
+            tensor.shapeSignature = np.array(
+                [-1 if s == -1 else v for s, v in zip(tensor.shapeSignature, new, strict=True)],
+                dtype=np.int32,
+            )
         tensor.shape = new
     wanted = {}
 
@@ -614,12 +639,22 @@ def clone_subgraph(mt, graph, source, name, dims_of, n, edits, consts=None):
         if e[0] == "shape_const":
             _, t, out = e
             old = graph.ints(mt.subgraphs[source].tensors[t])
-            want(t, [-1 if o == -1 else value(d, n) for o, d in zip(old, out)], name)
+            if old is None:
+                raise Stop(f"{name}: shape constant tensor {t} has no constant integer buffer")
+            if len(old) != len(out):
+                raise Stop(f"{name}: shape constant tensor {t} length {len(old)} != traced rank {len(out)}")
+            want(t, [-1 if o == -1 else value(d, n) for o, d in zip(old, out, strict=True)], name)
         elif e[0] == "reshape_option":
             _, k, out = e
             options = sub.operators[k].builtinOptions
             if options is not None and options.newShape is not None and len(options.newShape):
-                options.newShape = [-1 if o == -1 else value(d, n) for o, d in zip(options.newShape, out)]
+                if len(options.newShape) != len(out):
+                    raise Stop(
+                        f"{name}: reshape op {k} newShape length {len(options.newShape)} != traced rank {len(out)}"
+                    )
+                options.newShape = [
+                    -1 if o == -1 else value(d, n) for o, d in zip(options.newShape, out, strict=True)
+                ]
         elif e[0] == "slice_size":
             _, t, sizes = e
             want(t, [-1 if v is None else (value(v, n) if isinstance(v, tuple) else v) for v in sizes], name)
@@ -645,7 +680,15 @@ def write(path, out_path, n):
         raise Stop(f"the file already has {name}")
     main = clone_subgraph(mt, graph, signature.subgraphIndex, name,
                           lambda t: a["dims"].get(t), n, a["edits"])
-    solved = {c["decomposition"]: c for c in a["solved"]}
+    solved = {}
+    for c in a["solved"]:
+        decomp = c["decomposition"]
+        if decomp in solved:
+            prev = solved[decomp]
+            for field in ("shapes", "consts", "options", "attrs"):
+                if prev[field] != c[field]:
+                    raise Stop(f"shared solved decomposition subgraph {decomp} has conflicting {field}")
+        solved[decomp] = c
     # The new signature's subgraph goes before its decompositions: the interpreter offers
     # subgraphs to the delegate in index order, and a decomposition is skipped only once the
     # delegate has taken its composite, which it does while building the subgraph that holds it.

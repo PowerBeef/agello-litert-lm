@@ -42,25 +42,31 @@ from ai_edge_litert import schema_py_generated as S
 from flatbuffers import flexbuffers
 from litert_lm_builder import litertlm_header_schema_py_generated as H
 
-args = sys.argv[1:]
-R = 1536
-if "--slots" in args:
-    i = args.index("--slots")
-    R = int(args[i + 1])
-    del args[i:i + 2]
-SUB_ONLY = "--sub-window-only" in args   # debugging: no rings, the window as d = p - key only
-if SUB_ONLY:
-    args.remove("--sub-window-only")
-MOD_ONLY = "--mod-window-only" in args   # debugging: no rings, d = FLOOR_MOD(p - key, 2^20)
-if MOD_ONLY:
-    args.remove("--mod-window-only")
-    SUB_ONLY = True
-src, dst = args
 MAGIC = 32003         # the export's context dimension
 WINDOW = 512
 ALIGN = 16384         # section alignment in the container
 TARGETS = ("tf_lite_prefill_decode", "tf_lite_mtp_drafter")
-assert R % MAGIC != 0 and R >= 1024 + WINDOW - 1
+
+
+def validate_slots(slots):
+    if slots % 4 != 0:
+        raise ValueError(f"--slots ({slots}) must be a multiple of 4 (required by FlashAttention)")
+    if slots % MAGIC == 0 or slots < 1024 + WINDOW - 1:
+        raise ValueError(f"--slots ({slots}) must be >= {1024 + WINDOW - 1} and not divisible by {MAGIC}")
+
+
+def validate_and_order_sections(header_end, sections, total):
+    """Return section indices sorted by BeginOffset, verifying bounds and non-overlap."""
+    order = sorted(range(len(sections)), key=lambda i: sections[i][0])
+    cursor = header_end
+    for i in order:
+        b, e, k = sections[i]
+        if b < cursor or e < b or e > total:
+            raise SystemExit(
+                f"invalid or overlapping section {i} ({k}): [{b}, {e}) after {cursor} (file size {total})"
+            )
+        cursor = e
+    return order
 
 
 def _aligned_buffer_pack(self, builder):
@@ -106,7 +112,7 @@ def name_of(t):
     return t.name.decode() if isinstance(t.name, bytes) else t.name
 
 
-def patch_section(begin, end, kind):
+def patch_section(src, begin, end, kind, R, SUB_ONLY=False, MOD_ONLY=False):
     with open(src, "rb") as f:
         f.seek(begin)
         data = f.read(end - begin)
@@ -340,42 +346,74 @@ def patch_section(begin, end, kind):
     return out
 
 
-header_end, sections = read_header(src)
-new_sections = {i: patch_section(b, e, k) for i, (b, e, k) in enumerate(sections) if k in TARGETS}
-total = os.path.getsize(src)
-shifts, running = [], 0
-for i, (b, e, k) in enumerate(sections):
-    shifts.append(running)
-    if i in new_sections:
-        running += len(new_sections[i]) - (e - b)
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    R = 1536
+    if "--slots" in args:
+        i = args.index("--slots")
+        R = int(args[i + 1])
+        del args[i:i + 2]
+    SUB_ONLY = "--sub-window-only" in args   # debugging: no rings, the window as d = p - key only
+    if SUB_ONLY:
+        args.remove("--sub-window-only")
+    MOD_ONLY = "--mod-window-only" in args   # debugging: no rings, d = FLOOR_MOD(p - key, 2^20)
+    if MOD_ONLY:
+        args.remove("--mod-window-only")
+        SUB_ONLY = True
+    src, dst = args
+    try:
+        validate_slots(R)
+    except ValueError as e:
+        raise SystemExit(str(e))
 
-CHUNK = 64 * 2**20
-with open(src, "rb") as fin, open(dst, "wb") as fout:
-    def copy(start, stop):
-        fin.seek(start)
-        while start < stop:
-            chunk = fin.read(min(CHUNK, stop - start))
-            fout.write(chunk)
-            start += len(chunk)
-    cursor = 0
-    for i, (b, e, k) in enumerate(sections):
-        copy(cursor, b)
-        if i in new_sections:
-            fout.write(new_sections[i])
-        else:
-            copy(b, e)
-        cursor = e
-    copy(cursor, total)
-
-with open(dst, "r+b") as f:
-    header = bytearray(f.read(header_end))
-    objects = H.LiteRTLMMetaData.GetRootAs(bytes(header), 32).SectionMetadata()
-    for i in range(objects.ObjectsLength()):
-        o = objects.Objects(i)
+    header_end, sections = read_header(src)
+    total = os.path.getsize(src)
+    order = validate_and_order_sections(header_end, sections, total)
+    new_sections = {
+        i: patch_section(src, b, e, k, R, SUB_ONLY=SUB_ONLY, MOD_ONLY=MOD_ONLY)
+        for i, (b, e, k) in enumerate(sections) if k in TARGETS
+    }
+    shifts = [0] * len(sections)
+    running = 0
+    for i in order:
         b, e, _ = sections[i]
-        new_end = b + shifts[i] + (len(new_sections[i]) if i in new_sections else e - b)
-        for slot, value in ((6, b + shifts[i]), (8, new_end)):
-            struct.pack_into("<Q", header, o._tab.Pos + o._tab.Offset(slot), value)
-    f.seek(0)
-    f.write(header)
-print(f"wrote {dst} (local caches: {R} slots)")
+        shifts[i] = running
+        if i in new_sections:
+            running += len(new_sections[i]) - (e - b)
+
+    CHUNK = 64 * 2**20
+    with open(src, "rb") as fin, open(dst, "wb") as fout:
+        def copy(start, stop):
+            fin.seek(start)
+            while start < stop:
+                chunk = fin.read(min(CHUNK, stop - start))
+                fout.write(chunk)
+                start += len(chunk)
+        cursor = 0
+        for i in order:
+            b, e, _ = sections[i]
+            assert cursor <= b, f"section {i} overlaps previous cursor {cursor} > {b}"
+            copy(cursor, b)
+            if i in new_sections:
+                fout.write(new_sections[i])
+            else:
+                copy(b, e)
+            cursor = e
+        copy(cursor, total)
+
+    with open(dst, "r+b") as f:
+        header = bytearray(f.read(header_end))
+        objects = H.LiteRTLMMetaData.GetRootAs(bytes(header), 32).SectionMetadata()
+        for i in range(objects.ObjectsLength()):
+            o = objects.Objects(i)
+            b, e, _ = sections[i]
+            new_end = b + shifts[i] + (len(new_sections[i]) if i in new_sections else e - b)
+            for slot, value in ((6, b + shifts[i]), (8, new_end)):
+                struct.pack_into("<Q", header, o._tab.Pos + o._tab.Offset(slot), value)
+        f.seek(0)
+        f.write(header)
+    print(f"wrote {dst} (local caches: {R} slots)")
+
+
+if __name__ == "__main__":
+    main()
