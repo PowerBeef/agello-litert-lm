@@ -26,14 +26,34 @@ if grep -q '^build "*--override_repository' .bazelrc.user 2>/dev/null; then
   echo "A release builds from the WORKSPACE pins: comment out the overrides in .bazelrc.user." >&2
   exit 2
 fi
-if ! git diff --quiet HEAD; then
-  echo "Commit first: a release is built from a commit." >&2
+if [ "${ALLOW_DIRTY:-0}" != "1" ] || [ "$PUBLISH" = "--publish" ]; then
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "Working tree is not clean (git status --porcelain): commit or clean changes first (or set ALLOW_DIRTY=1 for a local dry run)." >&2
+    git status --short >&2
+    exit 2
+  fi
+fi
+if [ -f "$ROOT/dist/.bazel.lock/info" ]; then
+  lock_pid="$(sed -n 's/^pid=//p' "$ROOT/dist/.bazel.lock/info" 2>/dev/null || true)"
+  if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+    echo "Another Bazel build is in progress ($ROOT/dist/.bazel.lock, pid $lock_pid): wait for it to finish." >&2
+    exit 3
+  fi
+fi
+NOTICES_TMP="$(mktemp "${TMPDIR:-/tmp}/agello-notices.XXXXXX")"
+trap 'rm -f "$NOTICES_TMP"' EXIT
+python3 "$ROOT/agello/third_party_notices.py" > "$NOTICES_TMP"
+if ! diff -u "$ROOT/agello/THIRD_PARTY_NOTICES.md" "$NOTICES_TMP" >&2; then
+  echo "agello/THIRD_PARTY_NOTICES.md is stale: regenerate with 'python3 agello/third_party_notices.py > agello/THIRD_PARTY_NOTICES.md' and commit." >&2
   exit 2
 fi
+rm -f "$NOTICES_TMP"
+
 COMMIT="$(git rev-parse HEAD)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 agello/build-xcframework.sh
+agello/build-xcframework.sh --verify-only "$ROOT/dist/CLiteRTLM.xcframework"
 
 OUT="dist/release/$TAG"
 rm -rf "$OUT"
